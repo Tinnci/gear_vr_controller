@@ -16,12 +16,12 @@ namespace GearVRController.Helpers
 
         // 鼠标事件常量
         private const int MOUSEEVENTF_MOVE = 0x0001;
-        private const int MOUSEEVENTF_LEFTDOWN = 0x0002;
-        private const int MOUSEEVENTF_LEFTUP = 0x0004;
-        private const int MOUSEEVENTF_RIGHTDOWN = 0x0008;
-        private const int MOUSEEVENTF_RIGHTUP = 0x0010;
-        private const int MOUSEEVENTF_MIDDLEDOWN = 0x0020;
-        private const int MOUSEEVENTF_MIDDLEUP = 0x0040;
+        public const int MOUSEEVENTF_LEFTDOWN = 0x0002;
+        public const int MOUSEEVENTF_LEFTUP = 0x0004;
+        public const int MOUSEEVENTF_RIGHTDOWN = 0x0008;
+        public const int MOUSEEVENTF_RIGHTUP = 0x0010;
+        public const int MOUSEEVENTF_MIDDLEDOWN = 0x0020;
+        public const int MOUSEEVENTF_MIDDLEUP = 0x0040;
         private const int MOUSEEVENTF_WHEEL = 0x0800;
         private const int MOUSEEVENTF_ABSOLUTE = 0x8000;
 
@@ -58,6 +58,11 @@ namespace GearVRController.Helpers
         public static void MouseUp()
         {
             mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
+        }
+
+        public static void MouseEvent(int mouseEvent)
+        {
+            mouse_event(mouseEvent, 0, 0, 0, 0);
         }
 
         public static void SendKey(byte keyCode, bool isExtended = false)

@@ -17,7 +17,7 @@
 
         <StackPanel Grid.Row="0" Spacing="12">
             <TextBlock Text="Gear VR Controller" Style="{StaticResource TitleTextBlockStyle}"/>
-            <TextBlock x:Name="StatusText" Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"/>
+            <TextBlock x:Name="StatusText" Text="{Binding StatusMessage}"/>
             
             <StackPanel Orientation="Horizontal" Spacing="12">
                 <Button x:Name="ConnectButton" 
@@ -26,7 +26,37 @@
                 <Button x:Name="DisconnectButton" 
                         Content="断开连接" 
                         Click="DisconnectButton_Click"
-                        IsEnabled="{x:Bind ViewModel.IsConnected, Mode=OneWay}"/>
+                        IsEnabled="{Binding IsConnected}"/>
+                <Button x:Name="ToggleControlButton"
+                        Content="{Binding IsControlEnabled, Converter={StaticResource BoolToControlStateConverter}}"
+                        Click="ToggleControlButton_Click"/>
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+                <TextBlock Text="控制设置" Style="{StaticResource SubtitleTextBlockStyle}"/>
+                
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <CheckBox Content="启用鼠标控制" 
+                             IsChecked="{Binding IsMouseEnabled, Mode=TwoWay}"/>
+                    <CheckBox Content="启用键盘控制" 
+                             IsChecked="{Binding IsKeyboardEnabled, Mode=TwoWay}"/>
+                </StackPanel>
+
+                <StackPanel>
+                    <TextBlock Text="鼠标灵敏度"/>
+                    <Slider Minimum="0.1" 
+                            Maximum="2.0" 
+                            Value="{Binding MouseSensitivity, Mode=TwoWay}"
+                            Width="200"
+                            HorizontalAlignment="Left"/>
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <Button Content="重置设置" 
+                            Click="ResetSettingsButton_Click"/>
+                    <Button Content="校准触摸板"
+                            Click="CalibrateButton_Click"/>
+                </StackPanel>
             </StackPanel>
         </StackPanel>
 
@@ -39,22 +69,22 @@
             <StackPanel Grid.Column="0" Spacing="8">
                 <TextBlock Text="按钮状态" Style="{StaticResource SubtitleTextBlockStyle}"/>
                 <CheckBox Content="扳机键" 
-                          IsChecked="{x:Bind ViewModel.LastControllerData.TriggerButton, Mode=OneWay}"
+                          IsChecked="{Binding LastControllerData.TriggerButton}"
                           IsEnabled="False"/>
                 <CheckBox Content="Home键" 
-                          IsChecked="{x:Bind ViewModel.LastControllerData.HomeButton, Mode=OneWay}"
+                          IsChecked="{Binding LastControllerData.HomeButton}"
                           IsEnabled="False"/>
                 <CheckBox Content="返回键" 
-                          IsChecked="{x:Bind ViewModel.LastControllerData.BackButton, Mode=OneWay}"
+                          IsChecked="{Binding LastControllerData.BackButton}"
                           IsEnabled="False"/>
                 <CheckBox Content="触摸板" 
-                          IsChecked="{x:Bind ViewModel.LastControllerData.TouchpadButton, Mode=OneWay}"
+                          IsChecked="{Binding LastControllerData.TouchpadButton}"
                           IsEnabled="False"/>
                 <CheckBox Content="音量+" 
-                          IsChecked="{x:Bind ViewModel.LastControllerData.VolumeUpButton, Mode=OneWay}"
+                          IsChecked="{Binding LastControllerData.VolumeUpButton}"
                           IsEnabled="False"/>
                 <CheckBox Content="音量-" 
-                          IsChecked="{x:Bind ViewModel.LastControllerData.VolumeDownButton, Mode=OneWay}"
+                          IsChecked="{Binding LastControllerData.VolumeDownButton}"
                           IsEnabled="False"/>
             </StackPanel>
 
@@ -62,35 +92,35 @@
                 <TextBlock Text="传感器数据" Style="{StaticResource SubtitleTextBlockStyle}"/>
                 <TextBlock>
                     <Run Text="触摸板 X:"/>
-                    <Run Text="{x:Bind ViewModel.LastControllerData.AxisX, Mode=OneWay}"/>
+                    <Run Text="{Binding LastControllerData.AxisX}"/>
                 </TextBlock>
                 <TextBlock>
                     <Run Text="触摸板 Y:"/>
-                    <Run Text="{x:Bind ViewModel.LastControllerData.AxisY, Mode=OneWay}"/>
+                    <Run Text="{Binding LastControllerData.AxisY}"/>
                 </TextBlock>
                 <TextBlock>
                     <Run Text="加速度 X:"/>
-                    <Run Text="{x:Bind ViewModel.LastControllerData.AccelX, Mode=OneWay}"/>
+                    <Run Text="{Binding LastControllerData.AccelX}"/>
                 </TextBlock>
                 <TextBlock>
                     <Run Text="加速度 Y:"/>
-                    <Run Text="{x:Bind ViewModel.LastControllerData.AccelY, Mode=OneWay}"/>
+                    <Run Text="{Binding LastControllerData.AccelY}"/>
                 </TextBlock>
                 <TextBlock>
                     <Run Text="加速度 Z:"/>
-                    <Run Text="{x:Bind ViewModel.LastControllerData.AccelZ, Mode=OneWay}"/>
+                    <Run Text="{Binding LastControllerData.AccelZ}"/>
                 </TextBlock>
                 <TextBlock>
                     <Run Text="陀螺仪 X:"/>
-                    <Run Text="{x:Bind ViewModel.LastControllerData.GyroX, Mode=OneWay}"/>
+                    <Run Text="{Binding LastControllerData.GyroX}"/>
                 </TextBlock>
                 <TextBlock>
                     <Run Text="陀螺仪 Y:"/>
-                    <Run Text="{x:Bind ViewModel.LastControllerData.GyroY, Mode=OneWay}"/>
+                    <Run Text="{Binding LastControllerData.GyroY}"/>
                 </TextBlock>
                 <TextBlock>
                     <Run Text="陀螺仪 Z:"/>
-                    <Run Text="{x:Bind ViewModel.LastControllerData.GyroZ, Mode=OneWay}"/>
+                    <Run Text="{Binding LastControllerData.GyroZ}"/>
                 </TextBlock>
             </StackPanel>
         </Grid>
