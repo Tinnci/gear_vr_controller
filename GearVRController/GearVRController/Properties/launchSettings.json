@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "GearVRController (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "GearVRController (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

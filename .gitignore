@@ -1,0 +1,106 @@
+# Visual Studio 生成的文件
+.vs/
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+
+# Visual Studio 缓存文件
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.userprefs
+
+# Visual Studio 代码覆盖率文件
+*.coverage
+*.coveragexml
+
+# NuGet 包
+*.nupkg
+# NuGet Symbol 包
+*.snupkg
+# 包文件夹
+**/[Pp]ackages/*
+# 除了 build/，它用于存储 MSBuild targets
+!**/[Pp]ackages/build/
+# 如果使用 Package Restore，则取消注释
+#!**/[Pp]ackages/repositories.config
+# NuGet v3 项目文件，取消注释如果你使用 NuGet v3
+#*.nuget.props
+#*.nuget.targets
+
+# Windows Store app 包目录
+AppPackages/
+BundleArtifacts/
+Package.StoreAssociation.xml
+_pkginfo.txt
+*.appx
+*.appxbundle
+*.appxupload
+
+# Visual Studio cache 文件
+# 文件以 .cache 结尾并在 cache 文件夹中
+*.[Cc]ache
+!?*.[Cc]ache/
+
+# 其他
+*.log
+*.vspscc
+*.vssscc
+.builds
+*.pidb
+*.svclog
+*.scc
+
+# Visual Studio 临时文件
+*.tmp
+*.tmp_proj
+*_i.c
+*_p.c
+*.ncb
+*.tlb
+*.tlh
+*.bak
+*.cache
+*.ilk
+*.meta
+*.obj
+*.pch
+*.pdb
+*.pgc
+*.pgd
+*.rsp
+*.sbr
+*.tlb
+*.tli
+*.tlh
+*.tmp
+*.tmp_proj
+*.vspscc
+*.vssscc
+.builds
+*.pidb
+*.svclog
+*.scc
+
+# Windows 系统文件
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# 本地历史文件
+.history/
+
+# Windows 应用程序打包项目
+*.pfx
+*.appxmanifest.bak 
