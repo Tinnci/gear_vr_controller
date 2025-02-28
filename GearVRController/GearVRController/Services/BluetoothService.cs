@@ -6,6 +6,7 @@ using Windows.Devices.Bluetooth.GenericAttributeProfile;
 using Windows.Devices.Enumeration;
 using Windows.Storage.Streams;
 using GearVRController.Models;
+using System.Threading;
 
 namespace GearVRController.Services
 {
@@ -19,22 +20,102 @@ namespace GearVRController.Services
         private BluetoothLEDevice? _device;
         private GattCharacteristic? _setupCharacteristic;
         private GattCharacteristic? _dataCharacteristic;
+        private ulong _lastConnectedAddress;
+        private bool _isReconnecting;
+        private readonly SemaphoreSlim _reconnectionSemaphore = new SemaphoreSlim(1, 1);
+        private const int MAX_RECONNECTION_ATTEMPTS = 3;
+        private const int RECONNECTION_DELAY_MS = 2000;
+        private CancellationTokenSource? _connectionCts;
 
         // 事件处理
         public event EventHandler<ControllerData>? DataReceived;
+        public event EventHandler<BluetoothConnectionStatus>? ConnectionStatusChanged;
 
-        public async Task ConnectAsync(ulong bluetoothAddress)
+        public bool IsConnected => _device?.ConnectionStatus == BluetoothConnectionStatus.Connected;
+
+        public async Task ConnectAsync(ulong bluetoothAddress, int timeoutMs = 10000)
         {
-            _device = await BluetoothLEDevice.FromBluetoothAddressAsync(bluetoothAddress);
-            if (_device == null)
+            try
             {
-                throw new Exception("无法连接到设备");
-            }
+                _lastConnectedAddress = bluetoothAddress;
+                _connectionCts?.Cancel();
+                _connectionCts = new CancellationTokenSource();
 
-            await InitializeServicesAsync();
+                // 添加超时
+                using var timeoutCts = new CancellationTokenSource(timeoutMs);
+                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(timeoutCts.Token, _connectionCts.Token);
+
+                _device = await BluetoothLEDevice.FromBluetoothAddressAsync(bluetoothAddress);
+                if (_device == null)
+                {
+                    throw new Exception("无法连接到设备");
+                }
+
+                // 注册连接状态变化事件
+                _device.ConnectionStatusChanged += Device_ConnectionStatusChanged;
+
+                await InitializeServicesAsync(linkedCts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                throw new TimeoutException("连接超时");
+            }
+            catch (Exception)
+            {
+                _device?.Dispose();
+                _device = null;
+                throw;
+            }
         }
 
-        private async Task InitializeServicesAsync()
+        private async void Device_ConnectionStatusChanged(BluetoothLEDevice sender, object args)
+        {
+            var status = sender.ConnectionStatus;
+            ConnectionStatusChanged?.Invoke(this, status);
+
+            if (status == BluetoothConnectionStatus.Disconnected)
+            {
+                await AttemptReconnectAsync();
+            }
+        }
+
+        private async Task AttemptReconnectAsync()
+        {
+            if (_isReconnecting || _lastConnectedAddress == 0)
+                return;
+
+            try
+            {
+                await _reconnectionSemaphore.WaitAsync();
+                _isReconnecting = true;
+
+                for (int attempt = 0; attempt < MAX_RECONNECTION_ATTEMPTS; attempt++)
+                {
+                    try
+                    {
+                        System.Diagnostics.Debug.WriteLine($"尝试重新连接，第 {attempt + 1} 次");
+                        await ConnectAsync(_lastConnectedAddress);
+                        System.Diagnostics.Debug.WriteLine("重新连接成功");
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"重新连接失败: {ex.Message}");
+                        if (attempt < MAX_RECONNECTION_ATTEMPTS - 1)
+                        {
+                            await Task.Delay(RECONNECTION_DELAY_MS);
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                _isReconnecting = false;
+                _reconnectionSemaphore.Release();
+            }
+        }
+
+        private async Task InitializeServicesAsync(CancellationToken cancellationToken)
         {
             if (_device == null)
             {
@@ -42,6 +123,8 @@ namespace GearVRController.Services
             }
 
             var result = await _device.GetGattServicesAsync();
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (result.Status != GattCommunicationStatus.Success)
             {
                 throw new Exception("无法获取GATT服务");
@@ -52,6 +135,8 @@ namespace GearVRController.Services
                 if (service.Uuid == CONTROLLER_SERVICE_UUID)
                 {
                     var characteristicsResult = await service.GetCharacteristicsAsync();
+                    cancellationToken.ThrowIfCancellationRequested();
+
                     if (characteristicsResult.Status == GattCommunicationStatus.Success)
                     {
                         foreach (var characteristic in characteristicsResult.Characteristics)
@@ -63,8 +148,8 @@ namespace GearVRController.Services
                             else if (characteristic.Uuid == CONTROLLER_DATA_CHARACTERISTIC_UUID)
                             {
                                 _dataCharacteristic = characteristic;
-                                // 订阅数据通知
                                 await SubscribeToNotificationsAsync();
+                                cancellationToken.ThrowIfCancellationRequested();
                             }
                         }
                     }
@@ -76,7 +161,6 @@ namespace GearVRController.Services
                 throw new Exception("未找到必要的特征值");
             }
 
-            // 初始化控制器
             await InitializeControllerAsync();
         }
 
@@ -195,15 +279,31 @@ namespace GearVRController.Services
 
         public void Disconnect()
         {
+            _connectionCts?.Cancel();
+            _connectionCts?.Dispose();
+            _connectionCts = null;
+
             if (_dataCharacteristic != null)
             {
                 _dataCharacteristic.ValueChanged -= DataCharacteristic_ValueChanged;
             }
 
-            _device?.Dispose();
-            _device = null;
+            if (_device != null)
+            {
+                _device.ConnectionStatusChanged -= Device_ConnectionStatusChanged;
+                _device.Dispose();
+                _device = null;
+            }
+
             _setupCharacteristic = null;
             _dataCharacteristic = null;
+            _lastConnectedAddress = 0;
+        }
+
+        ~BluetoothService()
+        {
+            Disconnect();
+            _reconnectionSemaphore.Dispose();
         }
     }
-} 
+}

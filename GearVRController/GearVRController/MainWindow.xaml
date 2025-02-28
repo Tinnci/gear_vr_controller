@@ -6,6 +6,7 @@
     xmlns:local="using:GearVRController"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:controls="using:CommunityToolkit.WinUI.UI.Controls"
     mc:Ignorable="d"
     Title="GearVRController">
 
@@ -17,12 +18,30 @@
 
         <StackPanel Grid.Row="0" Spacing="12">
             <TextBlock Text="Gear VR Controller" Style="{StaticResource TitleTextBlockStyle}"/>
-            <TextBlock x:Name="StatusText" Text="{Binding StatusMessage}"/>
             
+            <!-- 状态显示区域 -->
+            <Border BorderBrush="{ThemeResource SystemControlForegroundBaseMediumBrush}" 
+                    BorderThickness="1" Padding="12" CornerRadius="4">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="连接状态" FontWeight="SemiBold"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Ellipse Width="12" Height="12" Margin="0,0,8,0" VerticalAlignment="Center"
+                                Fill="{Binding IsConnected, Converter={StaticResource BoolToConnectionColorConverter}}"/>
+                        <TextBlock Grid.Column="1" Text="{Binding StatusMessage}" VerticalAlignment="Center"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- 控制按钮区域 -->
             <StackPanel Orientation="Horizontal" Spacing="12">
                 <Button x:Name="ConnectButton" 
                         Content="连接设备" 
-                        Click="ConnectButton_Click"/>
+                        Click="ConnectButton_Click"
+                        IsEnabled="{Binding IsConnecting, Converter={StaticResource BoolToInverseConverter}}"/>
                 <Button x:Name="DisconnectButton" 
                         Content="断开连接" 
                         Click="DisconnectButton_Click"
@@ -58,71 +77,120 @@
                             Click="CalibrateButton_Click"/>
                 </StackPanel>
             </StackPanel>
+
+            <!-- 传感器数据显示区域 -->
+            <Expander Header="传感器数据" IsExpanded="False">
+                <Grid Margin="0,8,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- 加速度计数据 -->
+                    <StackPanel Grid.Row="0" Grid.Column="0" Margin="4">
+                        <TextBlock Text="加速度计" FontWeight="SemiBold"/>
+                        <TextBlock Margin="0,4,0,0">
+                            <Run Text="X: "/>
+                            <Run Text="{Binding LastControllerData.AccelX, Mode=OneWay}"/>
+                        </TextBlock>
+                        <TextBlock Margin="0,4,0,0">
+                            <Run Text="Y: "/>
+                            <Run Text="{Binding LastControllerData.AccelY, Mode=OneWay}"/>
+                        </TextBlock>
+                        <TextBlock Margin="0,4,0,0">
+                            <Run Text="Z: "/>
+                            <Run Text="{Binding LastControllerData.AccelZ, Mode=OneWay}"/>
+                        </TextBlock>
+                    </StackPanel>
+
+                    <!-- 陀螺仪数据 -->
+                    <StackPanel Grid.Row="0" Grid.Column="1" Margin="4">
+                        <TextBlock Text="陀螺仪" FontWeight="SemiBold"/>
+                        <TextBlock Margin="0,4,0,0">
+                            <Run Text="X: "/>
+                            <Run Text="{Binding LastControllerData.GyroX, Mode=OneWay}"/>
+                        </TextBlock>
+                        <TextBlock Margin="0,4,0,0">
+                            <Run Text="Y: "/>
+                            <Run Text="{Binding LastControllerData.GyroY, Mode=OneWay}"/>
+                        </TextBlock>
+                        <TextBlock Margin="0,4,0,0">
+                            <Run Text="Z: "/>
+                            <Run Text="{Binding LastControllerData.GyroZ, Mode=OneWay}"/>
+                        </TextBlock>
+                    </StackPanel>
+
+                    <!-- 磁力计数据 -->
+                    <StackPanel Grid.Row="0" Grid.Column="2" Margin="4">
+                        <TextBlock Text="磁力计" FontWeight="SemiBold"/>
+                        <TextBlock Margin="0,4,0,0">
+                            <Run Text="X: "/>
+                            <Run Text="{Binding LastControllerData.MagnetX, Mode=OneWay}"/>
+                        </TextBlock>
+                        <TextBlock Margin="0,4,0,0">
+                            <Run Text="Y: "/>
+                            <Run Text="{Binding LastControllerData.MagnetY, Mode=OneWay}"/>
+                        </TextBlock>
+                        <TextBlock Margin="0,4,0,0">
+                            <Run Text="Z: "/>
+                            <Run Text="{Binding LastControllerData.MagnetZ, Mode=OneWay}"/>
+                        </TextBlock>
+                    </StackPanel>
+
+                    <!-- 触摸板数据 -->
+                    <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Margin="4,12,4,4">
+                        <TextBlock Text="触摸板" FontWeight="SemiBold"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                            <TextBlock>
+                                <Run Text="X: "/>
+                                <Run Text="{Binding LastControllerData.AxisX, Mode=OneWay}"/>
+                            </TextBlock>
+                            <TextBlock Margin="12,0,0,0">
+                                <Run Text="Y: "/>
+                                <Run Text="{Binding LastControllerData.AxisY, Mode=OneWay}"/>
+                            </TextBlock>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <!-- 按钮状态 -->
+                    <StackPanel Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Margin="4,12,4,4">
+                        <TextBlock Text="按钮状态" FontWeight="SemiBold"/>
+                        <ItemsControl Margin="0,4,0,0">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <controls:WrapPanel/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,12,4">
+                                <Ellipse Width="8" Height="8" Margin="0,0,4,0" VerticalAlignment="Center"
+                                         Fill="{Binding LastControllerData.TriggerButton, Converter={StaticResource BoolToButtonStateConverter}}"/>
+                                <TextBlock Text="触发键"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,12,4">
+                                <Ellipse Width="8" Height="8" Margin="0,0,4,0" VerticalAlignment="Center"
+                                         Fill="{Binding LastControllerData.HomeButton, Converter={StaticResource BoolToButtonStateConverter}}"/>
+                                <TextBlock Text="Home键"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,12,4">
+                                <Ellipse Width="8" Height="8" Margin="0,0,4,0" VerticalAlignment="Center"
+                                         Fill="{Binding LastControllerData.BackButton, Converter={StaticResource BoolToButtonStateConverter}}"/>
+                                <TextBlock Text="返回键"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,12,4">
+                                <Ellipse Width="8" Height="8" Margin="0,0,4,0" VerticalAlignment="Center"
+                                         Fill="{Binding LastControllerData.TouchpadButton, Converter={StaticResource BoolToButtonStateConverter}}"/>
+                                <TextBlock Text="触摸板"/>
+                            </StackPanel>
+                        </ItemsControl>
+                    </StackPanel>
+                </Grid>
+            </Expander>
         </StackPanel>
-
-        <Grid Grid.Row="1" Margin="0,24,0,0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
-
-            <StackPanel Grid.Column="0" Spacing="8">
-                <TextBlock Text="按钮状态" Style="{StaticResource SubtitleTextBlockStyle}"/>
-                <CheckBox Content="扳机键" 
-                          IsChecked="{Binding LastControllerData.TriggerButton}"
-                          IsEnabled="False"/>
-                <CheckBox Content="Home键" 
-                          IsChecked="{Binding LastControllerData.HomeButton}"
-                          IsEnabled="False"/>
-                <CheckBox Content="返回键" 
-                          IsChecked="{Binding LastControllerData.BackButton}"
-                          IsEnabled="False"/>
-                <CheckBox Content="触摸板" 
-                          IsChecked="{Binding LastControllerData.TouchpadButton}"
-                          IsEnabled="False"/>
-                <CheckBox Content="音量+" 
-                          IsChecked="{Binding LastControllerData.VolumeUpButton}"
-                          IsEnabled="False"/>
-                <CheckBox Content="音量-" 
-                          IsChecked="{Binding LastControllerData.VolumeDownButton}"
-                          IsEnabled="False"/>
-            </StackPanel>
-
-            <StackPanel Grid.Column="1" Spacing="8">
-                <TextBlock Text="传感器数据" Style="{StaticResource SubtitleTextBlockStyle}"/>
-                <TextBlock>
-                    <Run Text="触摸板 X:"/>
-                    <Run Text="{Binding LastControllerData.AxisX}"/>
-                </TextBlock>
-                <TextBlock>
-                    <Run Text="触摸板 Y:"/>
-                    <Run Text="{Binding LastControllerData.AxisY}"/>
-                </TextBlock>
-                <TextBlock>
-                    <Run Text="加速度 X:"/>
-                    <Run Text="{Binding LastControllerData.AccelX}"/>
-                </TextBlock>
-                <TextBlock>
-                    <Run Text="加速度 Y:"/>
-                    <Run Text="{Binding LastControllerData.AccelY}"/>
-                </TextBlock>
-                <TextBlock>
-                    <Run Text="加速度 Z:"/>
-                    <Run Text="{Binding LastControllerData.AccelZ}"/>
-                </TextBlock>
-                <TextBlock>
-                    <Run Text="陀螺仪 X:"/>
-                    <Run Text="{Binding LastControllerData.GyroX}"/>
-                </TextBlock>
-                <TextBlock>
-                    <Run Text="陀螺仪 Y:"/>
-                    <Run Text="{Binding LastControllerData.GyroY}"/>
-                </TextBlock>
-                <TextBlock>
-                    <Run Text="陀螺仪 Z:"/>
-                    <Run Text="{Binding LastControllerData.GyroZ}"/>
-                </TextBlock>
-            </StackPanel>
-        </Grid>
     </Grid>
 </Window>
