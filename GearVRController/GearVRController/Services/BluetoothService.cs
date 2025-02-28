@@ -7,10 +7,11 @@ using Windows.Devices.Enumeration;
 using Windows.Storage.Streams;
 using GearVRController.Models;
 using System.Threading;
+using GearVRController.Services.Interfaces;
 
 namespace GearVRController.Services
 {
-    public class BluetoothService
+    public class BluetoothService : IBluetoothService
     {
         // 服务和特征值UUID
         private static readonly Guid CONTROLLER_SERVICE_UUID = new Guid("4f63756c-7573-2054-6872-65656d6f7465");
@@ -304,6 +305,12 @@ namespace GearVRController.Services
         {
             Disconnect();
             _reconnectionSemaphore.Dispose();
+        }
+
+        // 用于测试的模拟数据方法
+        public void SimulateData(ControllerData data)
+        {
+            DataReceived?.Invoke(this, data);
         }
     }
 }

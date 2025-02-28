@@ -4,27 +4,29 @@ using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using GearVRController.Models;
 using GearVRController.Services;
+using GearVRController.Services.Interfaces;
 using GearVRController.Helpers;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Dispatching;
+using Windows.Devices.Bluetooth;
 
 namespace GearVRController.ViewModels
 {
     public class MainViewModel : INotifyPropertyChanged
     {
-        private readonly BluetoothService _bluetoothService;
+        private readonly IBluetoothService _bluetoothService;
+        private readonly IControllerService _controllerService;
+        private readonly IInputSimulator _inputSimulator;
+        private readonly ISettingsService _settingsService;
         private readonly DispatcherQueue _dispatcherQueue;
         private bool _isConnected;
         private string _statusMessage = string.Empty;
         private ControllerData _lastControllerData = new ControllerData();
-        private bool _useWheel;
-        private bool _useTouch;
-        private int _wheelPosition;
         private const int NumberOfWheelPositions = 64;
-        
+
         // 添加触摸板校准数据
         private TouchpadCalibrationData? _calibrationData;
-        
+
         // 添加新的属性
         private bool _isControlEnabled = true;
         private double _mouseSensitivity = 1.0;
@@ -167,15 +169,34 @@ namespace GearVRController.ViewModels
             }
         }
 
-        public MainViewModel()
+        public MainViewModel(
+            IBluetoothService bluetoothService,
+            IControllerService controllerService,
+            IInputSimulator inputSimulator,
+            ISettingsService settingsService,
+            DispatcherQueue dispatcherQueue)
         {
-            _bluetoothService = new BluetoothService();
-            _bluetoothService.DataReceived += BluetoothService_DataReceived;
-            _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
-            StatusMessage = "准备连接...";
+            _bluetoothService = bluetoothService;
+            _controllerService = controllerService;
+            _inputSimulator = inputSimulator;
+            _settingsService = settingsService;
+            _dispatcherQueue = dispatcherQueue;
 
-            // 注册热键处理
-            RegisterHotKeys();
+            // 订阅事件
+            _bluetoothService.DataReceived += BluetoothService_DataReceived;
+            _bluetoothService.ConnectionStatusChanged += BluetoothService_ConnectionStatusChanged;
+
+            // 加载设置
+            LoadSettings();
+        }
+
+        private async void LoadSettings()
+        {
+            await _settingsService.LoadSettingsAsync();
+            MouseSensitivity = _settingsService.MouseSensitivity;
+            IsMouseEnabled = _settingsService.IsMouseEnabled;
+            IsKeyboardEnabled = _settingsService.IsKeyboardEnabled;
+            IsControlEnabled = _settingsService.IsControlEnabled;
         }
 
         private void RegisterHotKeys()
@@ -187,22 +208,19 @@ namespace GearVRController.ViewModels
 
         public async Task ConnectAsync(ulong deviceAddress)
         {
+            if (_bluetoothService.IsConnected) return;
+
+            IsConnecting = true;
+            StatusMessage = "正在连接...";
+
             try
             {
-                IsConnecting = true;
                 await _bluetoothService.ConnectAsync(deviceAddress);
-                _dispatcherQueue.TryEnqueue(() =>
-                {
-                    IsConnected = true;
-                    StatusMessage = "已连接";
-                });
+                await _controllerService.InitializeAsync();
             }
             catch (Exception ex)
             {
-                _dispatcherQueue.TryEnqueue(() =>
-                {
-                    StatusMessage = $"连接失败: {ex.Message}";
-                });
+                StatusMessage = $"连接失败: {ex.Message}";
             }
             finally
             {
@@ -213,19 +231,22 @@ namespace GearVRController.ViewModels
         public void Disconnect()
         {
             _bluetoothService.Disconnect();
+            StatusMessage = "已断开连接";
+        }
+
+        private void BluetoothService_ConnectionStatusChanged(object? sender, BluetoothConnectionStatus status)
+        {
             _dispatcherQueue.TryEnqueue(() =>
             {
-                IsConnected = false;
-                StatusMessage = "已断开连接";
+                IsConnected = status == BluetoothConnectionStatus.Connected;
+                StatusMessage = IsConnected ? "已连接" : "已断开连接";
+                UpdateControlState();
             });
         }
 
         private void BluetoothService_DataReceived(object? sender, ControllerData data)
         {
-            if (data == null)
-            {
-                return;
-            }
+            if (data == null) return;
 
             _dispatcherQueue.TryEnqueue(() =>
             {
@@ -233,220 +254,165 @@ namespace GearVRController.ViewModels
                 ControllerDataReceived?.Invoke(this, data);
 
                 // 如果正在校准或控制被禁用，直接返回
-                if (IsCalibrating || !_isControlEnabled)
-                {
-                    return;
-                }
+                if (IsCalibrating || !IsControlEnabled) return;
 
                 LastControllerData = data;
 
                 // 处理触摸板输入
-                if (IsMouseEnabled && !_useWheel && !_useTouch && !_isAutoCalibrating)
-                {
-                    // 添加平滑处理和死区
-                    const int deadZone = 10;
-                    
-                    // 使用校准数据或默认值
-                    int centerX = _calibrationData?.CenterX ?? 512;
-                    int centerY = _calibrationData?.CenterY ?? 512;
-                    
-                    // 处理触摸板移动（不需要按下，只要触摸即可）
-                    double deltaX = (data.AxisX - centerX);
-                    double deltaY = (data.AxisY - centerY);
+                HandleTouchpadInput(data);
 
-                    // 如果有校准数据，使用方向校准来改进移动检测
-                    if (_calibrationData != null)
-                    {
-                        double magnitude = Math.Sqrt(deltaX * deltaX + deltaY * deltaY);
-                        if (magnitude > deadZone)
-                        {
-                            // 归一化向量
-                            double normalizedX = deltaX / magnitude;
-                            double normalizedY = deltaY / magnitude;
-
-                            // 计算与各个方向向量的点积
-                            double upDot = normalizedX * _calibrationData.UpDirection.AverageX + 
-                                         normalizedY * _calibrationData.UpDirection.AverageY;
-                            double downDot = normalizedX * _calibrationData.DownDirection.AverageX + 
-                                           normalizedY * _calibrationData.DownDirection.AverageY;
-                            double leftDot = normalizedX * _calibrationData.LeftDirection.AverageX + 
-                                           normalizedY * _calibrationData.LeftDirection.AverageY;
-                            double rightDot = normalizedX * _calibrationData.RightDirection.AverageX + 
-                                            normalizedY * _calibrationData.RightDirection.AverageY;
-
-                            // 根据点积调整移动方向
-                            double adjustedX = deltaX;
-                            double adjustedY = deltaY;
-
-                            if (Math.Abs(leftDot) > Math.Abs(rightDot) && Math.Abs(leftDot) > 0.7)
-                            {
-                                // 向左移动
-                                adjustedX = -magnitude;
-                                adjustedY = 0;
-                            }
-                            else if (Math.Abs(rightDot) > Math.Abs(leftDot) && Math.Abs(rightDot) > 0.7)
-                            {
-                                // 向右移动
-                                adjustedX = magnitude;
-                                adjustedY = 0;
-                            }
-
-                            if (Math.Abs(upDot) > Math.Abs(downDot) && Math.Abs(upDot) > 0.7)
-                            {
-                                // 向上移动
-                                adjustedY = -magnitude;
-                                if (Math.Abs(leftDot) <= 0.7 && Math.Abs(rightDot) <= 0.7)
-                                {
-                                    adjustedX = 0;
-                                }
-                            }
-                            else if (Math.Abs(downDot) > Math.Abs(upDot) && Math.Abs(downDot) > 0.7)
-                            {
-                                // 向下移动
-                                adjustedY = magnitude;
-                                if (Math.Abs(leftDot) <= 0.7 && Math.Abs(rightDot) <= 0.7)
-                                {
-                                    adjustedX = 0;
-                                }
-                            }
-
-                            deltaX = adjustedX;
-                            deltaY = adjustedY;
-                        }
-
-                        // 使用校准范围调整灵敏度
-                        double rangeX = _calibrationData.MaxX - _calibrationData.MinX;
-                        double rangeY = _calibrationData.MaxY - _calibrationData.MinY;
-                        
-                        // 将移动距离标准化到[-1, 1]范围
-                        deltaX = deltaX / (rangeX / 2);
-                        deltaY = deltaY / (rangeY / 2);
-                    }
-
-                    // 检测异常移动
-                    if (CheckAbnormalMovement(deltaX, deltaY))
-                    {
-                        // 如果检测到异常移动，触发自动校准
-                        TriggerAutoCalibration();
-                        return;
-                    }
-
-                    // 应用死区
-                    if (Math.Abs(deltaX) < deadZone / 100.0) deltaX = 0;
-                    if (Math.Abs(deltaY) < deadZone / 100.0) deltaY = 0;
-
-                    // 应用平滑和灵敏度
-                    if (deltaX != 0 || deltaY != 0)
-                    {
-                        deltaX = Math.Sign(deltaX) * Math.Pow(Math.Abs(deltaX), 1.5) * 20 * _mouseSensitivity;
-                        deltaY = Math.Sign(deltaY) * Math.Pow(Math.Abs(deltaY), 1.5) * 20 * _mouseSensitivity;
-                        InputSimulator.MoveMouse((int)deltaX, (int)deltaY);
-                    }
-
-                    // 处理触摸板点击（按下触发左键）
-                    if (data.TouchpadButton)
-                    {
-                        InputSimulator.MouseDown();
-                    }
-                    else
-                    {
-                        InputSimulator.MouseUp();
-                    }
-                }
-                else if (_useWheel || _useTouch)
-                {
-                    HandleTouchpadInput(data);
-                }
-
-                // 处理其他按钮输入
-                if (IsKeyboardEnabled)
-                {
-                    HandleButtonInput(data);
-                }
+                // 处理按钮输入
+                HandleButtonInput(data);
             });
+        }
+
+        private (double deltaX, double deltaY) CalculateTouchpadDelta(ControllerData data)
+        {
+            const int deadZone = 10;
+            int centerX = _calibrationData?.CenterX ?? 512;
+            int centerY = _calibrationData?.CenterY ?? 512;
+
+            double deltaX = (data.AxisX - centerX);
+            double deltaY = (data.AxisY - centerY);
+
+            // 应用死区
+            if (Math.Abs(deltaX) < deadZone) deltaX = 0;
+            if (Math.Abs(deltaY) < deadZone) deltaY = 0;
+
+            // 应用校准数据
+            if (_calibrationData != null)
+            {
+                double rangeX = _calibrationData.MaxX - _calibrationData.MinX;
+                double rangeY = _calibrationData.MaxY - _calibrationData.MinY;
+
+                deltaX = deltaX / (rangeX / 2);
+                deltaY = deltaY / (rangeY / 2);
+
+                // 应用方向校准
+                if (Math.Abs(deltaX) > 0 || Math.Abs(deltaY) > 0)
+                {
+                    double magnitude = Math.Sqrt(deltaX * deltaX + deltaY * deltaY);
+                    double normalizedX = deltaX / magnitude;
+                    double normalizedY = deltaY / magnitude;
+
+                    // 应用校准方向
+                    ApplyDirectionalCalibration(ref normalizedX, ref normalizedY);
+
+                    deltaX = normalizedX * magnitude;
+                    deltaY = normalizedY * magnitude;
+                }
+            }
+
+            // 应用平滑和灵敏度
+            if (deltaX != 0 || deltaY != 0)
+            {
+                deltaX = Math.Sign(deltaX) * Math.Pow(Math.Abs(deltaX), 1.5) * 20;
+                deltaY = Math.Sign(deltaY) * Math.Pow(Math.Abs(deltaY), 1.5) * 20;
+            }
+
+            return (deltaX, deltaY);
+        }
+
+        private void ApplyDirectionalCalibration(ref double normalizedX, ref double normalizedY)
+        {
+            if (_calibrationData == null) return;
+
+            // 计算与各个方向向量的点积
+            double upDot = normalizedX * _calibrationData.UpDirection.AverageX +
+                         normalizedY * _calibrationData.UpDirection.AverageY;
+            double downDot = normalizedX * _calibrationData.DownDirection.AverageX +
+                           normalizedY * _calibrationData.DownDirection.AverageY;
+            double leftDot = normalizedX * _calibrationData.LeftDirection.AverageX +
+                           normalizedY * _calibrationData.LeftDirection.AverageY;
+            double rightDot = normalizedX * _calibrationData.RightDirection.AverageX +
+                            normalizedY * _calibrationData.RightDirection.AverageY;
+
+            const double directionThreshold = 0.7;
+
+            // 应用方向校准
+            if (Math.Abs(leftDot) > Math.Abs(rightDot) && Math.Abs(leftDot) > directionThreshold)
+            {
+                normalizedX = -1;
+                normalizedY = 0;
+            }
+            else if (Math.Abs(rightDot) > Math.Abs(leftDot) && Math.Abs(rightDot) > directionThreshold)
+            {
+                normalizedX = 1;
+                normalizedY = 0;
+            }
+
+            if (Math.Abs(upDot) > Math.Abs(downDot) && Math.Abs(upDot) > directionThreshold)
+            {
+                normalizedY = -1;
+                if (Math.Abs(leftDot) <= directionThreshold && Math.Abs(rightDot) <= directionThreshold)
+                {
+                    normalizedX = 0;
+                }
+            }
+            else if (Math.Abs(downDot) > Math.Abs(upDot) && Math.Abs(downDot) > directionThreshold)
+            {
+                normalizedY = 1;
+                if (Math.Abs(leftDot) <= directionThreshold && Math.Abs(rightDot) <= directionThreshold)
+                {
+                    normalizedX = 0;
+                }
+            }
         }
 
         private void HandleTouchpadInput(ControllerData data)
         {
-            if (data == null)
-            {
-                return;
-            }
+            if (!IsControlEnabled || _isCalibrating) return;
 
-            if (_useWheel)
+            if (IsMouseEnabled && data.TouchpadTouched)
             {
-                // 计算轮盘位置
-                int newWheelPos = CalculateWheelPosition(data.AxisX - 157, data.AxisY - 157);
-                if (newWheelPos != _wheelPosition)
-                {
-                    if ((newWheelPos - _wheelPosition + NumberOfWheelPositions) % NumberOfWheelPositions == 1)
-                    {
-                        InputSimulator.SendKey(InputSimulator.VK_DOWN);
-                    }
-                    else if ((_wheelPosition - newWheelPos + NumberOfWheelPositions) % NumberOfWheelPositions == 1)
-                    {
-                        InputSimulator.SendKey(InputSimulator.VK_UP);
-                    }
-                    _wheelPosition = newWheelPos;
-                }
-            }
-            else if (_useTouch)
-            {
-                // 处理触摸板滑动
-                if (data.AxisX < 90)
-                {
-                    InputSimulator.SendKey(InputSimulator.VK_LEFT);
-                }
-                else if (data.AxisX > 240)
-                {
-                    InputSimulator.SendKey(InputSimulator.VK_RIGHT);
-                }
-                else if (data.AxisY < 90)
-                {
-                    InputSimulator.SendKey(InputSimulator.VK_UP);
-                }
-                else if (data.AxisY > 240)
-                {
-                    InputSimulator.SendKey(InputSimulator.VK_DOWN);
-                }
+                var (deltaX, deltaY) = CalculateTouchpadDelta(data);
+                _inputSimulator.SimulateMouseMovement(deltaX * MouseSensitivity, deltaY * MouseSensitivity);
             }
         }
 
         private void HandleButtonInput(ControllerData data)
         {
-            if (data == null)
+            if (!IsControlEnabled || _isCalibrating) return;
+
+            var inputSimulator = (WindowsInputSimulator)_inputSimulator;
+
+            if (IsMouseEnabled)
             {
-                return;
+                if (data.TriggerButton)
+                {
+                    // 扳机键作为右键
+                    inputSimulator.SimulateMouseButtonEx(true, WindowsInputSimulator.MouseButtons.Right);
+                }
+                else
+                {
+                    inputSimulator.SimulateMouseButtonEx(false, WindowsInputSimulator.MouseButtons.Right);
+                }
+
+                // 触摸板点击作为左键
+                inputSimulator.SimulateMouseButton(data.TouchpadButton);
             }
 
-            if (data.TriggerButton)
+            if (IsKeyboardEnabled)
             {
-                // 扳机键可以作为右键
-                InputSimulator.MouseEvent(InputSimulator.MOUSEEVENTF_RIGHTDOWN);
-            }
-            else
-            {
-                InputSimulator.MouseEvent(InputSimulator.MOUSEEVENTF_RIGHTUP);
-            }
+                if (data.HomeButton)
+                {
+                    inputSimulator.SimulateKeyPress(WindowsInputSimulator.VirtualKeys.VK_HOME);
+                }
 
-            if (data.HomeButton)
-            {
-                InputSimulator.SendKey(InputSimulator.VK_HOME);
-            }
+                if (data.BackButton)
+                {
+                    inputSimulator.SimulateKeyPress(WindowsInputSimulator.VirtualKeys.VK_BACK);
+                }
 
-            if (data.BackButton)
-            {
-                InputSimulator.SendKey(InputSimulator.VK_BACK);
-            }
+                if (data.VolumeUpButton)
+                {
+                    inputSimulator.SimulateKeyPress(WindowsInputSimulator.VirtualKeys.VK_VOLUME_UP);
+                }
 
-            if (data.VolumeUpButton)
-            {
-                InputSimulator.SendKey(InputSimulator.VK_VOLUME_UP);
-            }
-
-            if (data.VolumeDownButton)
-            {
-                InputSimulator.SendKey(InputSimulator.VK_VOLUME_DOWN);
+                if (data.VolumeDownButton)
+                {
+                    inputSimulator.SimulateKeyPress(WindowsInputSimulator.VirtualKeys.VK_VOLUME_DOWN);
+                }
             }
         }
 
@@ -471,11 +437,11 @@ namespace GearVRController.ViewModels
 
         public void ResetSettings()
         {
-            MouseSensitivity = 1.0;
-            IsMouseEnabled = true;
-            IsKeyboardEnabled = true;
-            _useWheel = false;
-            _useTouch = false;
+            _settingsService.ResetToDefaults();
+            MouseSensitivity = _settingsService.MouseSensitivity;
+            IsMouseEnabled = _settingsService.IsMouseEnabled;
+            IsKeyboardEnabled = _settingsService.IsKeyboardEnabled;
+            IsControlEnabled = _settingsService.IsControlEnabled;
         }
 
         public void ApplyCalibrationData(TouchpadCalibrationData calibrationData)
@@ -561,9 +527,9 @@ namespace GearVRController.ViewModels
             // 2. 正在连接
             // 3. 未连接
             // 4. 用户手动禁用
-            bool shouldBeEnabled = !_isCalibrating && 
-                                 !_isConnecting && 
-                                 _isConnected && 
+            bool shouldBeEnabled = !_isCalibrating &&
+                                 !_isConnecting &&
+                                 _isConnected &&
                                  _isControlEnabled;
 
             // 更新鼠标和键盘控制状态
@@ -571,4 +537,4 @@ namespace GearVRController.ViewModels
             IsKeyboardEnabled = shouldBeEnabled && _isKeyboardEnabled;
         }
     }
-} 
+}

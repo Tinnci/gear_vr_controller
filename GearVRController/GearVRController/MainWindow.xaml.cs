@@ -15,6 +15,7 @@ using Microsoft.UI.Xaml.Navigation;
 using GearVRController.ViewModels;
 using GearVRController.Views;
 using GearVRController.Models;
+using GearVRController.Services;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -31,9 +32,15 @@ namespace GearVRController
 
         public MainWindow()
         {
-            ViewModel = new MainViewModel();
+            // 初始化服务定位器
+            ServiceLocator.Initialize();
+
+            // 获取ViewModel实例
+            ViewModel = ServiceLocator.GetService<MainViewModel>();
+
             this.InitializeComponent();
-            // 设置Content的DataContext
+
+            // 设置DataContext
             if (Content is FrameworkElement rootElement)
             {
                 rootElement.DataContext = ViewModel;
