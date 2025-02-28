@@ -341,7 +341,7 @@ namespace GearVRController.ViewModels
 
             // 更新最后活动时间
             _lastActivityTime = DateTime.Now;
-            TouchEndProgressValue = 0; // 修改这里，使用TouchEndProgressValue而不是ProgressValue
+            TouchEndProgressValue = 0;
 
             // 更新边界值
             _calibrationData.MinX = Math.Min(_calibrationData.MinX, data.AxisX);
@@ -359,20 +359,21 @@ namespace GearVRController.ViewModels
             if (IsValidCirclePoint(data))
             {
                 _circlePointCount++;
+                ValidateAndProceed();
             }
 
-            // 检查是否满足最小范围要求
+            // 更新状态消息
             double rangeX = MaxX - MinX;
             double rangeY = MaxY - MinY;
             bool hasValidRange = rangeX >= MIN_RANGE_THRESHOLD && rangeY >= MIN_RANGE_THRESHOLD;
 
             if (!hasValidRange)
             {
-                StatusMessage = "第1步：请在触摸板边缘划圈...\\n需要更大的移动范围";
+                StatusMessage = "请在触摸板边缘划圈，尽量靠近边缘...";
             }
-            else
+            else if (_circlePointCount < MIN_CIRCLE_POINTS)
             {
-                StatusMessage = $"第1步：请在触摸板边缘划圈...\\n已收集 {_circlePointCount} 个有效点\\n停止操作后将自动完成";
+                StatusMessage = $"继续划圈，已收集 {_circlePointCount} 个点，需要 {MIN_CIRCLE_POINTS} 个...";
             }
         }
 
@@ -464,7 +465,7 @@ namespace GearVRController.ViewModels
 
             // 更新最后活动时间
             _lastActivityTime = DateTime.Now;
-            TouchEndProgressValue = 0; // 修改这里，使用TouchEndProgressValue而不是ProgressValue
+            TouchEndProgressValue = 0;
 
             // 计算相对于中心点的位移
             double deltaX = data.AxisX - _calibrationData.CenterX;
@@ -482,10 +483,13 @@ namespace GearVRController.ViewModels
             if (currentDirection != null && IsValidDirectionalMovement(deltaX, deltaY))
             {
                 currentDirection.AddSample(deltaX / magnitude, deltaY / magnitude);
+                ValidateAndProceed();
 
-                // 更新进度消息
-                StatusMessage = $"当前步骤进度：已收集 {currentDirection.SampleCount} 个有效点\\n" +
-                              GetDirectionalGuidance() + "\\n停止操作后将自动完成";
+                // 更新状态消息
+                if (currentDirection.SampleCount < MIN_POINTS_REQUIRED)
+                {
+                    StatusMessage = $"继续滑动，已收集 {currentDirection.SampleCount} 个样本，需要 {MIN_POINTS_REQUIRED} 个...";
+                }
             }
         }
 
@@ -631,16 +635,21 @@ namespace GearVRController.ViewModels
 
             DateTime startTime = DateTime.Now;
             _countdownTimer = new System.Timers.Timer(COUNTDOWN_INTERVAL_MS);
+            _countdownTimer.AutoReset = true;
 
             _countdownTimer.Elapsed += (s, e) =>
             {
-                var elapsed = (DateTime.Now - startTime).TotalMilliseconds;
-                var progress = Math.Max(0, Math.Min(100, (elapsed / COUNTDOWN_DURATION_MS) * 100));
-
-                var dispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
-                if (dispatcher != null)
+                if (_dispatcher == null)
                 {
-                    dispatcher.TryEnqueue(() =>
+                    _dispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+                }
+
+                if (_dispatcher != null)
+                {
+                    var elapsed = (DateTime.Now - startTime).TotalMilliseconds;
+                    var progress = Math.Max(0, Math.Min(100, (elapsed / COUNTDOWN_DURATION_MS) * 100));
+
+                    _dispatcher.TryEnqueue(() =>
                     {
                         ProgressValue = 100 - (int)progress; // 倒计时，所以用100减
 
