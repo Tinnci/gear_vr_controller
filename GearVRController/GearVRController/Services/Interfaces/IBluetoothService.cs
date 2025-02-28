@@ -12,5 +12,6 @@ namespace GearVRController.Services.Interfaces
         event EventHandler<BluetoothConnectionStatus> ConnectionStatusChanged;
         Task ConnectAsync(ulong bluetoothAddress, int timeoutMs = 10000);
         void Disconnect();
+        Task SendDataAsync(byte[] data, int repeat = 1);
     }
 }

@@ -281,24 +281,37 @@ namespace GearVRController.Services
         public void Disconnect()
         {
             _connectionCts?.Cancel();
-            _connectionCts?.Dispose();
-            _connectionCts = null;
-
-            if (_dataCharacteristic != null)
-            {
-                _dataCharacteristic.ValueChanged -= DataCharacteristic_ValueChanged;
-            }
-
-            if (_device != null)
-            {
-                _device.ConnectionStatusChanged -= Device_ConnectionStatusChanged;
-                _device.Dispose();
-                _device = null;
-            }
-
+            _device?.Dispose();
+            _device = null;
             _setupCharacteristic = null;
             _dataCharacteristic = null;
-            _lastConnectedAddress = 0;
+        }
+
+        public async Task SendDataAsync(byte[] data, int repeat = 1)
+        {
+            if (!IsConnected || _setupCharacteristic == null)
+                throw new InvalidOperationException("设备未连接");
+
+            try
+            {
+                // 创建数据缓冲区
+                using var writer = new DataWriter();
+                writer.WriteBytes(data);
+
+                // 重复发送指定次数
+                for (int i = 0; i < repeat; i++)
+                {
+                    await _setupCharacteristic.WriteValueAsync(writer.DetachBuffer());
+                    if (repeat > 1 && i < repeat - 1)
+                    {
+                        await Task.Delay(50); // 在重复发送之间添加小延迟
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"发送数据失败: {ex.Message}", ex);
+            }
         }
 
         ~BluetoothService()
