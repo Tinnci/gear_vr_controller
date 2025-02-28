@@ -8,12 +8,20 @@ namespace GearVRController.Converters
     {
         public object Convert(object value, Type targetType, object parameter, string language)
         {
-            return value is bool boolValue ? !boolValue : false;
+            if (value is bool boolValue)
+            {
+                return !boolValue;
+            }
+            return value;
         }
 
         public object ConvertBack(object value, Type targetType, object parameter, string language)
         {
-            return value is bool boolValue ? !boolValue : true;
+            if (value is bool boolValue)
+            {
+                return !boolValue;
+            }
+            return value;
         }
     }
 
@@ -21,12 +29,20 @@ namespace GearVRController.Converters
     {
         public object Convert(object value, Type targetType, object parameter, string language)
         {
-            return value is bool boolValue && boolValue ? Visibility.Visible : Visibility.Collapsed;
+            if (value is bool boolValue)
+            {
+                return boolValue ? Visibility.Visible : Visibility.Collapsed;
+            }
+            return Visibility.Collapsed;
         }
 
         public object ConvertBack(object value, Type targetType, object parameter, string language)
         {
-            return value is Visibility visibility && visibility == Visibility.Visible;
+            if (value is Visibility visibility)
+            {
+                return visibility == Visibility.Visible;
+            }
+            return false;
         }
     }
-} 
+}

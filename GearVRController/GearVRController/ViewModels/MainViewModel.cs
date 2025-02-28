@@ -9,6 +9,8 @@ using GearVRController.Helpers;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Dispatching;
 using Windows.Devices.Bluetooth;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace GearVRController.ViewModels
 {
@@ -43,6 +45,11 @@ namespace GearVRController.ViewModels
 
         private bool _isCalibrating = false;
         private bool _isConnecting = false;
+
+        private const int MOVEMENT_BUFFER_SIZE = 3;
+        private Queue<(double X, double Y)> _movementBuffer = new Queue<(double X, double Y)>();
+        private DateTime _lastMovementTime = DateTime.MinValue;
+        private const double MOVEMENT_TIMEOUT_MS = 100; // 100ms timeout for movement buffer
 
         public event PropertyChangedEventHandler? PropertyChanged;
         public event EventHandler<ControllerData>? ControllerDataReceived;
@@ -259,114 +266,98 @@ namespace GearVRController.ViewModels
                 LastControllerData = data;
 
                 // 处理触摸板输入
-                HandleTouchpadInput(data);
+                ProcessTouchpadMovement(data);
 
                 // 处理按钮输入
                 HandleButtonInput(data);
             });
         }
 
-        private (double deltaX, double deltaY) CalculateTouchpadDelta(ControllerData data)
+        private (double X, double Y) SmoothMovement(double x, double y)
         {
-            const int deadZone = 10;
-            int centerX = _calibrationData?.CenterX ?? 512;
-            int centerY = _calibrationData?.CenterY ?? 512;
+            var now = DateTime.Now;
 
-            double deltaX = (data.AxisX - centerX);
-            double deltaY = (data.AxisY - centerY);
+            // 如果距离上次移动时间太长，清空缓冲区
+            if ((now - _lastMovementTime).TotalMilliseconds > MOVEMENT_TIMEOUT_MS)
+            {
+                _movementBuffer.Clear();
+            }
+
+            _movementBuffer.Enqueue((x, y));
+            _lastMovementTime = now;
+
+            if (_movementBuffer.Count > MOVEMENT_BUFFER_SIZE)
+            {
+                _movementBuffer.Dequeue();
+            }
+
+            // 计算平均移动
+            double avgX = _movementBuffer.Average(m => m.X);
+            double avgY = _movementBuffer.Average(m => m.Y);
+
+            return (avgX, avgY);
+        }
+
+        private (double X, double Y) ApplyCalibration(int rawX, int rawY)
+        {
+            if (_calibrationData == null)
+                return (rawX, rawY);
+
+            // 计算相对于中心点的偏移
+            double deltaX = rawX - _calibrationData.CenterX;
+            double deltaY = rawY - _calibrationData.CenterY;
 
             // 应用死区
-            if (Math.Abs(deltaX) < deadZone) deltaX = 0;
-            if (Math.Abs(deltaY) < deadZone) deltaY = 0;
+            const double DEAD_ZONE = 5.0; // 可以根据需要调整
+            if (Math.Abs(deltaX) < DEAD_ZONE)
+                deltaX = 0;
+            if (Math.Abs(deltaY) < DEAD_ZONE)
+                deltaY = 0;
 
-            // 应用校准数据
-            if (_calibrationData != null)
-            {
-                double rangeX = _calibrationData.MaxX - _calibrationData.MinX;
-                double rangeY = _calibrationData.MaxY - _calibrationData.MinY;
+            // 如果在死区内，直接返回
+            if (deltaX == 0 && deltaY == 0)
+                return (0, 0);
 
-                deltaX = deltaX / (rangeX / 2);
-                deltaY = deltaY / (rangeY / 2);
+            // 计算归一化系数
+            double xScale = deltaX > 0 ?
+                (_calibrationData.MaxX - _calibrationData.CenterX) :
+                (_calibrationData.CenterX - _calibrationData.MinX);
 
-                // 应用方向校准
-                if (Math.Abs(deltaX) > 0 || Math.Abs(deltaY) > 0)
-                {
-                    double magnitude = Math.Sqrt(deltaX * deltaX + deltaY * deltaY);
-                    double normalizedX = deltaX / magnitude;
-                    double normalizedY = deltaY / magnitude;
+            double yScale = deltaY > 0 ?
+                (_calibrationData.MaxY - _calibrationData.CenterY) :
+                (_calibrationData.CenterY - _calibrationData.MinY);
 
-                    // 应用校准方向
-                    ApplyDirectionalCalibration(ref normalizedX, ref normalizedY);
+            // 归一化坐标
+            double normalizedX = deltaX / xScale;
+            double normalizedY = deltaY / yScale;
 
-                    deltaX = normalizedX * magnitude;
-                    deltaY = normalizedY * magnitude;
-                }
-            }
+            // 应用灵敏度
+            normalizedX *= _mouseSensitivity;
+            normalizedY *= _mouseSensitivity;
 
-            // 应用平滑和灵敏度
-            if (deltaX != 0 || deltaY != 0)
-            {
-                deltaX = Math.Sign(deltaX) * Math.Pow(Math.Abs(deltaX), 1.5) * 20;
-                deltaY = Math.Sign(deltaY) * Math.Pow(Math.Abs(deltaY), 1.5) * 20;
-            }
-
-            return (deltaX, deltaY);
+            return (normalizedX, normalizedY);
         }
 
-        private void ApplyDirectionalCalibration(ref double normalizedX, ref double normalizedY)
+        private void ProcessTouchpadMovement(ControllerData data)
         {
-            if (_calibrationData == null) return;
+            if (!_isMouseEnabled || !_isControlEnabled || _isCalibrating)
+                return;
 
-            // 计算与各个方向向量的点积
-            double upDot = normalizedX * _calibrationData.UpDirection.AverageX +
-                         normalizedY * _calibrationData.UpDirection.AverageY;
-            double downDot = normalizedX * _calibrationData.DownDirection.AverageX +
-                           normalizedY * _calibrationData.DownDirection.AverageY;
-            double leftDot = normalizedX * _calibrationData.LeftDirection.AverageX +
-                           normalizedY * _calibrationData.LeftDirection.AverageY;
-            double rightDot = normalizedX * _calibrationData.RightDirection.AverageX +
-                            normalizedY * _calibrationData.RightDirection.AverageY;
+            // 应用校准
+            var (calibratedX, calibratedY) = ApplyCalibration(data.AxisX, data.AxisY);
 
-            const double directionThreshold = 0.7;
+            // 应用平滑处理
+            var (smoothX, smoothY) = SmoothMovement(calibratedX, calibratedY);
 
-            // 应用方向校准
-            if (Math.Abs(leftDot) > Math.Abs(rightDot) && Math.Abs(leftDot) > directionThreshold)
+            // 计算最终的鼠标移动
+            const double MOVEMENT_SCALE = 5.0; // 可以根据需要调整
+            int finalDeltaX = (int)(smoothX * MOVEMENT_SCALE);
+            int finalDeltaY = (int)(smoothY * MOVEMENT_SCALE);
+
+            // 检查是否需要移动鼠标
+            if (finalDeltaX != 0 || finalDeltaY != 0)
             {
-                normalizedX = -1;
-                normalizedY = 0;
-            }
-            else if (Math.Abs(rightDot) > Math.Abs(leftDot) && Math.Abs(rightDot) > directionThreshold)
-            {
-                normalizedX = 1;
-                normalizedY = 0;
-            }
-
-            if (Math.Abs(upDot) > Math.Abs(downDot) && Math.Abs(upDot) > directionThreshold)
-            {
-                normalizedY = -1;
-                if (Math.Abs(leftDot) <= directionThreshold && Math.Abs(rightDot) <= directionThreshold)
-                {
-                    normalizedX = 0;
-                }
-            }
-            else if (Math.Abs(downDot) > Math.Abs(upDot) && Math.Abs(downDot) > directionThreshold)
-            {
-                normalizedY = 1;
-                if (Math.Abs(leftDot) <= directionThreshold && Math.Abs(rightDot) <= directionThreshold)
-                {
-                    normalizedX = 0;
-                }
-            }
-        }
-
-        private void HandleTouchpadInput(ControllerData data)
-        {
-            if (!IsControlEnabled || _isCalibrating) return;
-
-            if (IsMouseEnabled && data.TouchpadTouched)
-            {
-                var (deltaX, deltaY) = CalculateTouchpadDelta(data);
-                _inputSimulator.SimulateMouseMovement(deltaX * MouseSensitivity, deltaY * MouseSensitivity);
+                _inputSimulator.SimulateMouseMovement(finalDeltaX, finalDeltaY);
             }
         }
 

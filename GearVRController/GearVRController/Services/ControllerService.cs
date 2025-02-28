@@ -8,6 +8,7 @@ namespace GearVRController.Services
     public class ControllerService : IControllerService
     {
         private readonly IBluetoothService _bluetoothService;
+        public event EventHandler<ControllerData>? ControllerDataProcessed;
 
         public ControllerService(IBluetoothService bluetoothService)
         {
@@ -23,12 +24,59 @@ namespace GearVRController.Services
         public Task SendCommandAsync(byte[] command, int repeat = 1)
         {
             // 发送命令到控制器
-            return Task.CompletedTask;
+            return _bluetoothService.SendDataAsync(command, repeat);
         }
 
         public void ProcessControllerData(ControllerData data)
         {
-            // 处理控制器数据
+            if (data == null)
+                return;
+
+            // 验证数据有效性
+            if (!ValidateControllerData(data))
+                return;
+
+            // 预处理数据
+            PreprocessControllerData(data);
+
+            // 触发数据处理完成事件
+            OnControllerDataProcessed(data);
+        }
+
+        private bool ValidateControllerData(ControllerData data)
+        {
+            // 检查触摸板数据范围
+            if (Math.Abs(data.AxisX) > 127 || Math.Abs(data.AxisY) > 127)
+                return false;
+
+            // 检查加速度计数据
+            if (float.IsNaN(data.AccelX) || float.IsNaN(data.AccelY) || float.IsNaN(data.AccelZ))
+                return false;
+
+            // 检查陀螺仪数据
+            if (float.IsNaN(data.GyroX) || float.IsNaN(data.GyroY) || float.IsNaN(data.GyroZ))
+                return false;
+
+            return true;
+        }
+
+        private void PreprocessControllerData(ControllerData data)
+        {
+            // 更新时间戳
+            data.Timestamp = DateTime.Now;
+
+            // 处理触摸状态
+            data.TouchpadTouched = data.AxisX != 0 || data.AxisY != 0;
+
+            // 处理按钮状态
+            data.NoButton = !data.TriggerButton && !data.HomeButton &&
+                           !data.BackButton && !data.TouchpadButton &&
+                           !data.VolumeUpButton && !data.VolumeDownButton;
+        }
+
+        protected virtual void OnControllerDataProcessed(ControllerData data)
+        {
+            ControllerDataProcessed?.Invoke(this, data);
         }
     }
 }
