@@ -32,6 +32,22 @@ namespace GearVRController.ViewModels
         private DateTime _lastTouchEndTime = DateTime.MinValue;
         private const int TOUCH_END_TIMEOUT_MS = 500; // 触摸结束后等待时间
         private Microsoft.UI.Dispatching.DispatcherQueue? _dispatcher;
+        private System.Timers.Timer? _countdownTimer;
+        private const int COUNTDOWN_DURATION_MS = 3000;
+        private const int COUNTDOWN_INTERVAL_MS = 50; // 更新频率50ms，使进度条更平滑
+        private int _touchEndProgressValue = 0;
+        public int TouchEndProgressValue
+        {
+            get => _touchEndProgressValue;
+            private set
+            {
+                if (_touchEndProgressValue != value)
+                {
+                    _touchEndProgressValue = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
 
         public event PropertyChangedEventHandler? PropertyChanged;
         public event EventHandler<TouchpadCalibrationData>? CalibrationCompleted;
@@ -166,12 +182,17 @@ namespace GearVRController.ViewModels
             }
         }
 
+        public DirectionalCalibrationData UpDirection => _calibrationData.UpDirection;
+        public DirectionalCalibrationData DownDirection => _calibrationData.DownDirection;
+        public DirectionalCalibrationData LeftDirection => _calibrationData.LeftDirection;
+        public DirectionalCalibrationData RightDirection => _calibrationData.RightDirection;
+
         public TouchpadCalibrationViewModel()
         {
             _inactivityTimer = new System.Timers.Timer(100); // 每100ms检查一次
             _inactivityTimer.Elapsed += InactivityTimer_Elapsed;
             _lastActivityTime = DateTime.Now;
-            
+
             // 确保在构造函数中获取UI线程的调度器
             if (Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread() != null)
             {
@@ -204,7 +225,7 @@ namespace GearVRController.ViewModels
             {
                 dispatcher.TryEnqueue(() =>
                 {
-                    ProgressValue = newProgress;
+                    TouchEndProgressValue = newProgress;
                     if (newProgress >= 100 && !isTouching && !CanProceedToNextStep)
                     {
                         ValidateAndProceed();
@@ -221,8 +242,17 @@ namespace GearVRController.ViewModels
                     if (_circlePointCount >= MIN_POINTS_REQUIRED)
                     {
                         CanProceedToNextStep = true;
-                        StatusMessage = "边界校准完成，请点击\"下一步\"继续...";
+                        StatusMessage = "边界校准完成！3秒后自动进入下一步...\\n（或点击\"下一步\"立即继续）";
                         _inactivityTimer.Stop();
+
+                        // 开始倒计时
+                        StartCountdown(() =>
+                        {
+                            if (CanProceedToNextStep && _currentStep == CalibrationStep.CircularMotion)
+                            {
+                                ProceedToNextStep();
+                            }
+                        });
                     }
                     break;
                 case CalibrationStep.Up:
@@ -235,8 +265,20 @@ namespace GearVRController.ViewModels
                         if (ValidateDirectionalCalibration(currentDirection))
                         {
                             CanProceedToNextStep = true;
-                            StatusMessage = "方向校准完成，请点击\"下一步\"继续...";
+                            StatusMessage = "方向校准完成！3秒后自动进入下一步...\\n（或点击\"下一步\"立即继续）";
                             _inactivityTimer.Stop();
+
+                            // 开始倒计时
+                            StartCountdown(() =>
+                            {
+                                if (CanProceedToNextStep && (_currentStep == CalibrationStep.Up ||
+                                    _currentStep == CalibrationStep.Down ||
+                                    _currentStep == CalibrationStep.Left ||
+                                    _currentStep == CalibrationStep.Right))
+                                {
+                                    ProceedToNextStep();
+                                }
+                            });
                         }
                     }
                     break;
@@ -251,6 +293,7 @@ namespace GearVRController.ViewModels
             ResetCalibrationData();
             CanProceedToNextStep = false;
             _circlePointCount = 0;
+            TouchEndProgressValue = 0;
             ProgressValue = 0;
             _lastActivityTime = DateTime.Now;
             _inactivityTimer.Start();
@@ -290,9 +333,15 @@ namespace GearVRController.ViewModels
 
         private void ProcessCircularMotion(ControllerData data)
         {
+            // 如果没有触摸，不处理数据
+            if (!_isCurrentlyTouching)
+            {
+                return;
+            }
+
             // 更新最后活动时间
             _lastActivityTime = DateTime.Now;
-            ProgressValue = 0;
+            TouchEndProgressValue = 0; // 修改这里，使用TouchEndProgressValue而不是ProgressValue
 
             // 更新边界值
             _calibrationData.MinX = Math.Min(_calibrationData.MinX, data.AxisX);
@@ -350,6 +399,14 @@ namespace GearVRController.ViewModels
         {
             if (!CanProceedToNextStep) return;
 
+            // 停止倒计时
+            if (_countdownTimer != null)
+            {
+                _countdownTimer.Stop();
+                _countdownTimer.Dispose();
+                _countdownTimer = null;
+            }
+
             switch (_currentStep)
             {
                 case CalibrationStep.CircularMotion:
@@ -380,7 +437,7 @@ namespace GearVRController.ViewModels
                 double centerY = (MaxY + MinY) / 2.0;
                 double maxDistance = Math.Min(MaxX - MinX, MaxY - MinY) * 0.3; // 允许的最大偏差
 
-                if (Math.Abs(data.AxisX - centerX) <= maxDistance && 
+                if (Math.Abs(data.AxisX - centerX) <= maxDistance &&
                     Math.Abs(data.AxisY - centerY) <= maxDistance)
                 {
                     _calibrationData.CenterX = data.AxisX;
@@ -399,9 +456,15 @@ namespace GearVRController.ViewModels
 
         private void ProcessDirectionalCalibration(ControllerData data)
         {
+            // 如果没有触摸，不处理数据
+            if (!_isCurrentlyTouching)
+            {
+                return;
+            }
+
             // 更新最后活动时间
             _lastActivityTime = DateTime.Now;
-            ProgressValue = 0;
+            TouchEndProgressValue = 0; // 修改这里，使用TouchEndProgressValue而不是ProgressValue
 
             // 计算相对于中心点的位移
             double deltaX = data.AxisX - _calibrationData.CenterX;
@@ -446,8 +509,8 @@ namespace GearVRController.ViewModels
 
             return _currentStep switch
             {
-                CalibrationStep.Up => Math.Abs(angle + Math.PI/2) < tolerance, // -90度
-                CalibrationStep.Down => Math.Abs(angle - Math.PI/2) < tolerance, // 90度
+                CalibrationStep.Up => Math.Abs(angle + Math.PI / 2) < tolerance, // -90度
+                CalibrationStep.Down => Math.Abs(angle - Math.PI / 2) < tolerance, // 90度
                 CalibrationStep.Left => Math.Abs(angle + Math.PI) < tolerance || Math.Abs(angle - Math.PI) < tolerance, // 180度
                 CalibrationStep.Right => Math.Abs(angle) < tolerance, // 0度
                 _ => false
@@ -458,10 +521,10 @@ namespace GearVRController.ViewModels
         {
             // 检查采样的一致性
             const double consistencyThreshold = 0.2; // 允许的方差阈值
-            
+
             // 由于我们只存储了平均值，这里使用一个简化的检查
             double expectedMagnitude = 1.0; // 归一化向量的期望长度
-            double actualMagnitude = Math.Sqrt(direction.AverageX * direction.AverageX + 
+            double actualMagnitude = Math.Sqrt(direction.AverageX * direction.AverageX +
                                              direction.AverageY * direction.AverageY);
 
             return Math.Abs(actualMagnitude - expectedMagnitude) < consistencyThreshold;
@@ -532,7 +595,7 @@ namespace GearVRController.ViewModels
                 CenterX = 0,
                 CenterY = 0
             };
-            
+
             MinX = _calibrationData.MinX;
             MaxX = _calibrationData.MaxX;
             MinY = _calibrationData.MinY;
@@ -544,6 +607,7 @@ namespace GearVRController.ViewModels
         public void Dispose()
         {
             _inactivityTimer?.Dispose();
+            _countdownTimer?.Dispose();
         }
 
         protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
@@ -555,6 +619,44 @@ namespace GearVRController.ViewModels
                     PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
                 });
             }
+        }
+
+        private void StartCountdown(Action onComplete)
+        {
+            if (_countdownTimer != null)
+            {
+                _countdownTimer.Stop();
+                _countdownTimer.Dispose();
+            }
+
+            DateTime startTime = DateTime.Now;
+            _countdownTimer = new System.Timers.Timer(COUNTDOWN_INTERVAL_MS);
+
+            _countdownTimer.Elapsed += (s, e) =>
+            {
+                var elapsed = (DateTime.Now - startTime).TotalMilliseconds;
+                var progress = Math.Max(0, Math.Min(100, (elapsed / COUNTDOWN_DURATION_MS) * 100));
+
+                var dispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+                if (dispatcher != null)
+                {
+                    dispatcher.TryEnqueue(() =>
+                    {
+                        ProgressValue = 100 - (int)progress; // 倒计时，所以用100减
+
+                        if (elapsed >= COUNTDOWN_DURATION_MS)
+                        {
+                            _countdownTimer?.Stop();
+                            _countdownTimer?.Dispose();
+                            _countdownTimer = null;
+                            onComplete();
+                        }
+                    });
+                }
+            };
+
+            ProgressValue = 100; // 初始值设为100%
+            _countdownTimer.Start();
         }
     }
 
@@ -610,4 +712,4 @@ namespace GearVRController.ViewModels
         Right,           // 向右滑动
         Completed
     }
-} 
+}

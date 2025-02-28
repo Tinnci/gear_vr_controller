@@ -110,13 +110,22 @@
                          TextWrapping="Wrap"
                          Margin="0,20,0,0"/>
 
-                <!-- 自动完成进度条 -->
-                <ProgressBar Grid.Row="2" Grid.ColumnSpan="2"
-                           Value="{Binding ProgressValue}"
-                           Maximum="100"
-                           Height="2"
-                           Margin="0,5,0,0"
-                           VerticalAlignment="Bottom"/>
+                <StackPanel Grid.Row="2" Grid.ColumnSpan="2" 
+                          Margin="0,5,0,0" 
+                          VerticalAlignment="Bottom">
+                    <!-- 触摸结束检测进度条 -->
+                    <ProgressBar Value="{Binding TouchEndProgressValue}"
+                               Maximum="100"
+                               Height="2"
+                               Margin="0,5,0,0"/>
+
+                    <!-- 自动进入下一步倒计时进度条 -->
+                    <ProgressBar Value="{Binding ProgressValue}"
+                               Maximum="100"
+                               Height="4"
+                               Margin="0,3,0,0"
+                               Foreground="{ThemeResource SystemAccentColor}"/>
+                </StackPanel>
 
                 <Grid Grid.Row="3" Grid.ColumnSpan="2" Margin="0,20,0,0">
                     <Grid.ColumnDefinitions>
