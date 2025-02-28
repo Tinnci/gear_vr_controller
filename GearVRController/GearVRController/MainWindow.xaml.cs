@@ -126,8 +126,10 @@ namespace GearVRController
                 ViewModel.EndCalibration();
                 _calibrationWindow = null;
             };
-            ViewModel.StartManualCalibration();
+
+            // 激活窗口并自动开始校准
             _calibrationWindow.Activate();
+            ViewModel.StartManualCalibration();
         }
     }
 }

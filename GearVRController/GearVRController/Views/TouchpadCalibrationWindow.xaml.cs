@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Controls;
 using GearVRController.ViewModels;
 using GearVRController.Models;
 using Microsoft.UI.Dispatching;
+using GearVRController.Services;
 
 namespace GearVRController.Views
 {
@@ -11,17 +12,21 @@ namespace GearVRController.Views
     {
         private readonly TouchpadCalibrationViewModel _viewModel;
         private readonly DispatcherQueue _dispatcherQueue;
+        private readonly MainViewModel _mainViewModel;
 
         public TouchpadCalibrationWindow()
         {
             this.InitializeComponent();
             _viewModel = new TouchpadCalibrationViewModel();
             _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
-            
+            _mainViewModel = ServiceLocator.GetService<MainViewModel>();
+
             if (Content is FrameworkElement rootElement)
             {
                 rootElement.DataContext = _viewModel;
             }
+
+            _viewModel.StartCalibration();
         }
 
         public void ProcessControllerData(ControllerData data)
@@ -30,11 +35,6 @@ namespace GearVRController.Views
             {
                 _viewModel.ProcessTouchpadData(data);
             });
-        }
-
-        private void StartCalibration_Click(object sender, RoutedEventArgs e)
-        {
-            _viewModel.StartCalibration();
         }
 
         private void FinishCalibration_Click(object sender, RoutedEventArgs e)
@@ -60,4 +60,4 @@ namespace GearVRController.Views
             remove => _viewModel.CalibrationCompleted -= value;
         }
     }
-} 
+}

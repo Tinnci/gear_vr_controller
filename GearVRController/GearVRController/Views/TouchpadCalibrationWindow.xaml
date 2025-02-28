@@ -240,21 +240,14 @@
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
                 <Button Grid.Column="0" 
-                        Style="{StaticResource AccentButtonStyle}"
-                        Content="开始校准" 
-                        Click="StartCalibration_Click"
-                        IsEnabled="{Binding IsCalibrating, Converter={StaticResource BooleanNegationConverter}}"/>
-                
-                <Button Grid.Column="1" 
                         Content="下一步" 
                         Click="NextStep_Click"
                         IsEnabled="{Binding CanProceedToNextStep}"/>
                 
-                <Button Grid.Column="2" 
+                <Button Grid.Column="1" 
                         Content="取消" 
                         Click="Cancel_Click"/>
             </Grid>
