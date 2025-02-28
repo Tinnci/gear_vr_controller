@@ -9,68 +9,148 @@
     mc:Ignorable="d"
     Title="触摸板校准">
 
-    <Grid Padding="20">
-        <StackPanel Spacing="20">
-            <TextBlock Text="触摸板校准" Style="{StaticResource TitleTextBlockStyle}"/>
+    <Grid Padding="24">
+        <StackPanel Spacing="24">
+            <TextBlock Text="触摸板校准" Style="{StaticResource TitleLargeTextBlockStyle}"/>
             
-            <StackPanel Spacing="10">
-                <TextBlock Text="校准步骤：" Style="{StaticResource SubtitleTextBlockStyle}"/>
-                <TextBlock TextWrapping="Wrap" Text="1. 请在触摸板边缘顺时针划一个完整的圆，尽量贴近边缘。"/>
-                <TextBlock TextWrapping="Wrap" Text="2. 点击触摸板中心以记录中心点。"/>
-                <TextBlock TextWrapping="Wrap" Text="3. 从中心向上滑动多次。"/>
-                <TextBlock TextWrapping="Wrap" Text="4. 从中心向下滑动多次。"/>
-                <TextBlock TextWrapping="Wrap" Text="5. 从中心向左滑动多次。"/>
-                <TextBlock TextWrapping="Wrap" Text="6. 从中心向右滑动多次。"/>
+            <InfoBar
+                IsOpen="True"
+                Severity="Informational"
+                Title="校准说明"
+                Message="请按照步骤完成触摸板校准。每个步骤完成后会自动进入下一步，您也可以手动点击下一步按钮继续。"
+                IsClosable="False"/>
+
+            <StackPanel Spacing="16">
+                <TextBlock Text="校准步骤" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,0,0,8"/>
+                
+                <Grid ColumnSpacing="12" RowSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- 步骤指示器 -->
+                    <Border Grid.Row="0" Grid.Column="0" Width="32" Height="32" CornerRadius="16" 
+                            Background="{ThemeResource SystemAccentColor}" 
+                            BorderBrush="{ThemeResource SystemAccentColor}" BorderThickness="2">
+                        <TextBlock Text="1" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="White"/>
+                    </Border>
+                    <TextBlock Grid.Row="0" Grid.Column="1" VerticalAlignment="Center" 
+                             Text="在触摸板边缘顺时针划一个完整的圆，尽量贴近边缘" TextWrapping="Wrap"/>
+
+                    <Border Grid.Row="1" Grid.Column="0" Width="32" Height="32" CornerRadius="16" 
+                            Background="Transparent" BorderBrush="{ThemeResource SystemAccentColor}" BorderThickness="2">
+                        <TextBlock Text="2" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <TextBlock Grid.Row="1" Grid.Column="1" VerticalAlignment="Center" 
+                             Text="点击触摸板中心以记录中心点" TextWrapping="Wrap"/>
+
+                    <Border Grid.Row="2" Grid.Column="0" Width="32" Height="32" CornerRadius="16" 
+                            Background="Transparent" BorderBrush="{ThemeResource SystemAccentColor}" BorderThickness="2">
+                        <TextBlock Text="3" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <TextBlock Grid.Row="2" Grid.Column="1" VerticalAlignment="Center" 
+                             Text="从中心向上滑动多次" TextWrapping="Wrap"/>
+
+                    <Border Grid.Row="3" Grid.Column="0" Width="32" Height="32" CornerRadius="16" 
+                            Background="Transparent" BorderBrush="{ThemeResource SystemAccentColor}" BorderThickness="2">
+                        <TextBlock Text="4" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <TextBlock Grid.Row="3" Grid.Column="1" VerticalAlignment="Center" 
+                             Text="从中心向下滑动多次" TextWrapping="Wrap"/>
+
+                    <Border Grid.Row="4" Grid.Column="0" Width="32" Height="32" CornerRadius="16" 
+                            Background="Transparent" BorderBrush="{ThemeResource SystemAccentColor}" BorderThickness="2">
+                        <TextBlock Text="5" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <TextBlock Grid.Row="4" Grid.Column="1" VerticalAlignment="Center" 
+                             Text="从中心向左滑动多次" TextWrapping="Wrap"/>
+
+                    <Border Grid.Row="5" Grid.Column="0" Width="32" Height="32" CornerRadius="16" 
+                            Background="Transparent" BorderBrush="{ThemeResource SystemAccentColor}" BorderThickness="2">
+                        <TextBlock Text="6" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <TextBlock Grid.Row="5" Grid.Column="1" VerticalAlignment="Center" 
+                             Text="从中心向右滑动多次" TextWrapping="Wrap"/>
+                </Grid>
             </StackPanel>
 
-            <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
+            <Grid ColumnSpacing="24">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
 
-                <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,10,0">
-                    <TextBlock Text="X轴范围："/>
-                    <TextBlock>
-                        <Run Text="最小值："/>
-                        <Run Text="{Binding MinX}"/>
-                    </TextBlock>
-                    <TextBlock>
-                        <Run Text="最大值："/>
-                        <Run Text="{Binding MaxX}"/>
-                    </TextBlock>
-                    <TextBlock>
-                        <Run Text="中心值："/>
-                        <Run Text="{Binding CenterX}"/>
-                    </TextBlock>
+                <!-- 左侧：坐标数据 -->
+                <StackPanel Grid.Column="0" Spacing="16">
+                    <TextBlock Text="校准数据" Style="{StaticResource SubtitleTextBlockStyle}"/>
+                    
+                    <Grid ColumnSpacing="16" RowSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="X轴范围" FontWeight="SemiBold"/>
+                        <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                            <TextBlock>
+                                <Run Text="最小: "/>
+                                <Run Text="{Binding MinX, Mode=OneWay}"/>
+                            </TextBlock>
+                            <TextBlock Text="|"/>
+                            <TextBlock>
+                                <Run Text="最大: "/>
+                                <Run Text="{Binding MaxX, Mode=OneWay}"/>
+                            </TextBlock>
+                        </StackPanel>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Y轴范围" FontWeight="SemiBold"/>
+                        <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                            <TextBlock>
+                                <Run Text="最小: "/>
+                                <Run Text="{Binding MinY, Mode=OneWay}"/>
+                            </TextBlock>
+                            <TextBlock Text="|"/>
+                            <TextBlock>
+                                <Run Text="最大: "/>
+                                <Run Text="{Binding MaxY, Mode=OneWay}"/>
+                            </TextBlock>
+                        </StackPanel>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="中心位置" FontWeight="SemiBold"/>
+                        <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                            <TextBlock>
+                                <Run Text="X: "/>
+                                <Run Text="{Binding CenterX, Mode=OneWay}"/>
+                            </TextBlock>
+                            <TextBlock Text="|"/>
+                            <TextBlock>
+                                <Run Text="Y: "/>
+                                <Run Text="{Binding CenterY, Mode=OneWay}"/>
+                            </TextBlock>
+                        </StackPanel>
+                    </Grid>
                 </StackPanel>
 
-                <StackPanel Grid.Row="0" Grid.Column="1" Margin="10,0,0,0">
-                    <TextBlock Text="Y轴范围："/>
-                    <TextBlock>
-                        <Run Text="最小值："/>
-                        <Run Text="{Binding MinY}"/>
-                    </TextBlock>
-                    <TextBlock>
-                        <Run Text="最大值："/>
-                        <Run Text="{Binding MaxY}"/>
-                    </TextBlock>
-                    <TextBlock>
-                        <Run Text="中心值："/>
-                        <Run Text="{Binding CenterY}"/>
-                    </TextBlock>
-                </StackPanel>
-
-                <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" 
-                          Margin="0,20,0,0" Spacing="10">
-                    <TextBlock Text="方向校准进度：" Style="{StaticResource SubtitleTextBlockStyle}"/>
-                    <Grid>
+                <!-- 右侧：方向校准进度 -->
+                <StackPanel Grid.Column="1" Spacing="16">
+                    <TextBlock Text="方向校准进度" Style="{StaticResource SubtitleTextBlockStyle}"/>
+                    
+                    <Grid RowSpacing="12">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
@@ -80,89 +160,120 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
 
-                        <TextBlock Grid.Row="0" Grid.Column="0" Text="向上：" Margin="0,0,10,0"/>
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="向上" Margin="0,0,12,0"/>
                         <ProgressBar Grid.Row="0" Grid.Column="1" 
                                    Value="{Binding UpDirection.SampleCount}" 
                                    Maximum="10"/>
+                        <TextBlock Grid.Row="0" Grid.Column="2" Margin="8,0,0,0">
+                            <Run Text="{Binding UpDirection.SampleCount, Mode=OneWay}"/>
+                            <Run Text="/10"/>
+                        </TextBlock>
 
-                        <TextBlock Grid.Row="1" Grid.Column="0" Text="向下：" Margin="0,0,10,0"/>
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="向下" Margin="0,0,12,0"/>
                         <ProgressBar Grid.Row="1" Grid.Column="1" 
                                    Value="{Binding DownDirection.SampleCount}" 
                                    Maximum="10"/>
+                        <TextBlock Grid.Row="1" Grid.Column="2" Margin="8,0,0,0">
+                            <Run Text="{Binding DownDirection.SampleCount, Mode=OneWay}"/>
+                            <Run Text="/10"/>
+                        </TextBlock>
 
-                        <TextBlock Grid.Row="2" Grid.Column="0" Text="向左：" Margin="0,0,10,0"/>
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="向左" Margin="0,0,12,0"/>
                         <ProgressBar Grid.Row="2" Grid.Column="1" 
                                    Value="{Binding LeftDirection.SampleCount}" 
                                    Maximum="10"/>
+                        <TextBlock Grid.Row="2" Grid.Column="2" Margin="8,0,0,0">
+                            <Run Text="{Binding LeftDirection.SampleCount, Mode=OneWay}"/>
+                            <Run Text="/10"/>
+                        </TextBlock>
 
-                        <TextBlock Grid.Row="3" Grid.Column="0" Text="向右：" Margin="0,0,10,0"/>
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="向右" Margin="0,0,12,0"/>
                         <ProgressBar Grid.Row="3" Grid.Column="1" 
                                    Value="{Binding RightDirection.SampleCount}" 
                                    Maximum="10"/>
+                        <TextBlock Grid.Row="3" Grid.Column="2" Margin="8,0,0,0">
+                            <Run Text="{Binding RightDirection.SampleCount, Mode=OneWay}"/>
+                            <Run Text="/10"/>
+                        </TextBlock>
                     </Grid>
                 </StackPanel>
+            </Grid>
 
-                <TextBlock Grid.Row="2" Grid.ColumnSpan="2" 
-                         Text="{Binding StatusMessage}"
-                         Style="{StaticResource BodyTextBlockStyle}"
-                         TextWrapping="Wrap"
-                         Margin="0,20,0,0"/>
+            <!-- 状态消息 -->
+            <InfoBar
+                IsOpen="True"
+                Severity="Informational"
+                Message="{Binding StatusMessage}"
+                IsClosable="False"/>
 
-                <StackPanel Grid.Row="2" Grid.ColumnSpan="2" 
-                          Margin="0,5,0,0" 
-                          VerticalAlignment="Bottom">
-                    <!-- 触摸结束检测进度条 -->
+            <!-- 进度条 -->
+            <StackPanel Spacing="4">
+                <Grid>
                     <ProgressBar Value="{Binding TouchEndProgressValue}"
                                Maximum="100"
-                               Height="2"
-                               Margin="0,5,0,0"/>
+                               Height="2"/>
+                    <TextBlock Text="触摸结束检测" 
+                             Style="{StaticResource CaptionTextBlockStyle}"
+                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                             HorizontalAlignment="Right"
+                             Margin="0,8,0,0"/>
+                </Grid>
 
-                    <!-- 自动进入下一步倒计时进度条 -->
+                <Grid>
                     <ProgressBar Value="{Binding ProgressValue}"
                                Maximum="100"
                                Height="4"
-                               Margin="0,3,0,0"
                                Foreground="{ThemeResource SystemAccentColor}"/>
-                </StackPanel>
-
-                <Grid Grid.Row="3" Grid.ColumnSpan="2" Margin="0,20,0,0">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-
-                    <Button Grid.Column="1" Content="开始校准" 
-                            Click="StartCalibration_Click"
-                            IsEnabled="{Binding IsCalibrating, Converter={StaticResource BooleanNegationConverter}}"
-                            Margin="0,0,10,0"/>
-                    
-                    <Button Grid.Column="2" Content="下一步" 
-                            Click="NextStep_Click"
-                            IsEnabled="{Binding CanProceedToNextStep}"
-                            Margin="0,0,10,0"/>
-                    
-                    <Button Grid.Column="3" Content="取消" 
-                            Click="Cancel_Click"/>
+                    <TextBlock Text="自动进入倒计时" 
+                             Style="{StaticResource CaptionTextBlockStyle}"
+                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                             HorizontalAlignment="Right"
+                             Margin="0,8,0,0"/>
                 </Grid>
+            </StackPanel>
+
+            <!-- 按钮区域 -->
+            <Grid HorizontalAlignment="Right" ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <Button Grid.Column="0" 
+                        Style="{StaticResource AccentButtonStyle}"
+                        Content="开始校准" 
+                        Click="StartCalibration_Click"
+                        IsEnabled="{Binding IsCalibrating, Converter={StaticResource BooleanNegationConverter}}"/>
+                
+                <Button Grid.Column="1" 
+                        Content="下一步" 
+                        Click="NextStep_Click"
+                        IsEnabled="{Binding CanProceedToNextStep}"/>
+                
+                <Button Grid.Column="2" 
+                        Content="取消" 
+                        Click="Cancel_Click"/>
             </Grid>
         </StackPanel>
 
         <!-- 校准指导图示 -->
-        <Border Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" 
-                Opacity="0.9"
+        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" 
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                Opacity="0.95"
                 Visibility="{Binding IsCalibrating, Converter={StaticResource BooleanToVisibilityConverter}}"
                 HorizontalAlignment="Right"
                 VerticalAlignment="Top"
-                Margin="0,20,20,0"
-                Padding="10"
-                CornerRadius="4">
+                Margin="0,24,0,0"
+                Padding="16"
+                CornerRadius="8">
             <Image x:Name="CalibrationGuideImage" 
-                   Width="200" 
-                   Height="200"/>
+                   Width="240" 
+                   Height="240"/>
         </Border>
     </Grid>
 </Window> 
