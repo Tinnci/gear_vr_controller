@@ -14,6 +14,11 @@ namespace GearVRController.Services
         private const string USE_NATURAL_SCROLLING_KEY = "UseNaturalScrolling";
         private const string INVERT_Y_AXIS_KEY = "InvertYAxis";
         private const string ENABLE_AUTO_CALIBRATION_KEY = "EnableAutoCalibration";
+        private const string ENABLE_SMOOTHING_KEY = "EnableSmoothing";
+        private const string SMOOTHING_LEVEL_KEY = "SmoothingLevel";
+        private const string ENABLE_NON_LINEAR_CURVE_KEY = "EnableNonLinearCurve";
+        private const string NON_LINEAR_CURVE_POWER_KEY = "NonLinearCurvePower";
+        private const string DEAD_ZONE_KEY = "DeadZone";
 
         private readonly ApplicationDataContainer _localSettings;
 
@@ -65,6 +70,36 @@ namespace GearVRController.Services
             set => SaveSetting(ENABLE_AUTO_CALIBRATION_KEY, value);
         }
 
+        public bool EnableSmoothing
+        {
+            get => GetSetting(ENABLE_SMOOTHING_KEY, true);
+            set => SaveSetting(ENABLE_SMOOTHING_KEY, value);
+        }
+
+        public int SmoothingLevel
+        {
+            get => GetSetting(SMOOTHING_LEVEL_KEY, 3);
+            set => SaveSetting(SMOOTHING_LEVEL_KEY, Math.Max(1, Math.Min(value, 10)));
+        }
+
+        public bool EnableNonLinearCurve
+        {
+            get => GetSetting(ENABLE_NON_LINEAR_CURVE_KEY, true);
+            set => SaveSetting(ENABLE_NON_LINEAR_CURVE_KEY, value);
+        }
+
+        public double NonLinearCurvePower
+        {
+            get => GetSetting(NON_LINEAR_CURVE_POWER_KEY, 1.5);
+            set => SaveSetting(NON_LINEAR_CURVE_POWER_KEY, Math.Max(1.0, Math.Min(value, 3.0)));
+        }
+
+        public double DeadZone
+        {
+            get => GetSetting(DEAD_ZONE_KEY, 8.0);
+            set => SaveSetting(DEAD_ZONE_KEY, Math.Max(0.0, Math.Min(value, 20.0)));
+        }
+
         public Task LoadSettingsAsync()
         {
             // 设置已经在属性访问器中加载
@@ -86,6 +121,11 @@ namespace GearVRController.Services
             UseNaturalScrolling = false;
             InvertYAxis = false;
             EnableAutoCalibration = true;
+            EnableSmoothing = true;
+            SmoothingLevel = 3;
+            EnableNonLinearCurve = true;
+            NonLinearCurvePower = 1.5;
+            DeadZone = 8.0;
         }
 
         private void LoadDefaultSettings()

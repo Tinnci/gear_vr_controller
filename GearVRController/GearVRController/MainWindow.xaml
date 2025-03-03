@@ -87,6 +87,50 @@
                              ToolTipService.ToolTip="启用后，检测到异常移动时会自动触发校准"/>
                 </StackPanel>
 
+                <!-- 添加移动平滑和非线性曲线选项 -->
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <CheckBox Content="移动平滑" 
+                             IsChecked="{Binding EnableSmoothing, Mode=TwoWay}"
+                             ToolTipService.ToolTip="启用后，鼠标移动会更加平滑"/>
+                    <CheckBox Content="非线性曲线" 
+                             IsChecked="{Binding EnableNonLinearCurve, Mode=TwoWay}"
+                             ToolTipService.ToolTip="启用后，小幅度移动会更加精确"/>
+                </StackPanel>
+
+                <!-- 添加高级设置选项 -->
+                <Expander Header="高级设置" IsExpanded="False" Margin="0,8,0,0">
+                    <StackPanel Spacing="8" Margin="0,8,0,0">
+                        <StackPanel>
+                            <TextBlock Text="平滑等级"/>
+                            <Slider Minimum="1" 
+                                   Maximum="10" 
+                                   Value="{Binding SmoothingLevel, Mode=TwoWay}"
+                                   Width="200"
+                                   HorizontalAlignment="Left"
+                                   IsEnabled="{Binding EnableSmoothing}"/>
+                        </StackPanel>
+
+                        <StackPanel>
+                            <TextBlock Text="非线性曲线强度"/>
+                            <Slider Minimum="1.0" 
+                                   Maximum="3.0" 
+                                   Value="{Binding NonLinearCurvePower, Mode=TwoWay}"
+                                   Width="200"
+                                   HorizontalAlignment="Left"
+                                   IsEnabled="{Binding EnableNonLinearCurve}"/>
+                        </StackPanel>
+
+                        <StackPanel>
+                            <TextBlock Text="死区大小"/>
+                            <Slider Minimum="0" 
+                                   Maximum="20" 
+                                   Value="{Binding DeadZone, Mode=TwoWay}"
+                                   Width="200"
+                                   HorizontalAlignment="Left"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Expander>
+
                 <StackPanel Orientation="Horizontal" Spacing="12">
                     <Button Content="重置设置" 
                             Click="ResetSettingsButton_Click"/>

@@ -38,6 +38,11 @@ namespace GearVRController.ViewModels
         private bool _useNaturalScrolling = false;
         private bool _invertYAxis = false;
         private bool _enableAutoCalibration = true;
+        private bool _enableSmoothing = true;
+        private int _smoothingLevel = 3;
+        private bool _enableNonLinearCurve = true;
+        private double _nonLinearCurvePower = 1.5;
+        private double _deadZone = 8.0;
 
         // 添加异常移动检测相关字段
         private const int ABNORMAL_MOVEMENT_THRESHOLD = 10; // 连续向左上角移动的次数阈值
@@ -249,6 +254,76 @@ namespace GearVRController.ViewModels
             }
         }
 
+        public bool EnableSmoothing
+        {
+            get => _enableSmoothing;
+            set
+            {
+                if (_enableSmoothing != value)
+                {
+                    _enableSmoothing = value;
+                    OnPropertyChanged();
+                    if (!value)
+                    {
+                        _movementBuffer.Clear();
+                    }
+                }
+            }
+        }
+
+        public int SmoothingLevel
+        {
+            get => _smoothingLevel;
+            set
+            {
+                if (_smoothingLevel != value)
+                {
+                    _smoothingLevel = Math.Max(1, Math.Min(value, 10));
+                    OnPropertyChanged();
+                    _movementBuffer.Clear(); // 清空缓冲区以适应新的平滑等级
+                }
+            }
+        }
+
+        public bool EnableNonLinearCurve
+        {
+            get => _enableNonLinearCurve;
+            set
+            {
+                if (_enableNonLinearCurve != value)
+                {
+                    _enableNonLinearCurve = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        public double NonLinearCurvePower
+        {
+            get => _nonLinearCurvePower;
+            set
+            {
+                if (_nonLinearCurvePower != value)
+                {
+                    _nonLinearCurvePower = Math.Max(1.0, Math.Min(value, 3.0));
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        public double DeadZone
+        {
+            get => _deadZone;
+            set
+            {
+                if (_deadZone != value)
+                {
+                    _deadZone = Math.Max(0.0, Math.Min(value, 20.0));
+                    OnPropertyChanged();
+                }
+            }
+        }
+
         public MainViewModel(
             IBluetoothService bluetoothService,
             IControllerService controllerService,
@@ -280,6 +355,11 @@ namespace GearVRController.ViewModels
             UseNaturalScrolling = _settingsService.UseNaturalScrolling;
             InvertYAxis = _settingsService.InvertYAxis;
             EnableAutoCalibration = _settingsService.EnableAutoCalibration;
+            EnableSmoothing = _settingsService.EnableSmoothing;
+            SmoothingLevel = _settingsService.SmoothingLevel;
+            EnableNonLinearCurve = _settingsService.EnableNonLinearCurve;
+            NonLinearCurvePower = _settingsService.NonLinearCurvePower;
+            DeadZone = _settingsService.DeadZone;
         }
 
         private void RegisterHotKeys()
@@ -351,6 +431,11 @@ namespace GearVRController.ViewModels
 
         private (double X, double Y) SmoothMovement(double x, double y)
         {
+            if (!_enableSmoothing)
+            {
+                return (x, y);
+            }
+
             var now = DateTime.Now;
 
             // 如果距离上次移动时间太长，清空缓冲区
@@ -362,7 +447,8 @@ namespace GearVRController.ViewModels
             _movementBuffer.Enqueue((x, y));
             _lastMovementTime = now;
 
-            if (_movementBuffer.Count > MOVEMENT_BUFFER_SIZE)
+            // 根据平滑等级调整缓冲区大小
+            while (_movementBuffer.Count > _smoothingLevel)
             {
                 _movementBuffer.Dequeue();
             }
@@ -418,10 +504,9 @@ namespace GearVRController.ViewModels
             double calibratedDeltaY = rawY - _calibrationData.CenterY;
 
             // 应用死区
-            const double DEAD_ZONE = 8.0; // 增加死区范围，减少抖动
-            if (Math.Abs(calibratedDeltaX) < DEAD_ZONE)
+            if (Math.Abs(calibratedDeltaX) < _deadZone)
                 calibratedDeltaX = 0;
-            if (Math.Abs(calibratedDeltaY) < DEAD_ZONE)
+            if (Math.Abs(calibratedDeltaY) < _deadZone)
                 calibratedDeltaY = 0;
 
             // 如果在死区内，直接返回
@@ -448,8 +533,11 @@ namespace GearVRController.ViewModels
             }
 
             // 应用非线性曲线，使小幅度移动更精确
-            normalizedX = Math.Sign(normalizedX) * Math.Pow(Math.Abs(normalizedX), 1.5);
-            normalizedY = Math.Sign(normalizedY) * Math.Pow(Math.Abs(normalizedY), 1.5);
+            if (_enableNonLinearCurve)
+            {
+                normalizedX = Math.Sign(normalizedX) * Math.Pow(Math.Abs(normalizedX), _nonLinearCurvePower);
+                normalizedY = Math.Sign(normalizedY) * Math.Pow(Math.Abs(normalizedY), _nonLinearCurvePower);
+            }
 
             // 应用灵敏度
             normalizedX *= _mouseSensitivity;
@@ -594,6 +682,11 @@ namespace GearVRController.ViewModels
             UseNaturalScrolling = _settingsService.UseNaturalScrolling;
             InvertYAxis = _settingsService.InvertYAxis;
             EnableAutoCalibration = _settingsService.EnableAutoCalibration;
+            EnableSmoothing = _settingsService.EnableSmoothing;
+            SmoothingLevel = _settingsService.SmoothingLevel;
+            EnableNonLinearCurve = _settingsService.EnableNonLinearCurve;
+            NonLinearCurvePower = _settingsService.NonLinearCurvePower;
+            DeadZone = _settingsService.DeadZone;
         }
 
         public void ApplyCalibrationData(TouchpadCalibrationData calibrationData)
