@@ -290,14 +290,19 @@ namespace GearVRController.Views
                     // X轴：左边0到右边315
                     // Y轴：上面0到下面315
                     const double MAX_VALUE = 315.0; // 最大值
+                    const double CENTER_X = 157.5; // 触摸板中心X坐标 (315/2)
+                    const double CENTER_Y = 157.5; // 触摸板中心Y坐标 (315/2)
+                    const double MAX_RADIUS = 157.5; // 从中心到边缘的最大半径
                     
-                    // 将0~315转换为-1~1范围
-                    // X轴：0(左边)=>-1，315(右边)=>1
-                    // Y轴：0(上面)=>1，315(下面)=>-1 (注意Y轴方向取反)
-                    processedX = Math.Max(-1.0, Math.Min(1.0, (normalizedX / MAX_VALUE) * 2.0 - 1.0));
-                    processedY = Math.Max(-1.0, Math.Min(1.0, -((normalizedY / MAX_VALUE) * 2.0 - 1.0))); // Y轴翻转
+                    // 计算相对于中心点的偏移
+                    double deltaX = normalizedX - CENTER_X;
+                    double deltaY = normalizedY - CENTER_Y;
                     
-                    Debug.WriteLine($"触摸板数据转换: 原始值(X={normalizedX}, Y={normalizedY}) => 归一化(X={processedX:F2}, Y={processedY:F2})");
+                    // 归一化到[-1,1]范围，同时反转Y轴使之符合标准坐标系（向上为正）
+                    processedX = Math.Max(-1.0, Math.Min(1.0, deltaX / MAX_RADIUS));
+                    processedY = Math.Max(-1.0, Math.Min(1.0, -deltaY / MAX_RADIUS)); // Y轴翻转
+                    
+                    Debug.WriteLine($"触摸板数据转换: 原始值(X={normalizedX}, Y={normalizedY}) => 中心点偏移({deltaX:F2}, {deltaY:F2}) => 归一化(X={processedX:F2}, Y={processedY:F2})");
                 }
                 
                 // 记录历史
@@ -741,14 +746,19 @@ namespace GearVRController.Views
                     // X轴：左边0到右边315
                     // Y轴：上面0到下面315
                     const double MAX_VALUE = 315.0; // 最大值
+                    const double CENTER_X = 157.5; // 触摸板中心X坐标 (315/2)
+                    const double CENTER_Y = 157.5; // 触摸板中心Y坐标 (315/2)
+                    const double MAX_RADIUS = 157.5; // 从中心到边缘的最大半径
                     
-                    // 将0~315转换为-1~1范围
-                    // X轴：0(左边)=>-1，315(右边)=>1
-                    // Y轴：0(上面)=>1，315(下面)=>-1 (注意Y轴方向取反)
-                    processedX = Math.Max(-1.0, Math.Min(1.0, (normalizedX / MAX_VALUE) * 2.0 - 1.0));
-                    processedY = Math.Max(-1.0, Math.Min(1.0, -((normalizedY / MAX_VALUE) * 2.0 - 1.0))); // Y轴翻转
+                    // 计算相对于中心点的偏移
+                    double deltaX = normalizedX - CENTER_X;
+                    double deltaY = normalizedY - CENTER_Y;
                     
-                    Debug.WriteLine($"UpdateTouchpadData 数据转换: 原始值(X={normalizedX}, Y={normalizedY}) => 归一化(X={processedX:F2}, Y={processedY:F2})");
+                    // 归一化到[-1,1]范围，同时反转Y轴使之符合标准坐标系（向上为正）
+                    processedX = Math.Max(-1.0, Math.Min(1.0, deltaX / MAX_RADIUS));
+                    processedY = Math.Max(-1.0, Math.Min(1.0, -deltaY / MAX_RADIUS)); // Y轴翻转
+                    
+                    Debug.WriteLine($"UpdateTouchpadData 数据转换: 原始值(X={normalizedX}, Y={normalizedY}) => 中心点偏移({deltaX:F2}, {deltaY:F2}) => 归一化(X={processedX:F2}, Y={processedY:F2})");
                 }
                 
                 _currentX = processedX;

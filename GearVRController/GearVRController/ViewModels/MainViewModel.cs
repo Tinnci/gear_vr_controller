@@ -327,45 +327,61 @@ namespace GearVRController.ViewModels
             // 记录原始数据以便观察实际范围
             System.Diagnostics.Debug.WriteLine($"[校准前] 触摸板原始值: X={rawX}, Y={rawY}");
             
+            // 如果原始值都很小，直接返回零移动
+            const int NOISE_THRESHOLD = 5; // 认为是噪音的阈值
+            if (Math.Abs(rawX) <= NOISE_THRESHOLD && Math.Abs(rawY) <= NOISE_THRESHOLD)
+            {
+                System.Diagnostics.Debug.WriteLine("[校准] 值太小，被认为是噪声，返回零移动");
+                return (0, 0);
+            }
+            
+            // 定义触摸板中心点坐标
+            const double CENTER_X = 157.5; // 触摸板中心X坐标 (315/2)
+            const double CENTER_Y = 157.5; // 触摸板中心Y坐标 (315/2)
+            const double MAX_RADIUS = 157.5; // 从中心到边缘的最大半径
+            
             if (_calibrationData == null)
             {
-                // 如果没有校准数据，将原始值转换为归一化值(-1到1)
-                // 注意：这里暂时使用原始值范围(0-1023)进行计算
-                const double MAX_VALUE = 1023.0;
-                double rawNormalizedX = Math.Max(-1.0, Math.Min(1.0, (rawX / MAX_VALUE) * 2.0 - 1.0));
-                double rawNormalizedY = Math.Max(-1.0, Math.Min(1.0, -((rawY / MAX_VALUE) * 2.0 - 1.0))); // Y轴翻转
+                // 如果没有校准数据，基于中心点(157.5, 157.5)计算归一化值(-1到1)
+                double deltaX = rawX - CENTER_X;
+                double deltaY = rawY - CENTER_Y;
                 
-                System.Diagnostics.Debug.WriteLine($"[未校准归一化] X={rawNormalizedX:F2}, Y={rawNormalizedY:F2}");
+                // 归一化到[-1,1]范围，同时反转Y轴使之符合标准坐标系（向上为正）
+                double rawNormalizedX = Math.Max(-1.0, Math.Min(1.0, deltaX / MAX_RADIUS));
+                double rawNormalizedY = Math.Max(-1.0, Math.Min(1.0, -deltaY / MAX_RADIUS)); // Y轴翻转
+                
+                System.Diagnostics.Debug.WriteLine($"[未校准归一化] 中心点偏移: ({deltaX:F2}, {deltaY:F2}) => 归一化: ({rawNormalizedX:F2}, {rawNormalizedY:F2})");
                 return (rawNormalizedX, rawNormalizedY);
             }
 
+            // 使用校准中心点
             // 计算相对于中心点的偏移
-            double deltaX = rawX - _calibrationData.CenterX;
-            double deltaY = rawY - _calibrationData.CenterY;
+            double calibratedDeltaX = rawX - _calibrationData.CenterX;
+            double calibratedDeltaY = rawY - _calibrationData.CenterY;
 
             // 应用死区
             const double DEAD_ZONE = 8.0; // 增加死区范围，减少抖动
-            if (Math.Abs(deltaX) < DEAD_ZONE)
-                deltaX = 0;
-            if (Math.Abs(deltaY) < DEAD_ZONE)
-                deltaY = 0;
+            if (Math.Abs(calibratedDeltaX) < DEAD_ZONE)
+                calibratedDeltaX = 0;
+            if (Math.Abs(calibratedDeltaY) < DEAD_ZONE)
+                calibratedDeltaY = 0;
 
             // 如果在死区内，直接返回
-            if (deltaX == 0 && deltaY == 0)
+            if (calibratedDeltaX == 0 && calibratedDeltaY == 0)
                 return (0, 0);
 
             // 计算归一化系数，确保不会除以零
-            double xScale = deltaX > 0 ?
+            double xScale = calibratedDeltaX > 0 ?
                 Math.Max(10, _calibrationData.MaxX - _calibrationData.CenterX) :
                 Math.Max(10, _calibrationData.CenterX - _calibrationData.MinX);
 
-            double yScale = deltaY > 0 ?
+            double yScale = calibratedDeltaY > 0 ?
                 Math.Max(10, _calibrationData.MaxY - _calibrationData.CenterY) :
                 Math.Max(10, _calibrationData.CenterY - _calibrationData.MinY);
 
             // 归一化坐标，限制在[-1, 1]范围内
-            double normalizedX = Math.Max(-1.0, Math.Min(1.0, deltaX / xScale));
-            double normalizedY = Math.Max(-1.0, Math.Min(1.0, -deltaY / yScale)); // 注意Y轴反转
+            double normalizedX = Math.Max(-1.0, Math.Min(1.0, calibratedDeltaX / xScale));
+            double normalizedY = Math.Max(-1.0, Math.Min(1.0, -calibratedDeltaY / yScale)); // 注意Y轴反转
 
             // 应用非线性曲线，使小幅度移动更精确
             normalizedX = Math.Sign(normalizedX) * Math.Pow(Math.Abs(normalizedX), 1.5);
@@ -384,6 +400,14 @@ namespace GearVRController.ViewModels
         {
             if (!_isMouseEnabled || !_isControlEnabled || _isCalibrating)
                 return;
+                
+            // 如果没有触摸触摸板，不处理鼠标移动
+            if (!data.TouchpadTouched)
+            {
+                // 记录一个零移动的历史，但标记为未触摸
+                RecordTouchpadHistory(0, 0, false);
+                return;
+            }
 
             // 应用校准
             var (calibratedX, calibratedY) = ApplyCalibration(data.AxisX, data.AxisY);
@@ -410,7 +434,11 @@ namespace GearVRController.ViewModels
                 return;
             }
             
-            _inputSimulator.SimulateMouseMovement(finalDeltaX, finalDeltaY);
+            // 再次确认移动不是因为小数据误差
+            if (Math.Abs(finalDeltaX) > 0 || Math.Abs(finalDeltaY) > 0)
+            {
+                _inputSimulator.SimulateMouseMovement(finalDeltaX, finalDeltaY);
+            }
         }
 
         private void HandleButtonInput(ControllerData data)
