@@ -20,6 +20,7 @@
             <converters:BoolToControlStateConverter x:Key="BoolToControlStateConverter"/>
             <converters:BooleanNegationConverter x:Key="BooleanNegationConverter"/>
             <converters:BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
+            <local:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

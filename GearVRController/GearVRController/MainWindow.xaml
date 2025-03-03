@@ -86,9 +86,11 @@
                         <TextBlock Text="基本设置" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,0,0,8"/>
                         <controls:WrapPanel HorizontalSpacing="12" VerticalSpacing="8">
                             <CheckBox Content="启用鼠标控制" 
-                                     IsChecked="{Binding IsMouseEnabled, Mode=TwoWay}"/>
+                                     IsChecked="{Binding IsMouseEnabled, Mode=TwoWay}"
+                                     IsEnabled="{Binding IsRelativeMode}"/>
                             <CheckBox Content="启用键盘控制" 
-                                     IsChecked="{Binding IsKeyboardEnabled, Mode=TwoWay}"/>
+                                     IsChecked="{Binding IsKeyboardEnabled, Mode=TwoWay}"
+                                     IsEnabled="{Binding IsGestureMode}"/>
                             <CheckBox Content="自然滚动" 
                                      IsChecked="{Binding UseNaturalScrolling, Mode=TwoWay}"
                                      ToolTipService.ToolTip="启用后，滚轮向上滑动页面向上滚动"/>
@@ -100,10 +102,10 @@
                         <TextBlock Text="控制模式" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,12,0,8"/>
                         <RadioButtons>
                             <RadioButton Content="相对位置模式" 
-                                        IsChecked="{Binding UseRelativeMode, Mode=TwoWay}"
+                                        IsChecked="{Binding IsRelativeMode, Mode=TwoWay}"
                                         ToolTipService.ToolTip="以触摸板中心为原点，偏移量决定移动速度和方向"/>
                             <RadioButton Content="手势模式" 
-                                        IsChecked="{Binding UseGestureMode, Mode=TwoWay}"
+                                        IsChecked="{Binding IsGestureMode, Mode=TwoWay}"
                                         ToolTipService.ToolTip="识别滑动手势，触发预定义动作"/>
                         </RadioButtons>
 
@@ -111,7 +113,7 @@
                         <Expander Header="手势设置" 
                                  IsExpanded="False" 
                                  Margin="0,8,0,0"
-                                 IsEnabled="{Binding UseGestureMode}">
+                                 IsEnabled="{Binding IsGestureMode}">
                             <StackPanel Margin="0,12,0,0">
                                 <TextBlock Text="手势灵敏度" Margin="0,0,0,4"/>
                                 <Slider Minimum="0.1" 
@@ -179,7 +181,8 @@
                                         Maximum="2.0" 
                                         Value="{Binding MouseSensitivity, Mode=TwoWay}"
                                         Width="200"
-                                        HorizontalAlignment="Left"/>
+                                        HorizontalAlignment="Left"
+                                        IsEnabled="{Binding IsRelativeMode}"/>
                             </StackPanel>
 
                             <StackPanel Margin="0,0,0,12">
@@ -189,7 +192,8 @@
                                        Value="{Binding SmoothingLevel, Mode=TwoWay}"
                                        Width="200"
                                        HorizontalAlignment="Left"
-                                       IsEnabled="{Binding EnableSmoothing}"/>
+                                       IsEnabled="{Binding EnableSmoothing}"
+                                       Visibility="{Binding IsRelativeMode, Converter={StaticResource BoolToVisibilityConverter}}"/>
                             </StackPanel>
 
                             <StackPanel Margin="0,0,0,12">
@@ -199,7 +203,8 @@
                                        Value="{Binding NonLinearCurvePower, Mode=TwoWay}"
                                        Width="200"
                                        HorizontalAlignment="Left"
-                                       IsEnabled="{Binding EnableNonLinearCurve}"/>
+                                       IsEnabled="{Binding EnableNonLinearCurve}"
+                                       Visibility="{Binding IsRelativeMode, Converter={StaticResource BoolToVisibilityConverter}}"/>
                             </StackPanel>
 
                             <StackPanel Margin="0,0,0,12">
@@ -208,19 +213,19 @@
                                        Maximum="20" 
                                        Value="{Binding DeadZone, Mode=TwoWay}"
                                        Width="200"
-                                       HorizontalAlignment="Left"/>
+                                       HorizontalAlignment="Left"
+                                       Visibility="{Binding IsRelativeMode, Converter={StaticResource BoolToVisibilityConverter}}"/>
                             </StackPanel>
 
                             <controls:WrapPanel HorizontalSpacing="12" VerticalSpacing="8">
                                 <CheckBox Content="自动校准" 
-                                         IsChecked="{Binding EnableAutoCalibration, Mode=TwoWay}"
-                                         ToolTipService.ToolTip="启用后，检测到异常移动时会自动触发校准"/>
+                                         IsChecked="{Binding EnableAutoCalibration, Mode=TwoWay}"/>
                                 <CheckBox Content="移动平滑" 
                                          IsChecked="{Binding EnableSmoothing, Mode=TwoWay}"
-                                         ToolTipService.ToolTip="启用后，鼠标移动会更加平滑"/>
+                                         IsEnabled="{Binding IsRelativeMode}"/>
                                 <CheckBox Content="非线性曲线" 
                                          IsChecked="{Binding EnableNonLinearCurve, Mode=TwoWay}"
-                                         ToolTipService.ToolTip="启用后，小幅度移动会更加精确"/>
+                                         IsEnabled="{Binding IsRelativeMode}"/>
                             </controls:WrapPanel>
 
                             <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
