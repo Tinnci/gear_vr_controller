@@ -75,6 +75,13 @@ namespace GearVRController.ViewModels
         private bool _isReconnecting;
         private DateTime _lastConnectionAttempt = DateTime.MinValue;
 
+        // 添加按键状态监控字段
+        private bool _leftButtonPressed = false;
+        private bool _rightButtonPressed = false;
+        private DateTime _lastInputTime = DateTime.MinValue;
+        private const int INPUT_TIMEOUT_MS = 5000; // 5秒超时
+        private DispatcherTimer? _stateCheckTimer;
+
         public event PropertyChangedEventHandler? PropertyChanged;
         public event EventHandler<ControllerData>? ControllerDataReceived;
         public event EventHandler? AutoCalibrationRequired;
@@ -353,6 +360,9 @@ namespace GearVRController.ViewModels
 
             // 初始化连接状态检查定时器
             InitializeConnectionCheck();
+            
+            // 初始化状态检查定时器
+            InitializeStateCheck();
 
             // 加载设置
             LoadSettings();
@@ -412,6 +422,56 @@ namespace GearVRController.ViewModels
             }
         }
 
+        private void InitializeStateCheck()
+        {
+            _stateCheckTimer = new DispatcherTimer();
+            _stateCheckTimer.Interval = TimeSpan.FromSeconds(1);
+            _stateCheckTimer.Tick += (s, e) =>
+            {
+                MonitorInputState();
+            };
+            _stateCheckTimer.Start();
+        }
+
+        private void MonitorInputState()
+        {
+            try
+            {
+                var now = DateTime.Now;
+                if (_leftButtonPressed || _rightButtonPressed)
+                {
+                    if ((now - _lastInputTime).TotalMilliseconds > INPUT_TIMEOUT_MS)
+                    {
+                        System.Diagnostics.Debug.WriteLine("检测到按键可能卡住，强制释放");
+                        ForceReleaseAllButtons();
+                        _leftButtonPressed = false;
+                        _rightButtonPressed = false;
+                    }
+                }
+                _lastInputTime = now;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"监控输入状态异常: {ex}");
+            }
+        }
+
+        private void ForceReleaseAllButtons()
+        {
+            try
+            {
+                var inputSimulator = (WindowsInputSimulator)_inputSimulator;
+                inputSimulator.SimulateMouseButtonEx(false, WindowsInputSimulator.MouseButtons.Left);
+                inputSimulator.SimulateMouseButtonEx(false, WindowsInputSimulator.MouseButtons.Right);
+                inputSimulator.SimulateMouseButtonEx(false, WindowsInputSimulator.MouseButtons.Middle);
+                System.Diagnostics.Debug.WriteLine("已强制释放所有按键");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"强制释放按键异常: {ex}");
+            }
+        }
+
         private async void LoadSettings()
         {
             await _settingsService.LoadSettingsAsync();
@@ -466,11 +526,25 @@ namespace GearVRController.ViewModels
 
         public void Disconnect()
         {
-            _bluetoothService.Disconnect();
-            StatusMessage = "已断开连接";
-            _lastConnectedDeviceAddress = 0;
-            _reconnectAttempts = 0;
-            _connectionCheckTimer?.Stop();
+            try
+            {
+                _bluetoothService.Disconnect();
+                StatusMessage = "已断开连接";
+                _lastConnectedDeviceAddress = 0;
+                _reconnectAttempts = 0;
+                _connectionCheckTimer?.Stop();
+                _stateCheckTimer?.Stop();
+                
+                // 确保释放所有按键
+                ForceReleaseAllButtons();
+                _leftButtonPressed = false;
+                _rightButtonPressed = false;
+                _movementBuffer.Clear();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"断开连接异常: {ex}");
+            }
         }
 
         private void BluetoothService_ConnectionStatusChanged(object? sender, BluetoothConnectionStatus status)
@@ -478,6 +552,15 @@ namespace GearVRController.ViewModels
             _dispatcherQueue.TryEnqueue(() =>
             {
                 IsConnected = status == BluetoothConnectionStatus.Connected;
+                
+                if (!IsConnected)
+                {
+                    // 断开连接时，确保释放所有按键
+                    ForceReleaseAllButtons();
+                    _leftButtonPressed = false;
+                    _rightButtonPressed = false;
+                    _movementBuffer.Clear();
+                }
                 
                 // 更新状态消息
                 if (IsConnected)
@@ -645,99 +728,119 @@ namespace GearVRController.ViewModels
 
         private void ProcessTouchpadMovement(ControllerData data)
         {
-            if (!_isMouseEnabled || !_isControlEnabled || _isCalibrating)
-                return;
+            try
+            {
+                if (!_isMouseEnabled || !_isControlEnabled || _isCalibrating)
+                    return;
+                    
+                if (!data.TouchpadTouched)
+                {
+                    _movementBuffer.Clear(); // 清空缓冲
+                    RecordTouchpadHistory(0, 0, false);
+                    return;
+                }
+
+                // 应用校准
+                var (calibratedX, calibratedY) = ApplyCalibration(data.AxisX, data.AxisY);
+
+                // 应用平滑处理
+                var (smoothX, smoothY) = SmoothMovement(calibratedX, calibratedY);
+
+                // 计算最终的鼠标移动
+                const double MOVEMENT_SCALE = 4.0;
                 
-            // 如果没有触摸触摸板，不处理鼠标移动
-            if (!data.TouchpadTouched)
-            {
-                // 记录一个零移动的历史，但标记为未触摸
-                RecordTouchpadHistory(0, 0, false);
-                return;
-            }
+                double adaptiveScale = MOVEMENT_SCALE * (0.5 + Math.Min(1.0, Math.Sqrt(smoothX * smoothX + smoothY * smoothY)));
+                
+                int finalDeltaX = (int)(smoothX * adaptiveScale);
+                int finalDeltaY = (int)(smoothY * adaptiveScale);
 
-            // 应用校准
-            var (calibratedX, calibratedY) = ApplyCalibration(data.AxisX, data.AxisY);
+                RecordTouchpadHistory(smoothX, smoothY, data.TouchpadButton);
 
-            // 应用平滑处理
-            var (smoothX, smoothY) = SmoothMovement(calibratedX, calibratedY);
-
-            // 计算最终的鼠标移动
-            const double MOVEMENT_SCALE = 4.0; // 降低移动比例，使控制更精确
-            
-            // 应用自适应缩放 - 小幅度移动更精确，大幅度移动更快
-            double adaptiveScale = MOVEMENT_SCALE * (0.5 + Math.Min(1.0, Math.Sqrt(smoothX * smoothX + smoothY * smoothY)));
-            
-            int finalDeltaX = (int)(smoothX * adaptiveScale);
-            int finalDeltaY = (int)(smoothY * adaptiveScale);
-
-            // 记录触摸板历史数据
-            RecordTouchpadHistory(smoothX, smoothY, data.TouchpadButton);
-
-            // 检查异常移动
-            if (CheckAbnormalMovement(finalDeltaX, finalDeltaY))
-            {
-                TriggerAutoCalibration();
-                return;
-            }
-            
-            // 再次确认移动不是因为小数据误差
-            if (Math.Abs(finalDeltaX) > 0 || Math.Abs(finalDeltaY) > 0)
-            {
-                // 如果是滚轮移动，应用自然滚动设置
-                if (data.TouchpadButton)
+                if (CheckAbnormalMovement(finalDeltaX, finalDeltaY))
                 {
-                    // 将Y轴移动转换为滚轮移动
-                    int wheelDelta = (int)(finalDeltaY * 2); // 增加滚动速度
-                    if (_useNaturalScrolling)
+                    TriggerAutoCalibration();
+                    return;
+                }
+                
+                if (Math.Abs(finalDeltaX) > 0 || Math.Abs(finalDeltaY) > 0)
+                {
+                    if (data.TouchpadButton)
                     {
-                        wheelDelta = -wheelDelta; // 反转滚动方向
+                        int wheelDelta = (int)(finalDeltaY * 2);
+                        if (_useNaturalScrolling)
+                        {
+                            wheelDelta = -wheelDelta;
+                        }
+                        _inputSimulator.SimulateWheelMovement(wheelDelta);
                     }
-                    _inputSimulator.SimulateWheelMovement(wheelDelta);
+                    else
+                    {
+                        _inputSimulator.SimulateMouseMovement(finalDeltaX, finalDeltaY);
+                    }
                 }
-                else
-                {
-                    _inputSimulator.SimulateMouseMovement(finalDeltaX, finalDeltaY);
-                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"处理触摸板移动异常: {ex}");
+                _movementBuffer.Clear();
             }
         }
 
         private void HandleButtonInput(ControllerData data)
         {
-            if (!IsControlEnabled || _isCalibrating) return;
-
-            var inputSimulator = (WindowsInputSimulator)_inputSimulator;
-
-            if (IsMouseEnabled)
+            try
             {
-                // 扳机键处理（右键）
-                inputSimulator.SimulateMouseButtonEx(data.TriggerButton, WindowsInputSimulator.MouseButtons.Right);
+                if (!IsControlEnabled || _isCalibrating) return;
 
-                // 触摸板点击处理（左键）
-                inputSimulator.SimulateMouseButtonEx(data.TouchpadButton, WindowsInputSimulator.MouseButtons.Left);
+                var inputSimulator = (WindowsInputSimulator)_inputSimulator;
+                
+                if (IsMouseEnabled)
+                {
+                    // 检测按键状态变化并更新状态
+                    if (data.TriggerButton != _rightButtonPressed)
+                    {
+                        _rightButtonPressed = data.TriggerButton;
+                        inputSimulator.SimulateMouseButtonEx(data.TriggerButton, WindowsInputSimulator.MouseButtons.Right);
+                        _lastInputTime = DateTime.Now;
+                    }
+                    
+                    if (data.TouchpadButton != _leftButtonPressed)
+                    {
+                        _leftButtonPressed = data.TouchpadButton;
+                        inputSimulator.SimulateMouseButtonEx(data.TouchpadButton, WindowsInputSimulator.MouseButtons.Left);
+                        _lastInputTime = DateTime.Now;
+                    }
+                }
+
+                if (IsKeyboardEnabled)
+                {
+                    if (data.HomeButton)
+                    {
+                        inputSimulator.SimulateKeyPress(WindowsInputSimulator.VirtualKeys.VK_HOME);
+                    }
+
+                    if (data.BackButton)
+                    {
+                        inputSimulator.SimulateKeyPress(WindowsInputSimulator.VirtualKeys.VK_BACK);
+                    }
+
+                    if (data.VolumeUpButton)
+                    {
+                        inputSimulator.SimulateKeyPress(WindowsInputSimulator.VirtualKeys.VK_VOLUME_UP);
+                    }
+
+                    if (data.VolumeDownButton)
+                    {
+                        inputSimulator.SimulateKeyPress(WindowsInputSimulator.VirtualKeys.VK_VOLUME_DOWN);
+                    }
+                }
             }
-
-            if (IsKeyboardEnabled)
+            catch (Exception ex)
             {
-                if (data.HomeButton)
-                {
-                    inputSimulator.SimulateKeyPress(WindowsInputSimulator.VirtualKeys.VK_HOME);
-                }
-
-                if (data.BackButton)
-                {
-                    inputSimulator.SimulateKeyPress(WindowsInputSimulator.VirtualKeys.VK_BACK);
-                }
-
-                if (data.VolumeUpButton)
-                {
-                    inputSimulator.SimulateKeyPress(WindowsInputSimulator.VirtualKeys.VK_VOLUME_UP);
-                }
-
-                if (data.VolumeDownButton)
-                {
-                    inputSimulator.SimulateKeyPress(WindowsInputSimulator.VirtualKeys.VK_VOLUME_DOWN);
-                }
+                System.Diagnostics.Debug.WriteLine($"按键处理异常: {ex}");
+                ForceReleaseAllButtons();
+                _leftButtonPressed = false;
+                _rightButtonPressed = false;
             }
         }
 
