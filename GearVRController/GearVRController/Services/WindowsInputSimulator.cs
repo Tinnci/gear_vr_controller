@@ -71,6 +71,13 @@ namespace GearVRController.Services
         private const uint KEYEVENTF_SCANCODE = 0x0008;
         #endregion
 
+        // 添加鼠标按键状态常量
+        public static class MouseButtonStates
+        {
+            public const bool Pressed = true;
+            public const bool Released = false;
+        }
+
         #region Win32 API Methods
         [DllImport("user32.dll", SetLastError = true)]
         private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);

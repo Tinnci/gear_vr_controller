@@ -710,18 +710,11 @@ namespace GearVRController.ViewModels
 
             if (IsMouseEnabled)
             {
-                if (data.TriggerButton)
-                {
-                    // 扳机键作为右键
-                    inputSimulator.SimulateMouseButtonEx(true, WindowsInputSimulator.MouseButtons.Right);
-                }
-                else
-                {
-                    inputSimulator.SimulateMouseButtonEx(false, WindowsInputSimulator.MouseButtons.Right);
-                }
+                // 扳机键处理（右键）
+                inputSimulator.SimulateMouseButtonEx(data.TriggerButton, WindowsInputSimulator.MouseButtons.Right);
 
-                // 触摸板点击作为左键
-                inputSimulator.SimulateMouseButton(data.TouchpadButton);
+                // 触摸板点击处理（左键）
+                inputSimulator.SimulateMouseButtonEx(data.TouchpadButton, WindowsInputSimulator.MouseButtons.Left);
             }
 
             if (IsKeyboardEnabled)
