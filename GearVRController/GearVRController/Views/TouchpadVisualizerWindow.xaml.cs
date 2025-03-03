@@ -306,7 +306,7 @@ namespace GearVRController.Views
                 }
                 
                 // 记录历史
-                var point = new TouchpadPoint(processedX, processedY, isPressed);
+                var point = new TouchpadPoint((float)processedX, (float)processedY, isPressed);
                 _touchpadHistory.Add(point);
                 
                 // 维持最大历史点数

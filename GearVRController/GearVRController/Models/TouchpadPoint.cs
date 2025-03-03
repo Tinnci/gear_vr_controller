@@ -10,28 +10,33 @@ namespace GearVRController.Models
         /// <summary>
         /// X坐标，范围[-1, 1]
         /// </summary>
-        public double X { get; set; }
+        public float X { get; set; }
         
         /// <summary>
         /// Y坐标，范围[-1, 1]
         /// </summary>
-        public double Y { get; set; }
+        public float Y { get; set; }
         
         /// <summary>
         /// 是否按下
         /// </summary>
-        public bool IsPressed { get; set; }
+        public bool IsTouched { get; set; }
         
         /// <summary>
         /// 时间戳
         /// </summary>
         public DateTime Timestamp { get; set; }
 
-        public TouchpadPoint(double x, double y, bool isPressed)
+        public TouchpadPoint()
+        {
+            Timestamp = DateTime.Now;
+        }
+
+        public TouchpadPoint(float x, float y, bool isTouched)
         {
             X = x;
             Y = y;
-            IsPressed = isPressed;
+            IsTouched = isTouched;
             Timestamp = DateTime.Now;
         }
     }

@@ -96,6 +96,73 @@
                                      IsChecked="{Binding InvertYAxis, Mode=TwoWay}"
                                      ToolTipService.ToolTip="启用后，上下移动方向将被反转"/>
                         </controls:WrapPanel>
+
+                        <TextBlock Text="控制模式" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,12,0,8"/>
+                        <RadioButtons>
+                            <RadioButton Content="相对位置模式" 
+                                        IsChecked="{Binding UseRelativeMode, Mode=TwoWay}"
+                                        ToolTipService.ToolTip="以触摸板中心为原点，偏移量决定移动速度和方向"/>
+                            <RadioButton Content="手势模式" 
+                                        IsChecked="{Binding UseGestureMode, Mode=TwoWay}"
+                                        ToolTipService.ToolTip="识别滑动手势，触发预定义动作"/>
+                        </RadioButtons>
+
+                        <!-- 手势模式设置 -->
+                        <Expander Header="手势设置" 
+                                 IsExpanded="False" 
+                                 Margin="0,8,0,0"
+                                 IsEnabled="{Binding UseGestureMode}">
+                            <StackPanel Margin="0,12,0,0">
+                                <TextBlock Text="手势灵敏度" Margin="0,0,0,4"/>
+                                <Slider Minimum="0.1" 
+                                        Maximum="2.0" 
+                                        Value="{Binding GestureSensitivity, Mode=TwoWay}"
+                                        Width="200"
+                                        HorizontalAlignment="Left"/>
+
+                                <TextBlock Text="手势动作映射" Margin="0,12,0,4"/>
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+
+                                    <TextBlock Text="向上滑动:" Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8"/>
+                                    <ComboBox Grid.Row="0" Grid.Column="1" 
+                                              SelectedValue="{Binding SwipeUpAction, Mode=TwoWay}"
+                                              ItemsSource="{Binding AvailableGestureActions}"
+                                              Margin="0,0,0,8"/>
+
+                                    <TextBlock Text="向下滑动:" Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8"/>
+                                    <ComboBox Grid.Row="1" Grid.Column="1" 
+                                              SelectedValue="{Binding SwipeDownAction, Mode=TwoWay}"
+                                              ItemsSource="{Binding AvailableGestureActions}"
+                                              Margin="0,0,0,8"/>
+
+                                    <TextBlock Text="向左滑动:" Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8"/>
+                                    <ComboBox Grid.Row="2" Grid.Column="1" 
+                                              SelectedValue="{Binding SwipeLeftAction, Mode=TwoWay}"
+                                              ItemsSource="{Binding AvailableGestureActions}"
+                                              Margin="0,0,0,8"/>
+
+                                    <TextBlock Text="向右滑动:" Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8"/>
+                                    <ComboBox Grid.Row="3" Grid.Column="1" 
+                                              SelectedValue="{Binding SwipeRightAction, Mode=TwoWay}"
+                                              ItemsSource="{Binding AvailableGestureActions}"
+                                              Margin="0,0,0,8"/>
+                                </Grid>
+
+                                <CheckBox Content="显示手势提示" 
+                                         IsChecked="{Binding ShowGestureHints, Mode=TwoWay}"
+                                         ToolTipService.ToolTip="在触摸板可视化窗口中显示手势轨迹"/>
+                            </StackPanel>
+                        </Expander>
                     </StackPanel>
                 </StackPanel>
 

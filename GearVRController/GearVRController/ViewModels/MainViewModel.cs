@@ -11,6 +11,7 @@ using Microsoft.UI.Dispatching;
 using Windows.Devices.Bluetooth;
 using System.Collections.Generic;
 using System.Linq;
+using GearVRController.Enums;
 using EnumsNS = GearVRController.Enums; // 添加命名空间别名
 
 namespace GearVRController.ViewModels
@@ -81,6 +82,10 @@ namespace GearVRController.ViewModels
         private DateTime _lastInputTime = DateTime.MinValue;
         private const int INPUT_TIMEOUT_MS = 5000; // 5秒超时
         private DispatcherTimer? _stateCheckTimer;
+
+        private bool _isGestureMode;
+        private GestureRecognizer _gestureRecognizer;
+        private GestureConfig _gestureConfig;
 
         public event PropertyChangedEventHandler? PropertyChanged;
         public event EventHandler<ControllerData>? ControllerDataReceived;
@@ -341,6 +346,51 @@ namespace GearVRController.ViewModels
             }
         }
 
+        public bool IsGestureMode
+        {
+            get => _isGestureMode;
+            set
+            {
+                if (SetProperty(ref _isGestureMode, value))
+                {
+                    OnPropertyChanged(nameof(IsRelativeMode));
+                }
+            }
+        }
+
+        public bool IsRelativeMode
+        {
+            get => !_isGestureMode;
+            set => IsGestureMode = !value;
+        }
+
+        public float GestureSensitivity
+        {
+            get => _gestureConfig.Sensitivity;
+            set
+            {
+                if (_gestureConfig.Sensitivity != value)
+                {
+                    _gestureConfig.Sensitivity = value;
+                    _gestureRecognizer.SetSensitivity(value);
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        public bool ShowGestureHints
+        {
+            get => _gestureConfig.ShowGestureHints;
+            set
+            {
+                if (_gestureConfig.ShowGestureHints != value)
+                {
+                    _gestureConfig.ShowGestureHints = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
         public MainViewModel(
             IBluetoothService bluetoothService,
             IControllerService controllerService,
@@ -366,6 +416,10 @@ namespace GearVRController.ViewModels
 
             // 加载设置
             LoadSettings();
+
+            _gestureConfig = new GestureConfig();
+            _gestureRecognizer = new GestureRecognizer(_gestureConfig.Sensitivity);
+            _gestureRecognizer.GestureDetected += OnGestureDetected;
         }
 
         private void InitializeConnectionCheck()
@@ -730,52 +784,79 @@ namespace GearVRController.ViewModels
         {
             try
             {
-                if (!_isMouseEnabled || !_isControlEnabled || _isCalibrating)
-                    return;
+                if (!IsControlEnabled || _isCalibrating) return;
+
+                if (IsGestureMode)
+                {
+                    // 手势模式下只处理手势识别，不处理鼠标移动
+                    if (!IsKeyboardEnabled) return; // 如果键盘控制被禁用，不处理手势
+
+                    var point = new TouchpadPoint
+                    {
+                        X = (float)data.AxisX,
+                        Y = (float)data.AxisY,
+                        IsTouched = data.TouchpadTouched
+                    };
+                    _gestureRecognizer.ProcessTouchpadPoint(point);
                     
-                if (!data.TouchpadTouched)
-                {
-                    _movementBuffer.Clear(); // 清空缓冲
-                    RecordTouchpadHistory(0, 0, false);
-                    return;
+                    // 记录触摸板历史用于可视化
+                    RecordTouchpadHistory(point.X, point.Y, data.TouchpadTouched);
                 }
-
-                // 应用校准
-                var (calibratedX, calibratedY) = ApplyCalibration(data.AxisX, data.AxisY);
-
-                // 应用平滑处理
-                var (smoothX, smoothY) = SmoothMovement(calibratedX, calibratedY);
-
-                // 计算最终的鼠标移动
-                const double MOVEMENT_SCALE = 4.0;
-                
-                double adaptiveScale = MOVEMENT_SCALE * (0.5 + Math.Min(1.0, Math.Sqrt(smoothX * smoothX + smoothY * smoothY)));
-                
-                int finalDeltaX = (int)(smoothX * adaptiveScale);
-                int finalDeltaY = (int)(smoothY * adaptiveScale);
-
-                RecordTouchpadHistory(smoothX, smoothY, data.TouchpadButton);
-
-                if (CheckAbnormalMovement(finalDeltaX, finalDeltaY))
+                else
                 {
-                    TriggerAutoCalibration();
-                    return;
-                }
-                
-                if (Math.Abs(finalDeltaX) > 0 || Math.Abs(finalDeltaY) > 0)
-                {
-                    if (data.TouchpadButton)
+                    // 相对位置模式
+                    if (!IsMouseEnabled) return; // 如果鼠标控制被禁用，不处理移动
+
+                    if (!data.TouchpadTouched)
                     {
-                        int wheelDelta = (int)(finalDeltaY * 2);
-                        if (_useNaturalScrolling)
-                        {
-                            wheelDelta = -wheelDelta;
-                        }
-                        _inputSimulator.SimulateWheelMovement(wheelDelta);
+                        _movementBuffer.Clear(); // 清空缓冲
+                        RecordTouchpadHistory(0, 0, false);
+                        return;
                     }
-                    else
+
+                    // 应用校准
+                    var (calibratedX, calibratedY) = ApplyCalibration(data.AxisX, data.AxisY);
+
+                    // 应用平滑处理
+                    var (smoothX, smoothY) = SmoothMovement(calibratedX, calibratedY);
+
+                    // 计算最终的鼠标移动
+                    const double MOVEMENT_SCALE = 4.0;
+                    
+                    double adaptiveScale = MOVEMENT_SCALE * (0.5 + Math.Min(1.0, Math.Sqrt(smoothX * smoothX + smoothY * smoothY)));
+                    
+                    int finalDeltaX = (int)(smoothX * adaptiveScale);
+                    int finalDeltaY = (int)(smoothY * adaptiveScale);
+
+                    // 应用Y轴反转
+                    if (_invertYAxis)
                     {
-                        _inputSimulator.SimulateMouseMovement(finalDeltaX, finalDeltaY);
+                        finalDeltaY = -finalDeltaY;
+                    }
+
+                    RecordTouchpadHistory(smoothX, smoothY, data.TouchpadButton);
+
+                    if (CheckAbnormalMovement(finalDeltaX, finalDeltaY))
+                    {
+                        TriggerAutoCalibration();
+                        return;
+                    }
+                    
+                    if (Math.Abs(finalDeltaX) > 0 || Math.Abs(finalDeltaY) > 0)
+                    {
+                        if (data.TouchpadButton)
+                        {
+                            int wheelDelta = (int)(finalDeltaY * 2);
+                            if (_useNaturalScrolling)
+                            {
+                                wheelDelta = -wheelDelta;
+                            }
+                            _inputSimulator.SimulateWheelMovement(wheelDelta);
+                        }
+                        else
+                        {
+                            _inputSimulator.SimulateMouseMovement(finalDeltaX, finalDeltaY);
+                        }
                     }
                 }
             }
@@ -854,6 +935,14 @@ namespace GearVRController.ViewModels
         protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
+
+        protected bool SetProperty<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
+        {
+            if (EqualityComparer<T>.Default.Equals(field, value)) return false;
+            field = value;
+            OnPropertyChanged(propertyName);
+            return true;
         }
 
         public void ToggleControl()
@@ -987,7 +1076,7 @@ namespace GearVRController.ViewModels
             if (x == 0 && y == 0 && !isPressed)
                 return; // 忽略无意义的数据
             
-            var point = new TouchpadPoint(x, y, isPressed);
+            var point = new TouchpadPoint((float)x, (float)y, isPressed);
             _touchpadHistory.Add(point);
             
             // 维持最大历史点数
@@ -1062,6 +1151,64 @@ namespace GearVRController.ViewModels
         {
             _touchpadHistory.Clear();
             LastGesture = EnumsNS.TouchpadGesture.None; // 使用命名空间别名
+        }
+
+        private void OnGestureDetected(object sender, GestureDirection direction)
+        {
+            if (!IsControlEnabled || _isCalibrating || !IsGestureMode || !IsKeyboardEnabled) return;
+
+            var action = _gestureConfig.GetGestureAction(direction);
+            ExecuteGestureAction(action);
+        }
+
+        private void ExecuteGestureAction(GestureAction action)
+        {
+            var inputSimulator = (WindowsInputSimulator)_inputSimulator;
+            switch (action)
+            {
+                case GestureAction.PageUp:
+                    inputSimulator.SimulateKeyPress((int)WindowsInputSimulator.VirtualKeyCode.PRIOR);
+                    break;
+                case GestureAction.PageDown:
+                    inputSimulator.SimulateKeyPress((int)WindowsInputSimulator.VirtualKeyCode.NEXT);
+                    break;
+                case GestureAction.BrowserBack:
+                    inputSimulator.SimulateKeyPress((int)WindowsInputSimulator.VirtualKeyCode.BROWSER_BACK);
+                    break;
+                case GestureAction.BrowserForward:
+                    inputSimulator.SimulateKeyPress((int)WindowsInputSimulator.VirtualKeyCode.BROWSER_FORWARD);
+                    break;
+                case GestureAction.VolumeUp:
+                    inputSimulator.SimulateKeyPress((int)WindowsInputSimulator.VirtualKeyCode.VOLUME_UP);
+                    break;
+                case GestureAction.VolumeDown:
+                    inputSimulator.SimulateKeyPress((int)WindowsInputSimulator.VirtualKeyCode.VOLUME_DOWN);
+                    break;
+                case GestureAction.MediaPlayPause:
+                    inputSimulator.SimulateKeyPress((int)WindowsInputSimulator.VirtualKeyCode.MEDIA_PLAY_PAUSE);
+                    break;
+                case GestureAction.MediaNext:
+                    inputSimulator.SimulateKeyPress((int)WindowsInputSimulator.VirtualKeyCode.MEDIA_NEXT_TRACK);
+                    break;
+                case GestureAction.MediaPrevious:
+                    inputSimulator.SimulateKeyPress((int)WindowsInputSimulator.VirtualKeyCode.MEDIA_PREV_TRACK);
+                    break;
+                case GestureAction.Copy:
+                    inputSimulator.SimulateModifiedKeyStroke(WindowsInputSimulator.VirtualKeyCode.CONTROL, WindowsInputSimulator.VirtualKeyCode.VK_C);
+                    break;
+                case GestureAction.Paste:
+                    inputSimulator.SimulateModifiedKeyStroke(WindowsInputSimulator.VirtualKeyCode.CONTROL, WindowsInputSimulator.VirtualKeyCode.VK_V);
+                    break;
+                case GestureAction.Undo:
+                    inputSimulator.SimulateModifiedKeyStroke(WindowsInputSimulator.VirtualKeyCode.CONTROL, WindowsInputSimulator.VirtualKeyCode.VK_Z);
+                    break;
+                case GestureAction.Redo:
+                    inputSimulator.SimulateModifiedKeyStroke(WindowsInputSimulator.VirtualKeyCode.CONTROL, WindowsInputSimulator.VirtualKeyCode.VK_Y);
+                    break;
+                case GestureAction.SelectAll:
+                    inputSimulator.SimulateModifiedKeyStroke(WindowsInputSimulator.VirtualKeyCode.CONTROL, WindowsInputSimulator.VirtualKeyCode.VK_A);
+                    break;
+            }
         }
     }
 }
