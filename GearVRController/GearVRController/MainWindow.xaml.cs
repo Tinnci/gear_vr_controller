@@ -17,6 +17,9 @@ using GearVRController.Views;
 using GearVRController.Models;
 using GearVRController.Services;
 using EnumsNS = GearVRController.Enums; // 添加命名空间别名
+using Microsoft.UI.Windowing;
+using Microsoft.UI;
+using Windows.Graphics;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -31,6 +34,7 @@ namespace GearVRController
         public MainViewModel ViewModel { get; }
         private TouchpadCalibrationWindow? _calibrationWindow;
         private Views.TouchpadVisualizerWindow? _touchpadVisualizerWindow;
+        private AppWindow _appWindow;
 
         public MainWindow()
         {
@@ -47,6 +51,14 @@ namespace GearVRController
             {
                 rootElement.DataContext = ViewModel;
             }
+
+            // 设置窗口大小
+            IntPtr hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            WindowId windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
+            _appWindow = AppWindow.GetFromWindowId(windowId);
+            
+            // 设置默认窗口大小
+            _appWindow.Resize(new SizeInt32(900, 700));
 
             // 订阅控制器数据更新事件
             ViewModel.ControllerDataReceived += ViewModel_ControllerDataReceived;
