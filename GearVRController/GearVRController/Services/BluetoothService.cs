@@ -193,6 +193,23 @@ namespace GearVRController.Services
             await SendCommandAsync(new byte[] { 0x06, 0x00 }, repeat: 1);
             await SendCommandAsync(new byte[] { 0x07, 0x00 }, repeat: 1);
             await SendCommandAsync(new byte[] { 0x08, 0x00 }, repeat: 3);
+            
+            // 优化连接参数以降低延迟
+            await OptimizeConnectionParametersAsync();
+        }
+
+        private async Task OptimizeConnectionParametersAsync()
+        {
+            try
+            {
+                // 尝试设置最小连接间隔参数，降低延迟
+                await SendCommandAsync(new byte[] { 0x0A, 0x02 }, repeat: 1);
+                System.Diagnostics.Debug.WriteLine("已设置最小连接间隔，降低延迟");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"优化连接参数失败: {ex.Message}");
+            }
         }
 
         private async Task SendCommandAsync(byte[] command, int repeat = 1)
@@ -216,17 +233,23 @@ namespace GearVRController.Services
                 return;
             }
 
-            var data = new ControllerData();
+            // 快速获取数据
             var reader = DataReader.FromBuffer(args.CharacteristicValue);
             var byteArray = new byte[args.CharacteristicValue.Length];
             reader.ReadBytes(byteArray);
+
+            // 将耗时处理移到后台线程
+            Task.Run(() => ProcessDataAsync(byteArray));
+        }
+
+        private void ProcessDataAsync(byte[] byteArray)
+        {
+            var data = new ControllerData();
 
             // 添加数据长度检查和日志
             if (byteArray.Length < 57) // 需要至少57字节的数据
             {
                 System.Diagnostics.Debug.WriteLine($"收到的数据长度不足: {byteArray.Length} 字节");
-                // 可以选择记录接收到的数据内容
-                System.Diagnostics.Debug.WriteLine($"数据内容: {BitConverter.ToString(byteArray)}");
                 return;
             }
 
@@ -244,15 +267,6 @@ namespace GearVRController.Services
                         // 先直接记录原始值，便于观察实际范围
                         data.AxisX = rawAxisX;
                         data.AxisY = rawAxisY;
-                        
-                        System.Diagnostics.Debug.WriteLine($"[测量模式] 触摸板原始数据: X={rawAxisX}, Y={rawAxisY}");
-                        
-                        // 注释掉之前的映射代码，直到确认实际范围
-                        // 将0-1023范围映射到0-315范围
-                        // data.AxisX = rawAxisX * 315 / 1023;
-                        // data.AxisY = rawAxisY * 315 / 1023;
-                        
-                        // System.Diagnostics.Debug.WriteLine($"触摸板原始数据: X={rawAxisX}, Y={rawAxisY} => 映射后: X={data.AxisX}, Y={data.AxisY}");
                     }
                     catch (Exception ex) {
                         System.Diagnostics.Debug.WriteLine($"触摸板数据解析错误: {ex.Message}");
@@ -321,16 +335,14 @@ namespace GearVRController.Services
                     }
                 }
 
-                // 记录成功解析的数据
-                System.Diagnostics.Debug.WriteLine($"成功解析数据: AxisX={data.AxisX}, AxisY={data.AxisY}");
+                // 减少不必要的日志输出，提高性能
+                // System.Diagnostics.Debug.WriteLine($"成功解析数据: AxisX={data.AxisX}, AxisY={data.AxisY}");
 
                 DataReceived?.Invoke(this, data);
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"数据解析错误: {ex.Message}");
-                System.Diagnostics.Debug.WriteLine($"数据长度: {byteArray.Length}");
-                System.Diagnostics.Debug.WriteLine($"数据内容: {BitConverter.ToString(byteArray)}");
             }
         }
 

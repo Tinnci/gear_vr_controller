@@ -74,6 +74,16 @@
                             HorizontalAlignment="Left"/>
                 </StackPanel>
 
+                <!-- 添加自然滚动和Y轴反转选项 -->
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <CheckBox Content="自然滚动" 
+                             IsChecked="{Binding UseNaturalScrolling, Mode=TwoWay}"
+                             ToolTipService.ToolTip="启用后，滚轮向上滑动页面向上滚动"/>
+                    <CheckBox Content="Y轴反转" 
+                             IsChecked="{Binding InvertYAxis, Mode=TwoWay}"
+                             ToolTipService.ToolTip="启用后，上下移动方向将被反转"/>
+                </StackPanel>
+
                 <StackPanel Orientation="Horizontal" Spacing="12">
                     <Button Content="重置设置" 
                             Click="ResetSettingsButton_Click"/>

@@ -35,6 +35,8 @@ namespace GearVRController.ViewModels
         private double _mouseSensitivity = 1.0;
         private bool _isMouseEnabled = true;
         private bool _isKeyboardEnabled = true;
+        private bool _useNaturalScrolling = false;
+        private bool _invertYAxis = false;
 
         // 添加异常移动检测相关字段
         private const int ABNORMAL_MOVEMENT_THRESHOLD = 10; // 连续向左上角移动的次数阈值
@@ -108,6 +110,32 @@ namespace GearVRController.ViewModels
                 if (_isKeyboardEnabled != value)
                 {
                     _isKeyboardEnabled = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        public bool UseNaturalScrolling
+        {
+            get => _useNaturalScrolling;
+            set
+            {
+                if (_useNaturalScrolling != value)
+                {
+                    _useNaturalScrolling = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        public bool InvertYAxis
+        {
+            get => _invertYAxis;
+            set
+            {
+                if (_invertYAxis != value)
+                {
+                    _invertYAxis = value;
                     OnPropertyChanged();
                 }
             }
@@ -228,6 +256,8 @@ namespace GearVRController.ViewModels
             IsMouseEnabled = _settingsService.IsMouseEnabled;
             IsKeyboardEnabled = _settingsService.IsKeyboardEnabled;
             IsControlEnabled = _settingsService.IsControlEnabled;
+            UseNaturalScrolling = _settingsService.UseNaturalScrolling;
+            InvertYAxis = _settingsService.InvertYAxis;
         }
 
         private void RegisterHotKeys()
@@ -350,6 +380,12 @@ namespace GearVRController.ViewModels
                 double rawNormalizedX = Math.Max(-1.0, Math.Min(1.0, deltaX / MAX_RADIUS));
                 double rawNormalizedY = Math.Max(-1.0, Math.Min(1.0, -deltaY / MAX_RADIUS)); // Y轴翻转
                 
+                // 应用Y轴反转设置
+                if (!_invertYAxis)
+                {
+                    rawNormalizedY = -rawNormalizedY;
+                }
+                
                 System.Diagnostics.Debug.WriteLine($"[未校准归一化] 中心点偏移: ({deltaX:F2}, {deltaY:F2}) => 归一化: ({rawNormalizedX:F2}, {rawNormalizedY:F2})");
                 return (rawNormalizedX, rawNormalizedY);
             }
@@ -382,6 +418,12 @@ namespace GearVRController.ViewModels
             // 归一化坐标，限制在[-1, 1]范围内
             double normalizedX = Math.Max(-1.0, Math.Min(1.0, calibratedDeltaX / xScale));
             double normalizedY = Math.Max(-1.0, Math.Min(1.0, -calibratedDeltaY / yScale)); // 注意Y轴反转
+
+            // 应用Y轴反转设置
+            if (!_invertYAxis)
+            {
+                normalizedY = -normalizedY;
+            }
 
             // 应用非线性曲线，使小幅度移动更精确
             normalizedX = Math.Sign(normalizedX) * Math.Pow(Math.Abs(normalizedX), 1.5);
@@ -437,7 +479,21 @@ namespace GearVRController.ViewModels
             // 再次确认移动不是因为小数据误差
             if (Math.Abs(finalDeltaX) > 0 || Math.Abs(finalDeltaY) > 0)
             {
-                _inputSimulator.SimulateMouseMovement(finalDeltaX, finalDeltaY);
+                // 如果是滚轮移动，应用自然滚动设置
+                if (data.TouchpadButton)
+                {
+                    // 将Y轴移动转换为滚轮移动
+                    int wheelDelta = (int)(finalDeltaY * 2); // 增加滚动速度
+                    if (_useNaturalScrolling)
+                    {
+                        wheelDelta = -wheelDelta; // 反转滚动方向
+                    }
+                    _inputSimulator.SimulateWheelMovement(wheelDelta);
+                }
+                else
+                {
+                    _inputSimulator.SimulateMouseMovement(finalDeltaX, finalDeltaY);
+                }
             }
         }
 
@@ -513,6 +569,8 @@ namespace GearVRController.ViewModels
             IsMouseEnabled = _settingsService.IsMouseEnabled;
             IsKeyboardEnabled = _settingsService.IsKeyboardEnabled;
             IsControlEnabled = _settingsService.IsControlEnabled;
+            UseNaturalScrolling = _settingsService.UseNaturalScrolling;
+            InvertYAxis = _settingsService.InvertYAxis;
         }
 
         public void ApplyCalibrationData(TouchpadCalibrationData calibrationData)

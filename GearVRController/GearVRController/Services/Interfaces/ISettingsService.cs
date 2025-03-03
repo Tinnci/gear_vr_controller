@@ -8,6 +8,8 @@ namespace GearVRController.Services.Interfaces
         bool IsMouseEnabled { get; set; }
         bool IsKeyboardEnabled { get; set; }
         bool IsControlEnabled { get; set; }
+        bool UseNaturalScrolling { get; set; }
+        bool InvertYAxis { get; set; }
         void ResetToDefaults();
         Task SaveSettingsAsync();
         Task LoadSettingsAsync();

@@ -11,6 +11,8 @@ namespace GearVRController.Services
         private const string IS_MOUSE_ENABLED_KEY = "IsMouseEnabled";
         private const string IS_KEYBOARD_ENABLED_KEY = "IsKeyboardEnabled";
         private const string IS_CONTROL_ENABLED_KEY = "IsControlEnabled";
+        private const string USE_NATURAL_SCROLLING_KEY = "UseNaturalScrolling";
+        private const string INVERT_Y_AXIS_KEY = "InvertYAxis";
 
         private readonly ApplicationDataContainer _localSettings;
 
@@ -44,6 +46,18 @@ namespace GearVRController.Services
             set => SaveSetting(IS_CONTROL_ENABLED_KEY, value);
         }
 
+        public bool UseNaturalScrolling
+        {
+            get => GetSetting(USE_NATURAL_SCROLLING_KEY, false);
+            set => SaveSetting(USE_NATURAL_SCROLLING_KEY, value);
+        }
+
+        public bool InvertYAxis
+        {
+            get => GetSetting(INVERT_Y_AXIS_KEY, false);
+            set => SaveSetting(INVERT_Y_AXIS_KEY, value);
+        }
+
         public Task LoadSettingsAsync()
         {
             // 设置已经在属性访问器中加载
@@ -62,6 +76,8 @@ namespace GearVRController.Services
             IsMouseEnabled = true;
             IsKeyboardEnabled = true;
             IsControlEnabled = true;
+            UseNaturalScrolling = false;
+            InvertYAxis = false;
         }
 
         private void LoadDefaultSettings()

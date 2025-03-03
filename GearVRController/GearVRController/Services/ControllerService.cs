@@ -8,11 +8,13 @@ namespace GearVRController.Services
     public class ControllerService : IControllerService
     {
         private readonly IBluetoothService _bluetoothService;
+        private readonly ISettingsService _settingsService;
         public event EventHandler<ControllerData>? ControllerDataProcessed;
 
-        public ControllerService(IBluetoothService bluetoothService)
+        public ControllerService(IBluetoothService bluetoothService, ISettingsService settingsService)
         {
             _bluetoothService = bluetoothService;
+            _settingsService = settingsService;
         }
 
         public Task InitializeAsync()
@@ -69,6 +71,13 @@ namespace GearVRController.Services
             // 更新时间戳
             data.Timestamp = DateTime.Now;
 
+            // 应用Y轴翻转（如果启用）
+            if (_settingsService.InvertYAxis)
+            {
+                // 在0-1023范围内翻转Y轴
+                data.AxisY = 1023 - data.AxisY;
+            }
+
             // 处理触摸状态 - 更新判断逻辑，避免误判
             // 注意：当AxisX和AxisY都很小（接近零）且TouchpadButton为false时，认为没有触摸
             const int TOUCH_THRESHOLD = 10; // 小于这个阈值且没有按下TouchpadButton时，认为是误差，没有触摸
@@ -79,6 +88,17 @@ namespace GearVRController.Services
             data.NoButton = !data.TriggerButton && !data.HomeButton &&
                            !data.BackButton && !data.TouchpadButton &&
                            !data.VolumeUpButton && !data.VolumeDownButton;
+        }
+
+        // 处理滚轮移动，应用自然滚动设置
+        public int ProcessWheelMovement(int delta)
+        {
+            // 如果启用了自然滚动，则反转滚动方向
+            if (_settingsService.UseNaturalScrolling)
+            {
+                return -delta;
+            }
+            return delta;
         }
 
         protected virtual void OnControllerDataProcessed(ControllerData data)
