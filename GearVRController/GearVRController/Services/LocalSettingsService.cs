@@ -13,6 +13,7 @@ namespace GearVRController.Services
         private const string IS_CONTROL_ENABLED_KEY = "IsControlEnabled";
         private const string USE_NATURAL_SCROLLING_KEY = "UseNaturalScrolling";
         private const string INVERT_Y_AXIS_KEY = "InvertYAxis";
+        private const string ENABLE_AUTO_CALIBRATION_KEY = "EnableAutoCalibration";
 
         private readonly ApplicationDataContainer _localSettings;
 
@@ -58,6 +59,12 @@ namespace GearVRController.Services
             set => SaveSetting(INVERT_Y_AXIS_KEY, value);
         }
 
+        public bool EnableAutoCalibration
+        {
+            get => GetSetting(ENABLE_AUTO_CALIBRATION_KEY, true);
+            set => SaveSetting(ENABLE_AUTO_CALIBRATION_KEY, value);
+        }
+
         public Task LoadSettingsAsync()
         {
             // 设置已经在属性访问器中加载
@@ -78,6 +85,7 @@ namespace GearVRController.Services
             IsControlEnabled = true;
             UseNaturalScrolling = false;
             InvertYAxis = false;
+            EnableAutoCalibration = true;
         }
 
         private void LoadDefaultSettings()

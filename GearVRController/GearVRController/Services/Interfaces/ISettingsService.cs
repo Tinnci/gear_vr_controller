@@ -10,6 +10,7 @@ namespace GearVRController.Services.Interfaces
         bool IsControlEnabled { get; set; }
         bool UseNaturalScrolling { get; set; }
         bool InvertYAxis { get; set; }
+        bool EnableAutoCalibration { get; set; }
         void ResetToDefaults();
         Task SaveSettingsAsync();
         Task LoadSettingsAsync();

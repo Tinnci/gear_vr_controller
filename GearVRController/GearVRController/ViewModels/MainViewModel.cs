@@ -37,6 +37,7 @@ namespace GearVRController.ViewModels
         private bool _isKeyboardEnabled = true;
         private bool _useNaturalScrolling = false;
         private bool _invertYAxis = false;
+        private bool _enableAutoCalibration = true;
 
         // 添加异常移动检测相关字段
         private const int ABNORMAL_MOVEMENT_THRESHOLD = 10; // 连续向左上角移动的次数阈值
@@ -228,6 +229,26 @@ namespace GearVRController.ViewModels
         // 提供一个公共属性来访问校准数据
         public TouchpadCalibrationData? CalibrationData => _calibrationData;
 
+        public bool EnableAutoCalibration
+        {
+            get => _enableAutoCalibration;
+            set
+            {
+                if (_enableAutoCalibration != value)
+                {
+                    _enableAutoCalibration = value;
+                    OnPropertyChanged();
+                    
+                    // 如果禁用自动校准，重置相关计数器
+                    if (!value)
+                    {
+                        _abnormalMovementCount = 0;
+                        _isAutoCalibrating = false;
+                    }
+                }
+            }
+        }
+
         public MainViewModel(
             IBluetoothService bluetoothService,
             IControllerService controllerService,
@@ -258,6 +279,7 @@ namespace GearVRController.ViewModels
             IsControlEnabled = _settingsService.IsControlEnabled;
             UseNaturalScrolling = _settingsService.UseNaturalScrolling;
             InvertYAxis = _settingsService.InvertYAxis;
+            EnableAutoCalibration = _settingsService.EnableAutoCalibration;
         }
 
         private void RegisterHotKeys()
@@ -571,6 +593,7 @@ namespace GearVRController.ViewModels
             IsControlEnabled = _settingsService.IsControlEnabled;
             UseNaturalScrolling = _settingsService.UseNaturalScrolling;
             InvertYAxis = _settingsService.InvertYAxis;
+            EnableAutoCalibration = _settingsService.EnableAutoCalibration;
         }
 
         public void ApplyCalibrationData(TouchpadCalibrationData calibrationData)
@@ -581,6 +604,12 @@ namespace GearVRController.ViewModels
 
         private bool CheckAbnormalMovement(double deltaX, double deltaY)
         {
+            // 如果禁用了自动校准，直接返回false
+            if (!_enableAutoCalibration)
+            {
+                return false;
+            }
+
             // 检查是否需要重置计数器
             if ((DateTime.Now - _lastAbnormalMovementTime).TotalSeconds > RESET_INTERVAL_SECONDS)
             {
