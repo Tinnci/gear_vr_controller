@@ -65,6 +65,16 @@ namespace GearVRController.ViewModels
         private readonly List<TouchpadPoint> _touchpadHistory = new List<TouchpadPoint>();
         private const int MAX_TOUCHPAD_HISTORY = 50;
 
+        // 添加蓝牙连接相关字段
+        private const int CONNECTION_CHECK_INTERVAL_MS = 5000; // 每5秒检查一次连接状态
+        private const int MAX_RECONNECT_ATTEMPTS = 3; // 最大重连次数
+        private const int RECONNECT_DELAY_MS = 2000; // 重连延迟时间
+        private DispatcherTimer? _connectionCheckTimer;
+        private ulong _lastConnectedDeviceAddress;
+        private int _reconnectAttempts;
+        private bool _isReconnecting;
+        private DateTime _lastConnectionAttempt = DateTime.MinValue;
+
         public event PropertyChangedEventHandler? PropertyChanged;
         public event EventHandler<ControllerData>? ControllerDataReceived;
         public event EventHandler? AutoCalibrationRequired;
@@ -341,8 +351,65 @@ namespace GearVRController.ViewModels
             _bluetoothService.DataReceived += BluetoothService_DataReceived;
             _bluetoothService.ConnectionStatusChanged += BluetoothService_ConnectionStatusChanged;
 
+            // 初始化连接状态检查定时器
+            InitializeConnectionCheck();
+
             // 加载设置
             LoadSettings();
+        }
+
+        private void InitializeConnectionCheck()
+        {
+            _connectionCheckTimer = new DispatcherTimer();
+            _connectionCheckTimer.Interval = TimeSpan.FromMilliseconds(CONNECTION_CHECK_INTERVAL_MS);
+            _connectionCheckTimer.Tick += ConnectionCheckTimer_Tick;
+            _connectionCheckTimer.Start();
+        }
+
+        private async void ConnectionCheckTimer_Tick(object? sender, object e)
+        {
+            if (!_isConnected && !_isConnecting && !_isReconnecting && _lastConnectedDeviceAddress != 0)
+            {
+                // 检查是否需要等待重连延迟
+                if ((DateTime.Now - _lastConnectionAttempt).TotalMilliseconds < RECONNECT_DELAY_MS)
+                {
+                    return;
+                }
+
+                // 检查重连次数是否超过限制
+                if (_reconnectAttempts >= MAX_RECONNECT_ATTEMPTS)
+                {
+                    StatusMessage = "重连次数超过限制，请手动重新连接";
+                    _connectionCheckTimer?.Stop();
+                    return;
+                }
+
+                await TryReconnectAsync();
+            }
+        }
+
+        private async Task TryReconnectAsync()
+        {
+            if (_isReconnecting) return;
+
+            _isReconnecting = true;
+            _reconnectAttempts++;
+            _lastConnectionAttempt = DateTime.Now;
+
+            try
+            {
+                StatusMessage = $"正在尝试重新连接... (第 {_reconnectAttempts} 次)";
+                await ConnectAsync(_lastConnectedDeviceAddress);
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = $"重连失败: {ex.Message}";
+                System.Diagnostics.Debug.WriteLine($"重连失败: {ex}");
+            }
+            finally
+            {
+                _isReconnecting = false;
+            }
         }
 
         private async void LoadSettings()
@@ -375,15 +442,21 @@ namespace GearVRController.ViewModels
 
             IsConnecting = true;
             StatusMessage = "正在连接...";
+            _lastConnectedDeviceAddress = deviceAddress;
+            _lastConnectionAttempt = DateTime.Now;
 
             try
             {
                 await _bluetoothService.ConnectAsync(deviceAddress);
                 await _controllerService.InitializeAsync();
+                _reconnectAttempts = 0; // 连接成功后重置重连计数
+                _connectionCheckTimer?.Start(); // 确保定时器在连接成功后启动
             }
             catch (Exception ex)
             {
                 StatusMessage = $"连接失败: {ex.Message}";
+                System.Diagnostics.Debug.WriteLine($"连接失败: {ex}");
+                throw;
             }
             finally
             {
@@ -395,6 +468,9 @@ namespace GearVRController.ViewModels
         {
             _bluetoothService.Disconnect();
             StatusMessage = "已断开连接";
+            _lastConnectedDeviceAddress = 0;
+            _reconnectAttempts = 0;
+            _connectionCheckTimer?.Stop();
         }
 
         private void BluetoothService_ConnectionStatusChanged(object? sender, BluetoothConnectionStatus status)
@@ -402,7 +478,26 @@ namespace GearVRController.ViewModels
             _dispatcherQueue.TryEnqueue(() =>
             {
                 IsConnected = status == BluetoothConnectionStatus.Connected;
-                StatusMessage = IsConnected ? "已连接" : "已断开连接";
+                
+                // 更新状态消息
+                if (IsConnected)
+                {
+                    StatusMessage = "已连接";
+                    _reconnectAttempts = 0;
+                    _connectionCheckTimer?.Start();
+                }
+                else
+                {
+                    if (_isReconnecting)
+                    {
+                        StatusMessage = $"连接断开，正在尝试重新连接... (第 {_reconnectAttempts} 次)";
+                    }
+                    else
+                    {
+                        StatusMessage = "连接已断开";
+                    }
+                }
+                
                 UpdateControlState();
             });
         }
