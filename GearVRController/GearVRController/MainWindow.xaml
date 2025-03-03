@@ -49,6 +49,10 @@
                 <Button x:Name="ToggleControlButton"
                         Content="{Binding IsControlEnabled, Converter={StaticResource BoolToControlStateConverter}}"
                         Click="ToggleControlButton_Click"/>
+                <Button x:Name="TouchpadVisualizerButton"
+                        Content="触摸板可视化"
+                        Click="TouchpadVisualizerButton_Click"
+                        IsEnabled="{Binding IsConnected}"/>
             </StackPanel>
 
             <StackPanel Spacing="8">

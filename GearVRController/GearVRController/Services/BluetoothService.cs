@@ -232,37 +232,78 @@ namespace GearVRController.Services
 
             try
             {
-                // 解析数据
-                data.AxisX = (((byteArray[54] & 0xF) << 6) + ((byteArray[55] & 0xFC) >> 2)) & 0x3FF;
-                data.AxisY = (((byteArray[55] & 0x3) << 8) + ((byteArray[56] & 0xFF) >> 0)) & 0x3FF;
+                // 解析触摸板数据 - 增加安全检查
+                if (byteArray.Length >= 57)
+                {
+                    try {
+                        data.AxisX = (((byteArray[54] & 0xF) << 6) + ((byteArray[55] & 0xFC) >> 2)) & 0x3FF;
+                        data.AxisY = (((byteArray[55] & 0x3) << 8) + ((byteArray[56] & 0xFF) >> 0)) & 0x3FF;
+                    }
+                    catch (Exception ex) {
+                        System.Diagnostics.Debug.WriteLine($"触摸板数据解析错误: {ex.Message}");
+                        // 设置默认值
+                        data.AxisX = 0;
+                        data.AxisY = 0;
+                    }
+                }
 
                 // 确保其他数据索引也在有效范围内
                 if (byteArray.Length >= 16) // 加速度计和陀螺仪数据
                 {
-                    data.AccelX = (int)(((byteArray[4] << 8) + byteArray[5]) * 10000.0 * 9.80665 / 2048.0);
-                    data.AccelY = (int)(((byteArray[6] << 8) + byteArray[7]) * 10000.0 * 9.80665 / 2048.0);
-                    data.AccelZ = (int)(((byteArray[8] << 8) + byteArray[9]) * 10000.0 * 9.80665 / 2048.0);
-                    data.GyroX = (int)(((byteArray[10] << 8) + byteArray[11]) * 10000.0 * 0.017453292 / 14.285);
-                    data.GyroY = (int)(((byteArray[12] << 8) + byteArray[13]) * 10000.0 * 0.017453292 / 14.285);
-                    data.GyroZ = (int)(((byteArray[14] << 8) + byteArray[15]) * 10000.0 * 0.017453292 / 14.285);
+                    try {
+                        // 使用short类型进行转换，避免溢出
+                        short accelXRaw = (short)((byteArray[4] << 8) | byteArray[5]);
+                        short accelYRaw = (short)((byteArray[6] << 8) | byteArray[7]);
+                        short accelZRaw = (short)((byteArray[8] << 8) | byteArray[9]);
+                        short gyroXRaw = (short)((byteArray[10] << 8) | byteArray[11]);
+                        short gyroYRaw = (short)((byteArray[12] << 8) | byteArray[13]);
+                        short gyroZRaw = (short)((byteArray[14] << 8) | byteArray[15]);
+                        
+                        // 转换为物理单位
+                        data.AccelX = accelXRaw * 9.80665f / 2048.0f;
+                        data.AccelY = accelYRaw * 9.80665f / 2048.0f;
+                        data.AccelZ = accelZRaw * 9.80665f / 2048.0f;
+                        data.GyroX = gyroXRaw * 0.017453292f / 14.285f;
+                        data.GyroY = gyroYRaw * 0.017453292f / 14.285f;
+                        data.GyroZ = gyroZRaw * 0.017453292f / 14.285f;
+                    }
+                    catch (Exception ex) {
+                        System.Diagnostics.Debug.WriteLine($"IMU数据解析错误: {ex.Message}");
+                    }
                 }
 
                 if (byteArray.Length >= 38) // 磁力计数据
                 {
-                    data.MagnetX = (int)(((byteArray[32] << 8) + byteArray[33]) * 0.06);
-                    data.MagnetY = (int)(((byteArray[34] << 8) + byteArray[35]) * 0.06);
-                    data.MagnetZ = (int)(((byteArray[36] << 8) + byteArray[37]) * 0.06);
+                    try {
+                        short magXRaw = (short)((byteArray[32] << 8) | byteArray[33]);
+                        short magYRaw = (short)((byteArray[34] << 8) | byteArray[35]);
+                        short magZRaw = (short)((byteArray[36] << 8) | byteArray[37]);
+                        
+                        data.MagnetX = (int)(magXRaw * 0.06);
+                        data.MagnetY = (int)(magYRaw * 0.06);
+                        data.MagnetZ = (int)(magZRaw * 0.06);
+                    }
+                    catch (Exception ex) {
+                        System.Diagnostics.Debug.WriteLine($"磁力计数据解析错误: {ex.Message}");
+                    }
                 }
 
                 if (byteArray.Length >= 59) // 按钮状态
                 {
-                    data.TriggerButton = (byteArray[58] & 1) == 1;
-                    data.HomeButton = (byteArray[58] & 2) == 2;
-                    data.BackButton = (byteArray[58] & 4) == 4;
-                    data.TouchpadButton = (byteArray[58] & 8) == 8;
-                    data.VolumeUpButton = (byteArray[58] & 16) == 16;
-                    data.VolumeDownButton = (byteArray[58] & 32) == 32;
-                    data.NoButton = (byteArray[58] & 64) == 64;
+                    try {
+                        byte buttonState = byteArray[58];
+                        data.TriggerButton = (buttonState & 1) == 1;
+                        data.HomeButton = (buttonState & 2) == 2;
+                        data.BackButton = (buttonState & 4) == 4;
+                        data.TouchpadButton = (buttonState & 8) == 8;
+                        data.VolumeUpButton = (buttonState & 16) == 16;
+                        data.VolumeDownButton = (buttonState & 32) == 32;
+                        data.NoButton = (buttonState & 64) == 64;
+                        data.TouchpadTouched = data.AxisX != 0 || data.AxisY != 0;
+                    }
+                    catch (Exception ex) {
+                        System.Diagnostics.Debug.WriteLine($"按钮状态解析错误: {ex.Message}");
+                    }
                 }
 
                 // 记录成功解析的数据

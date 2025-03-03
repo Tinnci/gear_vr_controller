@@ -11,6 +11,7 @@ using Microsoft.UI.Dispatching;
 using Windows.Devices.Bluetooth;
 using System.Collections.Generic;
 using System.Linq;
+using EnumsNS = GearVRController.Enums; // 添加命名空间别名
 
 namespace GearVRController.ViewModels
 {
@@ -50,6 +51,11 @@ namespace GearVRController.ViewModels
         private Queue<(double X, double Y)> _movementBuffer = new Queue<(double X, double Y)>();
         private DateTime _lastMovementTime = DateTime.MinValue;
         private const double MOVEMENT_TIMEOUT_MS = 100; // 100ms timeout for movement buffer
+
+        // 在类的字段部分添加触摸板可视化相关的字段
+        private EnumsNS.TouchpadGesture _lastGesture = EnumsNS.TouchpadGesture.None; // 使用命名空间别名
+        private readonly List<TouchpadPoint> _touchpadHistory = new List<TouchpadPoint>();
+        private const int MAX_TOUCHPAD_HISTORY = 50;
 
         public event PropertyChangedEventHandler? PropertyChanged;
         public event EventHandler<ControllerData>? ControllerDataReceived;
@@ -123,7 +129,7 @@ namespace GearVRController.ViewModels
         public string StatusMessage
         {
             get => _statusMessage;
-            private set
+            set
             {
                 if (_statusMessage != value)
                 {
@@ -175,6 +181,24 @@ namespace GearVRController.ViewModels
                 }
             }
         }
+
+        public EnumsNS.TouchpadGesture LastGesture // 使用命名空间别名
+        {
+            get => _lastGesture;
+            private set
+            {
+                if (_lastGesture != value)
+                {
+                    _lastGesture = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        public IReadOnlyList<TouchpadPoint> TouchpadHistory => _touchpadHistory.AsReadOnly();
+
+        // 提供一个公共属性来访问校准数据
+        public TouchpadCalibrationData? CalibrationData => _calibrationData;
 
         public MainViewModel(
             IBluetoothService bluetoothService,
@@ -308,7 +332,7 @@ namespace GearVRController.ViewModels
             double deltaY = rawY - _calibrationData.CenterY;
 
             // 应用死区
-            const double DEAD_ZONE = 5.0; // 可以根据需要调整
+            const double DEAD_ZONE = 8.0; // 增加死区范围，减少抖动
             if (Math.Abs(deltaX) < DEAD_ZONE)
                 deltaX = 0;
             if (Math.Abs(deltaY) < DEAD_ZONE)
@@ -318,18 +342,22 @@ namespace GearVRController.ViewModels
             if (deltaX == 0 && deltaY == 0)
                 return (0, 0);
 
-            // 计算归一化系数
+            // 计算归一化系数，确保不会除以零
             double xScale = deltaX > 0 ?
-                (_calibrationData.MaxX - _calibrationData.CenterX) :
-                (_calibrationData.CenterX - _calibrationData.MinX);
+                Math.Max(10, _calibrationData.MaxX - _calibrationData.CenterX) :
+                Math.Max(10, _calibrationData.CenterX - _calibrationData.MinX);
 
             double yScale = deltaY > 0 ?
-                (_calibrationData.MaxY - _calibrationData.CenterY) :
-                (_calibrationData.CenterY - _calibrationData.MinY);
+                Math.Max(10, _calibrationData.MaxY - _calibrationData.CenterY) :
+                Math.Max(10, _calibrationData.CenterY - _calibrationData.MinY);
 
-            // 归一化坐标
-            double normalizedX = deltaX / xScale;
-            double normalizedY = deltaY / yScale;
+            // 归一化坐标，限制在[-1, 1]范围内
+            double normalizedX = Math.Max(-1.0, Math.Min(1.0, deltaX / xScale));
+            double normalizedY = Math.Max(-1.0, Math.Min(1.0, deltaY / yScale));
+
+            // 应用非线性曲线，使小幅度移动更精确
+            normalizedX = Math.Sign(normalizedX) * Math.Pow(Math.Abs(normalizedX), 1.5);
+            normalizedY = Math.Sign(normalizedY) * Math.Pow(Math.Abs(normalizedY), 1.5);
 
             // 应用灵敏度
             normalizedX *= _mouseSensitivity;
@@ -350,15 +378,25 @@ namespace GearVRController.ViewModels
             var (smoothX, smoothY) = SmoothMovement(calibratedX, calibratedY);
 
             // 计算最终的鼠标移动
-            const double MOVEMENT_SCALE = 5.0; // 可以根据需要调整
-            int finalDeltaX = (int)(smoothX * MOVEMENT_SCALE);
-            int finalDeltaY = (int)(smoothY * MOVEMENT_SCALE);
+            const double MOVEMENT_SCALE = 4.0; // 降低移动比例，使控制更精确
+            
+            // 应用自适应缩放 - 小幅度移动更精确，大幅度移动更快
+            double adaptiveScale = MOVEMENT_SCALE * (0.5 + Math.Min(1.0, Math.Sqrt(smoothX * smoothX + smoothY * smoothY)));
+            
+            int finalDeltaX = (int)(smoothX * adaptiveScale);
+            int finalDeltaY = (int)(smoothY * adaptiveScale);
 
-            // 检查是否需要移动鼠标
-            if (finalDeltaX != 0 || finalDeltaY != 0)
+            // 记录触摸板历史数据
+            RecordTouchpadHistory(smoothX, smoothY, data.TouchpadButton);
+
+            // 检查异常移动
+            if (CheckAbnormalMovement(finalDeltaX, finalDeltaY))
             {
-                _inputSimulator.SimulateMouseMovement(finalDeltaX, finalDeltaY);
+                TriggerAutoCalibration();
+                return;
             }
+            
+            _inputSimulator.SimulateMouseMovement(finalDeltaX, finalDeltaY);
         }
 
         private void HandleButtonInput(ControllerData data)
@@ -451,7 +489,7 @@ namespace GearVRController.ViewModels
 
             // 计算移动方向
             double magnitude = Math.Sqrt(deltaX * deltaX + deltaY * deltaY);
-            if (magnitude < 1) // 如果移动太小，不计入
+            if (magnitude < 3) // 增加阈值，忽略小幅度移动
             {
                 return false;
             }
@@ -462,8 +500,10 @@ namespace GearVRController.ViewModels
 
             // 检查是否向左上方移动（大约-135度方向）
             // 理想的左上方向量是 (-0.707, -0.707)
-            if (normalizedX < -0.707 - DIRECTION_TOLERANCE || normalizedX > -0.707 + DIRECTION_TOLERANCE ||
-                normalizedY < -0.707 - DIRECTION_TOLERANCE || normalizedY > -0.707 + DIRECTION_TOLERANCE)
+            // 增加容差范围，减少误判
+            double tolerance = DIRECTION_TOLERANCE * 1.5; // 增加50%的容差
+            if (normalizedX < -0.707 - tolerance || normalizedX > -0.707 + tolerance ||
+                normalizedY < -0.707 - tolerance || normalizedY > -0.707 + tolerance)
             {
                 // 如果不是向左上方移动，重置计数
                 _abnormalMovementCount = 0;
@@ -474,8 +514,8 @@ namespace GearVRController.ViewModels
             _abnormalMovementCount++;
             _lastAbnormalMovementTime = DateTime.Now;
 
-            // 如果连续向左上角移动次数超过阈值，返回true
-            return _abnormalMovementCount >= ABNORMAL_MOVEMENT_THRESHOLD;
+            // 增加阈值，需要更多次数的异常移动才触发校准
+            return _abnormalMovementCount >= (ABNORMAL_MOVEMENT_THRESHOLD + 5);
         }
 
         private void TriggerAutoCalibration()
@@ -526,6 +566,89 @@ namespace GearVRController.ViewModels
             // 更新鼠标和键盘控制状态
             IsMouseEnabled = shouldBeEnabled && _isMouseEnabled;
             IsKeyboardEnabled = shouldBeEnabled && _isKeyboardEnabled;
+        }
+
+        // 添加记录触摸板历史的方法
+        private void RecordTouchpadHistory(double x, double y, bool isPressed)
+        {
+            if (x == 0 && y == 0 && !isPressed)
+                return; // 忽略无意义的数据
+            
+            var point = new TouchpadPoint(x, y, isPressed);
+            _touchpadHistory.Add(point);
+            
+            // 维持最大历史点数
+            while (_touchpadHistory.Count > MAX_TOUCHPAD_HISTORY)
+            {
+                _touchpadHistory.RemoveAt(0);
+            }
+            
+            // 检测手势
+            DetectGesture();
+        }
+
+        // 添加手势检测方法
+        private void DetectGesture()
+        {
+            if (_touchpadHistory.Count < 10)
+            {
+                LastGesture = EnumsNS.TouchpadGesture.None; // 使用命名空间别名
+                return;
+            }
+            
+            // 获取最近的10个点
+            var recentPoints = _touchpadHistory.Skip(_touchpadHistory.Count - 10).ToList();
+            
+            // 计算起点和终点
+            var startPoint = recentPoints.First();
+            var endPoint = recentPoints.Last();
+            
+            // 计算移动距离
+            double deltaX = endPoint.X - startPoint.X;
+            double deltaY = endPoint.Y - startPoint.Y;
+            double distance = Math.Sqrt(deltaX * deltaX + deltaY * deltaY);
+            
+            // 如果移动太小，不认为是手势
+            if (distance < 0.3)
+            {
+                LastGesture = EnumsNS.TouchpadGesture.None; // 使用命名空间别名
+                return;
+            }
+            
+            // 根据移动方向判断手势
+            double angle = Math.Atan2(deltaY, deltaX);
+            
+            // 角度转换为度数
+            double degrees = angle * 180 / Math.PI;
+            
+            // 调整为0-360度
+            if (degrees < 0)
+                degrees += 360;
+            
+            // 根据角度判断方向
+            if (degrees >= 315 || degrees < 45)
+            {
+                LastGesture = EnumsNS.TouchpadGesture.SwipeRight; // 使用命名空间别名
+            }
+            else if (degrees >= 45 && degrees < 135)
+            {
+                LastGesture = EnumsNS.TouchpadGesture.SwipeDown; // 使用命名空间别名
+            }
+            else if (degrees >= 135 && degrees < 225)
+            {
+                LastGesture = EnumsNS.TouchpadGesture.SwipeLeft; // 使用命名空间别名
+            }
+            else // degrees >= 225 && degrees < 315
+            {
+                LastGesture = EnumsNS.TouchpadGesture.SwipeUp; // 使用命名空间别名
+            }
+        }
+
+        // 添加清除触摸板历史的方法
+        public void ClearTouchpadHistory()
+        {
+            _touchpadHistory.Clear();
+            LastGesture = EnumsNS.TouchpadGesture.None; // 使用命名空间别名
         }
     }
 }
