@@ -137,8 +137,19 @@ namespace GearVRController.Views
 
         private void UpdateVisualizationLayout()
         {
+            // 确保Canvas有合理的尺寸
+            if (TouchpadCanvas.ActualWidth <= 20 || TouchpadCanvas.ActualHeight <= 20)
+            {
+                Debug.WriteLine("画布尺寸太小，暂不更新布局");
+                return; // 画布尺寸太小，不进行更新
+            }
+            
             // 计算触摸板显示区域的尺寸（取宽度和高度的较小值）
+            // 考虑到实际触摸板范围是0~315，我们设置一个合理的尺寸
             _touchpadSize = Math.Min(TouchpadCanvas.ActualWidth, TouchpadCanvas.ActualHeight) - 20;
+            
+            // 确保尺寸是正数且合理
+            _touchpadSize = Math.Max(100, Math.Min(500, _touchpadSize));
             
             // 更新坐标轴
             HorizontalLine.X1 = 0;
@@ -151,13 +162,27 @@ namespace GearVRController.Views
             VerticalLine.X2 = TouchpadCanvas.ActualWidth / 2;
             VerticalLine.Y2 = TouchpadCanvas.ActualHeight;
             
-            // 更新触摸板边界圆圈
-            TouchpadBoundary.Width = _touchpadSize;
-            TouchpadBoundary.Height = _touchpadSize;
-            TouchpadBoundary.Margin = new Thickness(
-                (TouchpadCanvas.ActualWidth - _touchpadSize) / 2,
-                (TouchpadCanvas.ActualHeight - _touchpadSize) / 2,
-                0, 0);
+            try
+            {
+                // 更新触摸板边界圆圈
+                TouchpadBoundary.Width = _touchpadSize;
+                TouchpadBoundary.Height = _touchpadSize;
+                TouchpadBoundary.Margin = new Thickness(
+                    (TouchpadCanvas.ActualWidth - _touchpadSize) / 2,
+                    (TouchpadCanvas.ActualHeight - _touchpadSize) / 2,
+                    0, 0);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"设置触摸板边界尺寸时出错: {ex.Message}");
+                // 使用更安全的默认值
+                TouchpadBoundary.Width = 300;
+                TouchpadBoundary.Height = 300;
+                TouchpadBoundary.Margin = new Thickness(
+                    Math.Max(0, (TouchpadCanvas.ActualWidth - 300) / 2),
+                    Math.Max(0, (TouchpadCanvas.ActualHeight - 300) / 2),
+                    0, 0);
+            }
             
             // 清除历史轨迹
             ClearHistory();
@@ -255,8 +280,28 @@ namespace GearVRController.Views
         {
             _dispatcherQueue.TryEnqueue(() =>
             {
+                double processedX = normalizedX;
+                double processedY = normalizedY;
+                
+                // 如果提供的是原始值（0~315范围），先进行归一化处理
+                if (normalizedX > 2.0 || normalizedY > 2.0)
+                {
+                    // 原始值范围是0~315，其中:
+                    // X轴：左边0到右边315
+                    // Y轴：上面0到下面315
+                    const double MAX_VALUE = 315.0; // 最大值
+                    
+                    // 将0~315转换为-1~1范围
+                    // X轴：0(左边)=>-1，315(右边)=>1
+                    // Y轴：0(上面)=>1，315(下面)=>-1 (注意Y轴方向取反)
+                    processedX = Math.Max(-1.0, Math.Min(1.0, (normalizedX / MAX_VALUE) * 2.0 - 1.0));
+                    processedY = Math.Max(-1.0, Math.Min(1.0, -((normalizedY / MAX_VALUE) * 2.0 - 1.0))); // Y轴翻转
+                    
+                    Debug.WriteLine($"触摸板数据转换: 原始值(X={normalizedX}, Y={normalizedY}) => 归一化(X={processedX:F2}, Y={processedY:F2})");
+                }
+                
                 // 记录历史
-                var point = new TouchpadPoint(normalizedX, normalizedY, isPressed);
+                var point = new TouchpadPoint(processedX, processedY, isPressed);
                 _touchpadHistory.Add(point);
                 
                 // 维持最大历史点数
@@ -269,18 +314,18 @@ namespace GearVRController.Views
                 UpdateGestureBuffer(point);
                 
                 // 更新UI
-                UpdateTouchpadVisualization(normalizedX, normalizedY, isPressed);
+                UpdateTouchpadVisualization(processedX, processedY, isPressed);
                 
                 // 检测手势
                 DetectGesture();
                 
                 // 更新状态文本
-                XValueText.Text = normalizedX.ToString("F2");
-                YValueText.Text = normalizedY.ToString("F2");
+                XValueText.Text = processedX.ToString("F2");
+                YValueText.Text = processedY.ToString("F2");
                 PressedStateText.Text = isPressed ? "已按下" : "未按下";
                 GestureText.Text = GetGestureText(gesture);
                 
-                Debug.WriteLine($"触摸板数据更新: X={normalizedX:F2}, Y={normalizedY:F2}, 按下={isPressed}, 手势={_currentGesture}");
+                Debug.WriteLine($"触摸板数据更新: X={processedX:F2}, Y={processedY:F2}, 按下={isPressed}, 手势={_currentGesture}");
             });
         }
 
@@ -685,8 +730,29 @@ namespace GearVRController.Views
         {
             DispatcherQueue.TryEnqueue(() =>
             {
-                _currentX = normalizedX;
-                _currentY = normalizedY;
+                // 检查是否需要转换原始值
+                double processedX = normalizedX;
+                double processedY = normalizedY;
+                
+                // 如果提供的是原始值（0~315范围），先进行归一化处理
+                if (normalizedX > 2.0 || normalizedY > 2.0)
+                {
+                    // 原始值范围是0~315，其中:
+                    // X轴：左边0到右边315
+                    // Y轴：上面0到下面315
+                    const double MAX_VALUE = 315.0; // 最大值
+                    
+                    // 将0~315转换为-1~1范围
+                    // X轴：0(左边)=>-1，315(右边)=>1
+                    // Y轴：0(上面)=>1，315(下面)=>-1 (注意Y轴方向取反)
+                    processedX = Math.Max(-1.0, Math.Min(1.0, (normalizedX / MAX_VALUE) * 2.0 - 1.0));
+                    processedY = Math.Max(-1.0, Math.Min(1.0, -((normalizedY / MAX_VALUE) * 2.0 - 1.0))); // Y轴翻转
+                    
+                    Debug.WriteLine($"UpdateTouchpadData 数据转换: 原始值(X={normalizedX}, Y={normalizedY}) => 归一化(X={processedX:F2}, Y={processedY:F2})");
+                }
+                
+                _currentX = processedX;
+                _currentY = processedY;
                 _isTouching = isTouching;
                 _currentGesture = gesture;
                 

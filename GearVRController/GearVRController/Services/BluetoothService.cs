@@ -236,8 +236,23 @@ namespace GearVRController.Services
                 if (byteArray.Length >= 57)
                 {
                     try {
-                        data.AxisX = (((byteArray[54] & 0xF) << 6) + ((byteArray[55] & 0xFC) >> 2)) & 0x3FF;
-                        data.AxisY = (((byteArray[55] & 0x3) << 8) + ((byteArray[56] & 0xFF) >> 0)) & 0x3FF;
+                        // 解析原始值（0-1023范围）
+                        int rawAxisX = (((byteArray[54] & 0xF) << 6) + ((byteArray[55] & 0xFC) >> 2)) & 0x3FF;
+                        int rawAxisY = (((byteArray[55] & 0x3) << 8) + ((byteArray[56] & 0xFF) >> 0)) & 0x3FF;
+                        
+                        // 根据实际测量范围调整映射
+                        // 先直接记录原始值，便于观察实际范围
+                        data.AxisX = rawAxisX;
+                        data.AxisY = rawAxisY;
+                        
+                        System.Diagnostics.Debug.WriteLine($"[测量模式] 触摸板原始数据: X={rawAxisX}, Y={rawAxisY}");
+                        
+                        // 注释掉之前的映射代码，直到确认实际范围
+                        // 将0-1023范围映射到0-315范围
+                        // data.AxisX = rawAxisX * 315 / 1023;
+                        // data.AxisY = rawAxisY * 315 / 1023;
+                        
+                        // System.Diagnostics.Debug.WriteLine($"触摸板原始数据: X={rawAxisX}, Y={rawAxisY} => 映射后: X={data.AxisX}, Y={data.AxisY}");
                     }
                     catch (Exception ex) {
                         System.Diagnostics.Debug.WriteLine($"触摸板数据解析错误: {ex.Message}");

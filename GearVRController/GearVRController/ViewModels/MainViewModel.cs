@@ -324,8 +324,20 @@ namespace GearVRController.ViewModels
 
         private (double X, double Y) ApplyCalibration(int rawX, int rawY)
         {
+            // 记录原始数据以便观察实际范围
+            System.Diagnostics.Debug.WriteLine($"[校准前] 触摸板原始值: X={rawX}, Y={rawY}");
+            
             if (_calibrationData == null)
-                return (rawX, rawY);
+            {
+                // 如果没有校准数据，将原始值转换为归一化值(-1到1)
+                // 注意：这里暂时使用原始值范围(0-1023)进行计算
+                const double MAX_VALUE = 1023.0;
+                double rawNormalizedX = Math.Max(-1.0, Math.Min(1.0, (rawX / MAX_VALUE) * 2.0 - 1.0));
+                double rawNormalizedY = Math.Max(-1.0, Math.Min(1.0, -((rawY / MAX_VALUE) * 2.0 - 1.0))); // Y轴翻转
+                
+                System.Diagnostics.Debug.WriteLine($"[未校准归一化] X={rawNormalizedX:F2}, Y={rawNormalizedY:F2}");
+                return (rawNormalizedX, rawNormalizedY);
+            }
 
             // 计算相对于中心点的偏移
             double deltaX = rawX - _calibrationData.CenterX;
@@ -353,7 +365,7 @@ namespace GearVRController.ViewModels
 
             // 归一化坐标，限制在[-1, 1]范围内
             double normalizedX = Math.Max(-1.0, Math.Min(1.0, deltaX / xScale));
-            double normalizedY = Math.Max(-1.0, Math.Min(1.0, deltaY / yScale));
+            double normalizedY = Math.Max(-1.0, Math.Min(1.0, -deltaY / yScale)); // 注意Y轴反转
 
             // 应用非线性曲线，使小幅度移动更精确
             normalizedX = Math.Sign(normalizedX) * Math.Pow(Math.Abs(normalizedX), 1.5);
@@ -362,6 +374,8 @@ namespace GearVRController.ViewModels
             // 应用灵敏度
             normalizedX *= _mouseSensitivity;
             normalizedY *= _mouseSensitivity;
+            
+            System.Diagnostics.Debug.WriteLine($"[校准后] X={normalizedX:F2}, Y={normalizedY:F2}");
 
             return (normalizedX, normalizedY);
         }

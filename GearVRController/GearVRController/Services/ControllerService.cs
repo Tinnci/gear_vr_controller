@@ -45,9 +45,13 @@ namespace GearVRController.Services
 
         private bool ValidateControllerData(ControllerData data)
         {
-            // 检查触摸板数据范围
-            if (Math.Abs(data.AxisX) > 127 || Math.Abs(data.AxisY) > 127)
-                return false;
+            // 临时关闭范围检查，以便观察实际的触摸板数据范围
+            // 检查触摸板数据范围（使用原始值范围0-1023）
+            if (data.AxisX < 0 || data.AxisX > 1023 || data.AxisY < 0 || data.AxisY > 1023)
+            {
+                System.Diagnostics.Debug.WriteLine($"[警告] 触摸板数据超出预期范围: X={data.AxisX}, Y={data.AxisY}");
+                // 不返回false，继续处理
+            }
 
             // 检查加速度计数据
             if (float.IsNaN(data.AccelX) || float.IsNaN(data.AccelY) || float.IsNaN(data.AccelZ))
