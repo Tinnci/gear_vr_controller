@@ -48,11 +48,6 @@ namespace GearVRController.ViewModels
         private bool _isCalibrating = false;
         private bool _isConnecting = false;
 
-        private const int MOVEMENT_BUFFER_SIZE = 3;
-        private Queue<(double X, double Y)> _movementBuffer = new Queue<(double X, double Y)>();
-        private DateTime _lastMovementTime = DateTime.MinValue;
-        private const double MOVEMENT_TIMEOUT_MS = 100; // 100ms timeout for movement buffer
-
         // 在类的字段部分添加触摸板可视化相关的字段
         private EnumsNS.TouchpadGesture _lastGesture = EnumsNS.TouchpadGesture.None; // 使用命名空间别名
         private readonly List<TouchpadPoint> _touchpadHistory = new List<TouchpadPoint>();
@@ -284,7 +279,7 @@ namespace GearVRController.ViewModels
                     OnPropertyChanged();
                     if (!value)
                     {
-                        _movementBuffer.Clear();
+                        // 清空缓冲区以适应新的平滑等级
                     }
                 }
             }
@@ -299,7 +294,7 @@ namespace GearVRController.ViewModels
                 {
                     _smoothingLevel = Math.Max(1, Math.Min(value, 10));
                     OnPropertyChanged();
-                    _movementBuffer.Clear(); // 清空缓冲区以适应新的平滑等级
+                    // 清空缓冲区以适应新的平滑等级
                 }
             }
         }
@@ -661,7 +656,6 @@ namespace GearVRController.ViewModels
                 ForceReleaseAllButtons();
                 _leftButtonPressed = false;
                 _rightButtonPressed = false;
-                _movementBuffer.Clear();
             }
             catch (Exception ex)
             {
@@ -684,7 +678,6 @@ namespace GearVRController.ViewModels
                     ForceReleaseAllButtons();
                     _leftButtonPressed = false;
                     _rightButtonPressed = false;
-                    _movementBuffer.Clear();
                     Debug.WriteLine("[MainViewModel] 检测到断开连接，已释放按键并清空缓冲区."); // 添加日志
                 }
 
@@ -729,129 +722,12 @@ namespace GearVRController.ViewModels
 
                 LastControllerData = data;
 
-                // 处理触摸板输入
-                ProcessTouchpadMovement(data);
+                // 处理触摸板输入 (此逻辑已移至 ControllerService)
+                // ProcessTouchpadMovement(data);
 
                 // 处理按钮输入
                 HandleButtonInput(data);
             });
-        }
-
-        private (double X, double Y) SmoothMovement(double x, double y)
-        {
-            if (!_enableSmoothing)
-            {
-                return (x, y);
-            }
-
-            var now = DateTime.Now;
-
-            // 如果距离上次移动时间太长，清空缓冲区
-            if ((now - _lastMovementTime).TotalMilliseconds > MOVEMENT_TIMEOUT_MS)
-            {
-                _movementBuffer.Clear();
-            }
-
-            _movementBuffer.Enqueue((x, y));
-            _lastMovementTime = now;
-
-            // 根据平滑等级调整缓冲区大小
-            while (_movementBuffer.Count > _smoothingLevel)
-            {
-                _movementBuffer.Dequeue();
-            }
-
-            // 计算平均移动
-            double avgX = _movementBuffer.Average(m => m.X);
-            double avgY = _movementBuffer.Average(m => m.Y);
-
-            return (avgX, avgY);
-        }
-
-        private void ProcessTouchpadMovement(ControllerData data)
-        {
-            try
-            {
-                if (!IsControlEnabled || _isCalibrating) return;
-
-                // Process raw data using TouchpadProcessor
-                var (processedX, processedY) = _touchpadProcessor.ProcessRawData(data.AxisX, data.AxisY);
-
-                // Update processed coordinate properties
-                ProcessedTouchpadX = processedX;
-                ProcessedTouchpadY = processedY;
-
-                if (IsGestureMode)
-                {
-                    // System.Diagnostics.Debug.WriteLine($"[MainViewModel] ProcessTouchpadMovement: Entering Gesture Mode processing. RawData: ({{data.AxisX}}, {{data.AxisY}}), ProcessedData: ({{processedX:F2}}, {{processedY:F2}}), IsTouched: {{data.TouchpadTouched}}");
-                    // 手势模式下只处理手势识别，不处理鼠标移动
-                    if (!IsKeyboardEnabled) return; // 如果键盘控制被禁用，不处理手势
-
-                    var point = new TouchpadPoint
-                    {
-                        X = (float)processedX,
-                        Y = (float)processedY,
-                        IsTouched = data.TouchpadTouched
-                    };
-                    _gestureRecognizer.ProcessTouchpadPoint(point);
-
-                    // 记录触摸板历史用于可视化
-                    RecordTouchpadHistory(point.X, point.Y, data.TouchpadTouched);
-                }
-                else
-                {
-                    // 相对位置模式
-                    if (!IsMouseEnabled) return; // 如果鼠标控制被禁用，不处理移动
-
-                    if (!data.TouchpadTouched)
-                    {
-                        _movementBuffer.Clear(); // 清空缓冲
-                        RecordTouchpadHistory(0, 0, false);
-                        return;
-                    }
-
-                    // 应用平滑处理
-                    var (smoothX, smoothY) = SmoothMovement(processedX, processedY);
-
-                    // 计算最终的鼠标移动
-                    const double MOVEMENT_SCALE = 4.0;
-
-                    double adaptiveScale = MOVEMENT_SCALE * (0.5 + Math.Min(1.0, Math.Sqrt(smoothX * smoothX + smoothY * smoothY)));
-
-                    int finalDeltaX = (int)(smoothX * adaptiveScale);
-                    int finalDeltaY = (int)(smoothY * adaptiveScale);
-
-                    // 应用Y轴反转
-                    if (_invertYAxis)
-                    {
-                        finalDeltaY = -finalDeltaY;
-                    }
-
-                    RecordTouchpadHistory(smoothX, smoothY, data.TouchpadButton);
-
-                    if (Math.Abs(finalDeltaX) > 0 || Math.Abs(finalDeltaY) > 0)
-                    {
-                        if (data.TouchpadButton)
-                        {
-                            int wheelDelta = (int)(finalDeltaY * 2);
-                            if (_useNaturalScrolling)
-                            {
-                                wheelDelta = -wheelDelta;
-                            }
-                            _inputSimulator.SimulateWheelMovement(wheelDelta);
-                        }
-                        else
-                        {
-                            _inputSimulator.SimulateMouseMovement(finalDeltaX, finalDeltaY);
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"处理触摸板移动异常: {ex}");
-                _movementBuffer.Clear();
-            }
         }
 
         private void HandleButtonInput(ControllerData data)
@@ -1000,91 +876,72 @@ namespace GearVRController.ViewModels
 
         private void OnGestureDetected(object? sender, GestureDirection direction)
         {
-            if (!IsControlEnabled || _isCalibrating || !IsGestureMode || !IsKeyboardEnabled) return;
+            // 只有控制启用、非校准状态下处理手势
+            // 在手势模式下，IsKeyboardEnabled 不影响鼠标移动手势的识别和处理。
+            if (!IsControlEnabled || _isCalibrating) return;
 
-            // 在手势模式下模拟鼠标移动
-            SimulateMouseMovementForGesture(direction);
-        }
-
-        private void SimulateMouseMovementForGesture(GestureDirection direction)
-        {
-            const int SWIPE_MOUSE_DELTA = 100; // 定义每次滑动模拟的鼠标移动距离
-
-            int deltaX = 0;
-            int deltaY = 0;
-
-            switch (direction)
+            if (IsGestureMode)
             {
-                case GestureDirection.Up:
-                    deltaY = -SWIPE_MOUSE_DELTA;
-                    break;
-                case GestureDirection.Down:
-                    deltaY = SWIPE_MOUSE_DELTA;
-                    break;
-                case GestureDirection.Left:
-                    deltaX = -SWIPE_MOUSE_DELTA;
-                    break;
-                case GestureDirection.Right:
-                    deltaX = SWIPE_MOUSE_DELTA;
-                    break;
-                case GestureDirection.None:
-                    // 不做任何操作
-                    break;
+                // 手势模式：根据识别到的方向执行预定义动作
+                var action = _gestureConfig.GetGestureAction(direction);
+                ExecuteGestureAction(action);
+
+                // 更新LastGesture以供可视化
+                LastGesture = (EnumsNS.TouchpadGesture)(int)direction; // 假设 GestureDirection 可以直接映射到 TouchpadGesture
+
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] Gesture Mode: Discrete Swipe gesture detected ({direction}), executing action.");
             }
-
-            if (deltaX != 0 || deltaY != 0)
+            else // 相对模式，不在这里执行手势动作
             {
-                System.Diagnostics.Debug.WriteLine($"[MainViewModel] SimulateMouseMovementForGesture: Simulating mouse movement Delta=({{deltaX}}, {{deltaY}})");
-                _inputSimulator.SimulateMouseMovement(deltaX, deltaY);
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] Relative Mode: Gesture detected ({direction}), no action executed here as continuous movement is handled by ControllerService.");
             }
         }
 
         private void ExecuteGestureAction(GestureAction action)
         {
-            var inputSimulator = (WindowsInputSimulator)_inputSimulator;
             switch (action)
             {
                 case GestureAction.PageUp:
-                    inputSimulator.SimulateKeyPress((int)WindowsInputSimulator.VirtualKeyCode.PRIOR);
+                    _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.PRIOR);
                     break;
                 case GestureAction.PageDown:
-                    inputSimulator.SimulateKeyPress((int)WindowsInputSimulator.VirtualKeyCode.NEXT);
+                    _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.NEXT);
                     break;
                 case GestureAction.BrowserBack:
-                    inputSimulator.SimulateKeyPress((int)WindowsInputSimulator.VirtualKeyCode.BROWSER_BACK);
+                    _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.BROWSER_BACK);
                     break;
                 case GestureAction.BrowserForward:
-                    inputSimulator.SimulateKeyPress((int)WindowsInputSimulator.VirtualKeyCode.BROWSER_FORWARD);
+                    _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.BROWSER_FORWARD);
                     break;
                 case GestureAction.VolumeUp:
-                    inputSimulator.SimulateKeyPress((int)WindowsInputSimulator.VirtualKeyCode.VOLUME_UP);
+                    _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.VOLUME_UP);
                     break;
                 case GestureAction.VolumeDown:
-                    inputSimulator.SimulateKeyPress((int)WindowsInputSimulator.VirtualKeyCode.VOLUME_DOWN);
+                    _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.VOLUME_DOWN);
                     break;
                 case GestureAction.MediaPlayPause:
-                    inputSimulator.SimulateKeyPress((int)WindowsInputSimulator.VirtualKeyCode.MEDIA_PLAY_PAUSE);
+                    _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.MEDIA_PLAY_PAUSE);
                     break;
                 case GestureAction.MediaNext:
-                    inputSimulator.SimulateKeyPress((int)WindowsInputSimulator.VirtualKeyCode.MEDIA_NEXT_TRACK);
+                    _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.MEDIA_NEXT_TRACK);
                     break;
                 case GestureAction.MediaPrevious:
-                    inputSimulator.SimulateKeyPress((int)WindowsInputSimulator.VirtualKeyCode.MEDIA_PREV_TRACK);
+                    _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.MEDIA_PREV_TRACK);
                     break;
                 case GestureAction.Copy:
-                    inputSimulator.SimulateModifiedKeyStroke(WindowsInputSimulator.VirtualKeyCode.CONTROL, WindowsInputSimulator.VirtualKeyCode.VK_C);
+                    _inputSimulator.SimulateModifiedKeyStroke(VirtualKeyCode.CONTROL, VirtualKeyCode.VK_C);
                     break;
                 case GestureAction.Paste:
-                    inputSimulator.SimulateModifiedKeyStroke(WindowsInputSimulator.VirtualKeyCode.CONTROL, WindowsInputSimulator.VirtualKeyCode.VK_V);
+                    _inputSimulator.SimulateModifiedKeyStroke(VirtualKeyCode.CONTROL, VirtualKeyCode.VK_V);
                     break;
                 case GestureAction.Undo:
-                    inputSimulator.SimulateModifiedKeyStroke(WindowsInputSimulator.VirtualKeyCode.CONTROL, WindowsInputSimulator.VirtualKeyCode.VK_Z);
+                    _inputSimulator.SimulateModifiedKeyStroke(VirtualKeyCode.CONTROL, VirtualKeyCode.VK_Z);
                     break;
                 case GestureAction.Redo:
-                    inputSimulator.SimulateModifiedKeyStroke(WindowsInputSimulator.VirtualKeyCode.CONTROL, WindowsInputSimulator.VirtualKeyCode.VK_Y);
+                    _inputSimulator.SimulateModifiedKeyStroke(VirtualKeyCode.CONTROL, VirtualKeyCode.VK_Y);
                     break;
                 case GestureAction.SelectAll:
-                    inputSimulator.SimulateModifiedKeyStroke(WindowsInputSimulator.VirtualKeyCode.CONTROL, WindowsInputSimulator.VirtualKeyCode.VK_A);
+                    _inputSimulator.SimulateModifiedKeyStroke(VirtualKeyCode.CONTROL, VirtualKeyCode.VK_A);
                     break;
             }
         }

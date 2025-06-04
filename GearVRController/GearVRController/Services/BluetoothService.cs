@@ -390,10 +390,6 @@ namespace GearVRController.Services
                 // 这确保了即使按钮状态无法解析，触摸状态也能根据坐标反映
                 data.TouchpadTouched = data.AxisX != 0 || data.AxisY != 0;
 
-
-                // 减少不必要的日志输出，提高性能
-                // System.Diagnostics.Debug.WriteLine($"成功解析数据: AxisX={data.AxisX}, AxisY={data.AxisY}");
-
                 // 只有当数据包长度足够解析至少触摸板坐标时才触发事件
                 // 频繁发送不完整数据可能会导致性能问题，但为了诊断先保留
                 DataReceived?.Invoke(this, data);

@@ -50,7 +50,7 @@ namespace GearVRController.Services
 
         private void StartGesture(TouchpadPoint point)
         {
-            System.Diagnostics.Debug.WriteLine($"[GestureRecognizer] StartGesture: Starting gesture at ({{point.X:F2}}, {{point.Y:F2}})");
+            // System.Diagnostics.Debug.WriteLine($"[GestureRecognizer] StartGesture: Starting gesture at ({{point.X:F2}}, {{point.Y:F2}})");
             _gestureStartPoint = point;
             _points.Clear();
             _points.Enqueue(point);
@@ -59,7 +59,7 @@ namespace GearVRController.Services
 
         private void UpdateGesture(TouchpadPoint point)
         {
-            System.Diagnostics.Debug.WriteLine($"[GestureRecognizer] UpdateGesture: Updating gesture with point ({{point.X:F2}}, {{point.Y:F2}})");
+            // System.Diagnostics.Debug.WriteLine($"[GestureRecognizer] UpdateGesture: Updating gesture with point ({{point.X:F2}}, {{point.Y:F2}})");
             _points.Enqueue(point);
             if (_points.Count > GESTURE_SAMPLE_COUNT)
             {

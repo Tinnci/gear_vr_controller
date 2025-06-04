@@ -1,6 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
 using GearVRController.Services.Interfaces;
+using GearVRController.Enums;
 
 namespace GearVRController.Services
 {
@@ -251,7 +252,19 @@ namespace GearVRController.Services
                     }
                 };
 
-                // 按键释放
+                SendInput(1, new INPUT[] { inputDown }, Marshal.SizeOf(typeof(INPUT)));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"按键按下模拟异常: {ex}");
+            }
+        }
+
+        public void SimulateKeyRelease(int keyCode)
+        {
+            try
+            {
+                // 按键抬起
                 var inputUp = new INPUT
                 {
                     type = INPUT_KEYBOARD,
@@ -268,48 +281,11 @@ namespace GearVRController.Services
                     }
                 };
 
-                INPUT[] inputs = new INPUT[] { inputDown, inputUp };
-                if (SendInput(2, inputs, Marshal.SizeOf(typeof(INPUT))) == 0)
-                {
-                    int error = Marshal.GetLastWin32Error();
-                    System.Diagnostics.Debug.WriteLine($"按键模拟失败: {error}");
-                }
+                SendInput(1, new INPUT[] { inputUp }, Marshal.SizeOf(typeof(INPUT)));
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"按键模拟异常: {ex}");
-            }
-        }
-
-        public void SimulateKeyRelease(int keyCode)
-        {
-            try
-            {
-                var input = new INPUT
-                {
-                    type = INPUT_KEYBOARD,
-                    u = new InputUnion
-                    {
-                        ki = new KEYBDINPUT
-                        {
-                            wVk = (ushort)keyCode,
-                            wScan = 0,
-                            dwFlags = KEYEVENTF_KEYUP,
-                            time = 0,
-                            dwExtraInfo = IntPtr.Zero
-                        }
-                    }
-                };
-
-                if (SendInput(1, new INPUT[] { input }, Marshal.SizeOf(typeof(INPUT))) == 0)
-                {
-                    int error = Marshal.GetLastWin32Error();
-                    System.Diagnostics.Debug.WriteLine($"按键释放模拟失败: {error}");
-                }
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"按键释放模拟异常: {ex}");
+                System.Diagnostics.Debug.WriteLine($"按键抬起模拟异常: {ex}");
             }
         }
 
@@ -335,38 +311,26 @@ namespace GearVRController.Services
             public const int Middle = 3;
         }
 
-        // 添加虚拟键码枚举
-        public enum VirtualKeyCode
-        {
-            PRIOR = 0x21, // PAGE UP
-            NEXT = 0x22,  // PAGE DOWN
-            VK_HOME = 0x24,
-            VK_BACK = 0x08,
-            VOLUME_UP = 0xAF,
-            VOLUME_DOWN = 0xAE,
-            BROWSER_BACK = 0xA6,
-            BROWSER_FORWARD = 0xA7,
-            MEDIA_PLAY_PAUSE = 0xB3,
-            MEDIA_NEXT_TRACK = 0xB0,
-            MEDIA_PREV_TRACK = 0xB1,
-            CONTROL = 0x11,
-            VK_C = 0x43,
-            VK_V = 0x56,
-            VK_Z = 0x5A,
-            VK_Y = 0x59,
-            VK_A = 0x41
-        }
-
         public void SimulateModifiedKeyStroke(VirtualKeyCode modifier, VirtualKeyCode key)
         {
-            // 按下修饰键
-            SimulateKeyPress((int)modifier);
-            // 按下主键
-            SimulateKeyPress((int)key);
-            // 释放主键
-            SimulateKeyRelease((int)key);
-            // 释放修饰键
-            SimulateKeyRelease((int)modifier);
+            try
+            {
+                // 按下修饰键
+                SimulateKeyPress((int)modifier);
+
+                // 按下主键
+                SimulateKeyPress((int)key);
+
+                // 抬起主键
+                SimulateKeyRelease((int)key);
+
+                // 抬起修饰键
+                SimulateKeyRelease((int)modifier);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"组合键模拟异常: {ex}");
+            }
         }
     }
 }
