@@ -710,43 +710,50 @@ namespace GearVRController.ViewModels
 
         private void BluetoothService_DataReceived(object? sender, ControllerData data)
         {
-            if (data == null) return;
-
-            // System.Diagnostics.Debug.WriteLine($"[MainViewModel] BluetoothService_DataReceived: Event received, enqueuing to DispatcherQueue."); // 简化日志
-
+            // 将数据传递给 UI 线程处理
             _dispatcherQueue.TryEnqueue(() =>
             {
-                try
+                // System.Diagnostics.Debug.WriteLine($"[MainViewModel] Data Received: AccelX={{data.AccelX}}, GyroZ={{data.GyroZ}}");
+
+                if (!IsControlEnabled)
                 {
-                    // 触发控制器数据接收事件
-                    ControllerDataReceived?.Invoke(this, data);
+                    LastControllerData = data; // 即使禁用控制，也更新最新数据
+                    ControllerDataReceived?.Invoke(this, data); // 触发事件以便UI更新可视化
+                    return;
+                }
 
-                    System.Diagnostics.Debug.WriteLine($"[MainViewModel] BluetoothService_DataReceived - IsCalibrating: {IsCalibrating}, IsControlEnabled: {IsControlEnabled}");
+                // Process controller data
+                _controllerService.ProcessControllerData(data);
 
-                    if (IsCalibrating || !IsControlEnabled)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"[MainViewModel] BluetoothService_DataReceived - Skipping data processing due to IsCalibrating or IsControlEnabled.");
-                        return;
-                    }
+                // Add these lines:
+                var (pX, pY) = _touchpadProcessor.ProcessRawData(data.AxisX, data.AxisY);
+                ProcessedTouchpadX = pX;
+                ProcessedTouchpadY = pY;
 
-                    System.Diagnostics.Debug.WriteLine($"[MainViewModel] BluetoothService_DataReceived - Proceeding to process data.");
+                // Update LastControllerData
+                LastControllerData = data;
 
-                    LastControllerData = data;
+                // Invoke event for UI updates
+                ControllerDataReceived?.Invoke(this, data);
 
-                    // 将控制器数据传递给 ControllerService 进行处理
-                    System.Diagnostics.Debug.WriteLine($"[MainViewModel] 将数据传递给 ControllerService.ProcessControllerData.");
-                    _controllerService.ProcessControllerData(data);
-
-                    // 处理触摸板输入 (此逻辑已移至 ControllerService)
-                    // ProcessTouchpadMovement(data);
-
-                    // 处理按钮输入
+                // Handle button input if mouse is enabled
+                if (IsMouseEnabled)
+                {
                     HandleButtonInput(data);
                 }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[MainViewModel] Error in DispatcherQueue enqueue action: {ex.Message}\n{ex.StackTrace}");
-                }
+
+                // Process wheel movement
+                // 滚轮模拟的Delta值，如果需要，可以基于陀螺仪或加速度计数据来计算
+                // For now, we assume a fixed delta for demonstration purposes if a specific button is pressed.
+                // In a real scenario, this would come from a continuous input like a scroll wheel or specific gestures.
+                // Example: if data.SomeScrollButton is pressed, simulate a scroll.
+                // int scrollDelta = 0;
+                // if (data.VolumeUpButton) scrollDelta = 1;
+                // else if (data.VolumeDownButton) scrollDelta = -1;
+                // if (scrollDelta != 0)
+                // {
+                //     _inputSimulator.SimulateMouseWheel(scrollDelta);
+                // }
             });
         }
 

@@ -7,6 +7,9 @@ namespace GearVRController.Services
     {
         private TouchpadCalibrationData? _calibrationData;
 
+        private const double DEFAULT_CENTER = 511.5; // (0 + 1023) / 2
+        private const double DEFAULT_HALF_RANGE = 511.5; // 1023 / 2
+
         public void SetCalibrationData(TouchpadCalibrationData? calibrationData)
         {
             _calibrationData = calibrationData;
@@ -51,9 +54,6 @@ namespace GearVRController.Services
             {
                 // 如果没有校准数据，使用简单的归一化方法 ( assuming center is 157.5 and max radius is 157.5)
                 // 重新审视这些默认值，确保它们与实际数据范围匹配
-                const double DEFAULT_CENTER = 157.5;
-                const double DEFAULT_HALF_RANGE = 157.5; // (315 - 0) / 2
-
                 processedX = Math.Max(-1.0, Math.Min(1.0, (rawX - DEFAULT_CENTER) / DEFAULT_HALF_RANGE));
                 processedY = Math.Max(-1.0, Math.Min(1.0, -(rawY - DEFAULT_CENTER) / DEFAULT_HALF_RANGE)); // Y轴翻转
                 System.Diagnostics.Debug.WriteLine($"[TouchpadProcessor] Uncalibrated: processedX={processedX:F2}, processedY={processedY:F2}");
