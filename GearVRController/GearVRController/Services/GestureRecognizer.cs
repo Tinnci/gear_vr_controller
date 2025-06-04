@@ -7,7 +7,6 @@ namespace GearVRController.Services
 {
     public class GestureRecognizer
     {
-        private readonly float _defaultSensitivity = 0.3f;
         private const int GESTURE_SAMPLE_COUNT = 5;
         private const int MIN_GESTURE_DISTANCE = 10;
 
@@ -106,4 +105,4 @@ namespace GearVRController.Services
             }
         }
     }
-} 
+}

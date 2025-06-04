@@ -66,6 +66,22 @@ namespace GearVRController.ViewModels
         private readonly List<TouchpadPoint> _touchpadHistory = new List<TouchpadPoint>();
         private const int MAX_TOUCHPAD_HISTORY = 50;
 
+        // Add processed touchpad coordinates properties
+        private double _processedTouchpadX;
+        private double _processedTouchpadY;
+
+        public double ProcessedTouchpadX
+        {
+            get => _processedTouchpadX;
+            private set => SetProperty(ref _processedTouchpadX, value);
+        }
+
+        public double ProcessedTouchpadY
+        {
+            get => _processedTouchpadY;
+            private set => SetProperty(ref _processedTouchpadY, value);
+        }
+
         // 添加蓝牙连接相关字段
         private const int CONNECTION_CHECK_INTERVAL_MS = 5000; // 每5秒检查一次连接状态
         private const int MAX_RECONNECT_ATTEMPTS = 3; // 最大重连次数
@@ -86,6 +102,16 @@ namespace GearVRController.ViewModels
         private bool _isGestureMode;
         private GestureRecognizer _gestureRecognizer;
         private GestureConfig _gestureConfig;
+        private GestureAction _swipeUpAction = GestureAction.PageUp;
+        private GestureAction _swipeDownAction = GestureAction.PageDown;
+        private GestureAction _swipeLeftAction = GestureAction.BrowserBack;
+        private GestureAction _swipeRightAction = GestureAction.BrowserForward;
+
+        // Add TouchpadProcessor field
+        private readonly TouchpadProcessor _touchpadProcessor;
+
+        // Add RotationProcessor field
+        private readonly RotationProcessor _rotationProcessor;
 
         public event PropertyChangedEventHandler? PropertyChanged;
         public event EventHandler<ControllerData>? ControllerDataReceived;
@@ -265,7 +291,7 @@ namespace GearVRController.ViewModels
                 {
                     _enableAutoCalibration = value;
                     OnPropertyChanged();
-                    
+
                     // 如果禁用自动校准，重置相关计数器
                     if (!value)
                     {
@@ -391,35 +417,89 @@ namespace GearVRController.ViewModels
             }
         }
 
+        public GestureAction SwipeUpAction
+        {
+            get => _swipeUpAction;
+            set
+            {
+                if (_swipeUpAction != value)
+                {
+                    _swipeUpAction = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        public GestureAction SwipeDownAction
+        {
+            get => _swipeDownAction;
+            set
+            {
+                if (_swipeDownAction != value)
+                {
+                    _swipeDownAction = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        public GestureAction SwipeLeftAction
+        {
+            get => _swipeLeftAction;
+            set
+            {
+                if (_swipeLeftAction != value)
+                {
+                    _swipeLeftAction = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        public GestureAction SwipeRightAction
+        {
+            get => _swipeRightAction;
+            set
+            {
+                if (_swipeRightAction != value)
+                {
+                    _swipeRightAction = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        public IEnumerable<GestureAction> AvailableGestureActions => Enum.GetValues<GestureAction>();
+
         public MainViewModel(
             IBluetoothService bluetoothService,
             IControllerService controllerService,
             IInputSimulator inputSimulator,
             ISettingsService settingsService,
-            DispatcherQueue dispatcherQueue)
+            DispatcherQueue dispatcherQueue,
+            TouchpadProcessor touchpadProcessor,
+            RotationProcessor rotationProcessor)
         {
             _bluetoothService = bluetoothService;
             _controllerService = controllerService;
             _inputSimulator = inputSimulator;
             _settingsService = settingsService;
             _dispatcherQueue = dispatcherQueue;
+            _touchpadProcessor = touchpadProcessor;
 
-            // 订阅事件
-            _bluetoothService.DataReceived += BluetoothService_DataReceived;
-            _bluetoothService.ConnectionStatusChanged += BluetoothService_ConnectionStatusChanged;
+            // Initialize _gestureConfig with a default value before using it
+            _gestureConfig = new GestureConfig(); // Initialize with default
 
-            // 初始化连接状态检查定时器
-            InitializeConnectionCheck();
-            
-            // 初始化状态检查定时器
-            InitializeStateCheck();
-
-            // 加载设置
-            LoadSettings();
-
-            _gestureConfig = new GestureConfig();
             _gestureRecognizer = new GestureRecognizer(_gestureConfig.Sensitivity);
             _gestureRecognizer.GestureDetected += OnGestureDetected;
+
+            // Assign injected RotationProcessor
+            _rotationProcessor = rotationProcessor;
+
+            InitializeConnectionCheck();
+            InitializeStateCheck();
+            LoadSettings();
+            RegisterHotKeys();
         }
 
         private void InitializeConnectionCheck()
@@ -588,7 +668,7 @@ namespace GearVRController.ViewModels
                 _reconnectAttempts = 0;
                 _connectionCheckTimer?.Stop();
                 _stateCheckTimer?.Stop();
-                
+
                 // 确保释放所有按键
                 ForceReleaseAllButtons();
                 _leftButtonPressed = false;
@@ -606,7 +686,7 @@ namespace GearVRController.ViewModels
             _dispatcherQueue.TryEnqueue(() =>
             {
                 IsConnected = status == BluetoothConnectionStatus.Connected;
-                
+
                 if (!IsConnected)
                 {
                     // 断开连接时，确保释放所有按键
@@ -615,7 +695,7 @@ namespace GearVRController.ViewModels
                     _rightButtonPressed = false;
                     _movementBuffer.Clear();
                 }
-                
+
                 // 更新状态消息
                 if (IsConnected)
                 {
@@ -634,7 +714,7 @@ namespace GearVRController.ViewModels
                         StatusMessage = "连接已断开";
                     }
                 }
-                
+
                 UpdateControlState();
             });
         }
@@ -692,99 +772,18 @@ namespace GearVRController.ViewModels
             return (avgX, avgY);
         }
 
-        private (double X, double Y) ApplyCalibration(int rawX, int rawY)
-        {
-            // 记录原始数据以便观察实际范围
-            System.Diagnostics.Debug.WriteLine($"[校准前] 触摸板原始值: X={rawX}, Y={rawY}");
-            
-            // 如果原始值都很小，直接返回零移动
-            const int NOISE_THRESHOLD = 5; // 认为是噪音的阈值
-            if (Math.Abs(rawX) <= NOISE_THRESHOLD && Math.Abs(rawY) <= NOISE_THRESHOLD)
-            {
-                System.Diagnostics.Debug.WriteLine("[校准] 值太小，被认为是噪声，返回零移动");
-                return (0, 0);
-            }
-            
-            // 定义触摸板中心点坐标
-            const double CENTER_X = 157.5; // 触摸板中心X坐标 (315/2)
-            const double CENTER_Y = 157.5; // 触摸板中心Y坐标 (315/2)
-            const double MAX_RADIUS = 157.5; // 从中心到边缘的最大半径
-            
-            if (_calibrationData == null)
-            {
-                // 如果没有校准数据，基于中心点(157.5, 157.5)计算归一化值(-1到1)
-                double deltaX = rawX - CENTER_X;
-                double deltaY = rawY - CENTER_Y;
-                
-                // 归一化到[-1,1]范围，同时反转Y轴使之符合标准坐标系（向上为正）
-                double rawNormalizedX = Math.Max(-1.0, Math.Min(1.0, deltaX / MAX_RADIUS));
-                double rawNormalizedY = Math.Max(-1.0, Math.Min(1.0, -deltaY / MAX_RADIUS)); // Y轴翻转
-                
-                // 应用Y轴反转设置
-                if (!_invertYAxis)
-                {
-                    rawNormalizedY = -rawNormalizedY;
-                }
-                
-                System.Diagnostics.Debug.WriteLine($"[未校准归一化] 中心点偏移: ({deltaX:F2}, {deltaY:F2}) => 归一化: ({rawNormalizedX:F2}, {rawNormalizedY:F2})");
-                return (rawNormalizedX, rawNormalizedY);
-            }
-
-            // 使用校准中心点
-            // 计算相对于中心点的偏移
-            double calibratedDeltaX = rawX - _calibrationData.CenterX;
-            double calibratedDeltaY = rawY - _calibrationData.CenterY;
-
-            // 应用死区
-            if (Math.Abs(calibratedDeltaX) < _deadZone)
-                calibratedDeltaX = 0;
-            if (Math.Abs(calibratedDeltaY) < _deadZone)
-                calibratedDeltaY = 0;
-
-            // 如果在死区内，直接返回
-            if (calibratedDeltaX == 0 && calibratedDeltaY == 0)
-                return (0, 0);
-
-            // 计算归一化系数，确保不会除以零
-            double xScale = calibratedDeltaX > 0 ?
-                Math.Max(10, _calibrationData.MaxX - _calibrationData.CenterX) :
-                Math.Max(10, _calibrationData.CenterX - _calibrationData.MinX);
-
-            double yScale = calibratedDeltaY > 0 ?
-                Math.Max(10, _calibrationData.MaxY - _calibrationData.CenterY) :
-                Math.Max(10, _calibrationData.CenterY - _calibrationData.MinY);
-
-            // 归一化坐标，限制在[-1, 1]范围内
-            double normalizedX = Math.Max(-1.0, Math.Min(1.0, calibratedDeltaX / xScale));
-            double normalizedY = Math.Max(-1.0, Math.Min(1.0, -calibratedDeltaY / yScale)); // 注意Y轴反转
-
-            // 应用Y轴反转设置
-            if (!_invertYAxis)
-            {
-                normalizedY = -normalizedY;
-            }
-
-            // 应用非线性曲线，使小幅度移动更精确
-            if (_enableNonLinearCurve)
-            {
-                normalizedX = Math.Sign(normalizedX) * Math.Pow(Math.Abs(normalizedX), _nonLinearCurvePower);
-                normalizedY = Math.Sign(normalizedY) * Math.Pow(Math.Abs(normalizedY), _nonLinearCurvePower);
-            }
-
-            // 应用灵敏度
-            normalizedX *= _mouseSensitivity;
-            normalizedY *= _mouseSensitivity;
-            
-            System.Diagnostics.Debug.WriteLine($"[校准后] X={normalizedX:F2}, Y={normalizedY:F2}");
-
-            return (normalizedX, normalizedY);
-        }
-
         private void ProcessTouchpadMovement(ControllerData data)
         {
             try
             {
                 if (!IsControlEnabled || _isCalibrating) return;
+
+                // Process raw data using TouchpadProcessor
+                var (processedX, processedY) = _touchpadProcessor.ProcessRawData(data.AxisX, data.AxisY);
+
+                // Update processed coordinate properties
+                ProcessedTouchpadX = processedX;
+                ProcessedTouchpadY = processedY;
 
                 if (IsGestureMode)
                 {
@@ -793,12 +792,12 @@ namespace GearVRController.ViewModels
 
                     var point = new TouchpadPoint
                     {
-                        X = (float)data.AxisX,
-                        Y = (float)data.AxisY,
+                        X = (float)processedX,
+                        Y = (float)processedY,
                         IsTouched = data.TouchpadTouched
                     };
                     _gestureRecognizer.ProcessTouchpadPoint(point);
-                    
+
                     // 记录触摸板历史用于可视化
                     RecordTouchpadHistory(point.X, point.Y, data.TouchpadTouched);
                 }
@@ -814,17 +813,14 @@ namespace GearVRController.ViewModels
                         return;
                     }
 
-                    // 应用校准
-                    var (calibratedX, calibratedY) = ApplyCalibration(data.AxisX, data.AxisY);
-
                     // 应用平滑处理
-                    var (smoothX, smoothY) = SmoothMovement(calibratedX, calibratedY);
+                    var (smoothX, smoothY) = SmoothMovement(processedX, processedY);
 
                     // 计算最终的鼠标移动
                     const double MOVEMENT_SCALE = 4.0;
-                    
+
                     double adaptiveScale = MOVEMENT_SCALE * (0.5 + Math.Min(1.0, Math.Sqrt(smoothX * smoothX + smoothY * smoothY)));
-                    
+
                     int finalDeltaX = (int)(smoothX * adaptiveScale);
                     int finalDeltaY = (int)(smoothY * adaptiveScale);
 
@@ -836,12 +832,14 @@ namespace GearVRController.ViewModels
 
                     RecordTouchpadHistory(smoothX, smoothY, data.TouchpadButton);
 
+                    // Check abnormal movement using processed data (optional, depending on if this check relies on raw or processed values)
+                    // For now, keep it using finalDeltaX, finalDeltaY as they represent screen movement
                     if (CheckAbnormalMovement(finalDeltaX, finalDeltaY))
                     {
                         TriggerAutoCalibration();
                         return;
                     }
-                    
+
                     if (Math.Abs(finalDeltaX) > 0 || Math.Abs(finalDeltaY) > 0)
                     {
                         if (data.TouchpadButton)
@@ -874,7 +872,7 @@ namespace GearVRController.ViewModels
                 if (!IsControlEnabled || _isCalibrating) return;
 
                 var inputSimulator = (WindowsInputSimulator)_inputSimulator;
-                
+
                 if (IsMouseEnabled)
                 {
                     // 检测按键状态变化并更新状态
@@ -884,7 +882,7 @@ namespace GearVRController.ViewModels
                         inputSimulator.SimulateMouseButtonEx(data.TriggerButton, WindowsInputSimulator.MouseButtons.Right);
                         _lastInputTime = DateTime.Now;
                     }
-                    
+
                     if (data.TouchpadButton != _leftButtonPressed)
                     {
                         _leftButtonPressed = data.TouchpadButton;
@@ -972,6 +970,7 @@ namespace GearVRController.ViewModels
         public void ApplyCalibrationData(TouchpadCalibrationData calibrationData)
         {
             _calibrationData = calibrationData;
+            _touchpadProcessor.SetCalibrationData(_calibrationData);
             StatusMessage = "已应用触摸板校准数据";
         }
 
@@ -1075,16 +1074,16 @@ namespace GearVRController.ViewModels
         {
             if (x == 0 && y == 0 && !isPressed)
                 return; // 忽略无意义的数据
-            
+
             var point = new TouchpadPoint((float)x, (float)y, isPressed);
             _touchpadHistory.Add(point);
-            
+
             // 维持最大历史点数
             while (_touchpadHistory.Count > MAX_TOUCHPAD_HISTORY)
             {
                 _touchpadHistory.RemoveAt(0);
             }
-            
+
             // 检测手势
             DetectGesture();
         }
@@ -1097,36 +1096,36 @@ namespace GearVRController.ViewModels
                 LastGesture = EnumsNS.TouchpadGesture.None; // 使用命名空间别名
                 return;
             }
-            
+
             // 获取最近的10个点
             var recentPoints = _touchpadHistory.Skip(_touchpadHistory.Count - 10).ToList();
-            
+
             // 计算起点和终点
             var startPoint = recentPoints.First();
             var endPoint = recentPoints.Last();
-            
+
             // 计算移动距离
             double deltaX = endPoint.X - startPoint.X;
             double deltaY = endPoint.Y - startPoint.Y;
             double distance = Math.Sqrt(deltaX * deltaX + deltaY * deltaY);
-            
+
             // 如果移动太小，不认为是手势
             if (distance < 0.3)
             {
                 LastGesture = EnumsNS.TouchpadGesture.None; // 使用命名空间别名
                 return;
             }
-            
+
             // 根据移动方向判断手势
             double angle = Math.Atan2(deltaY, deltaX);
-            
+
             // 角度转换为度数
             double degrees = angle * 180 / Math.PI;
-            
+
             // 调整为0-360度
             if (degrees < 0)
                 degrees += 360;
-            
+
             // 根据角度判断方向
             if (degrees >= 315 || degrees < 45)
             {
@@ -1153,7 +1152,7 @@ namespace GearVRController.ViewModels
             LastGesture = EnumsNS.TouchpadGesture.None; // 使用命名空间别名
         }
 
-        private void OnGestureDetected(object sender, GestureDirection direction)
+        private void OnGestureDetected(object? sender, GestureDirection direction)
         {
             if (!IsControlEnabled || _isCalibrating || !IsGestureMode || !IsKeyboardEnabled) return;
 

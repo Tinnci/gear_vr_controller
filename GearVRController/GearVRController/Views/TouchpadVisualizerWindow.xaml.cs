@@ -25,9 +25,7 @@ namespace GearVRController.Views
         private double _canvasHeight;
         private double _radius;
         private Point _center;
-        private EnumsNS.TouchpadGesture _currentGesture = EnumsNS.TouchpadGesture.None;
         private readonly Queue<TouchpadPoint> _gestureBuffer = new Queue<TouchpadPoint>();
-        private const int GESTURE_BUFFER_SIZE = 10;
         private readonly DispatcherQueue _dispatcherQueue;
 
         // 用于绘制的元素
@@ -40,17 +38,17 @@ namespace GearVRController.Views
 
         // 历史轨迹点集合
         private readonly List<Ellipse> _historyPoints = new();
-        
+
         // 历史轨迹的最大数量
         private const int MaxHistoryPoints = 50;
-        
+
         // 触摸板区域的尺寸
         private double _touchpadSize;
-        
+
         // 触摸点的位置
         private double _currentX;
         private double _currentY;
-        
+
         // 触摸状态
         private bool _isTouching;
 
@@ -60,13 +58,13 @@ namespace GearVRController.Views
         public TouchpadVisualizerWindow()
         {
             this.InitializeComponent();
-            
+
             // 获取当前线程的调度器队列
             _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
-            
+
             // 设置窗口大小
             this.AppWindow.Resize(new Windows.Graphics.SizeInt32(400, 500));
-            
+
             // 初始化触摸点圆形
             _touchPoint = new Ellipse
             {
@@ -75,7 +73,7 @@ namespace GearVRController.Views
                 Fill = new SolidColorBrush(Colors.Blue),
                 Visibility = Visibility.Collapsed
             };
-            
+
             // 初始化从中心到触摸点的线
             _touchLine = new Line
             {
@@ -84,7 +82,7 @@ namespace GearVRController.Views
                 Opacity = 0.5,
                 Visibility = Visibility.Collapsed
             };
-            
+
             // 初始化坐标文本
             _coordsText = new TextBlock
             {
@@ -92,19 +90,19 @@ namespace GearVRController.Views
                 FontSize = 12,
                 Visibility = Visibility.Collapsed
             };
-            
+
             TouchpadCanvas.Children.Add(_touchLine);
             TouchpadCanvas.Children.Add(_touchPoint);
             TouchpadCanvas.Children.Add(_coordsText);
-            
+
             // 初始化网格
             InitializeGrid();
-            
+
             Debug.WriteLine("触摸板可视化窗口已初始化");
-            
+
             // 窗口加载完成后初始化UI - 使用正确的事件类型
             this.Activated += TouchpadVisualizerWindow_Activated;
-            
+
             // 窗口大小改变时更新UI - 使用Window对应的事件类型
             this.AppWindow.Changed += AppWindow_Changed;
         }
@@ -118,7 +116,8 @@ namespace GearVRController.Views
         {
             if (args.DidSizeChange)
             {
-                _dispatcherQueue.TryEnqueue(() => {
+                _dispatcherQueue.TryEnqueue(() =>
+                {
                     UpdateVisualizationLayout();
                 });
             }
@@ -143,25 +142,25 @@ namespace GearVRController.Views
                 Debug.WriteLine("画布尺寸太小，暂不更新布局");
                 return; // 画布尺寸太小，不进行更新
             }
-            
+
             // 计算触摸板显示区域的尺寸（取宽度和高度的较小值）
             // 考虑到实际触摸板范围是0~315，我们设置一个合理的尺寸
             _touchpadSize = Math.Min(TouchpadCanvas.ActualWidth, TouchpadCanvas.ActualHeight) - 20;
-            
+
             // 确保尺寸是正数且合理
             _touchpadSize = Math.Max(100, Math.Min(500, _touchpadSize));
-            
+
             // 更新坐标轴
             HorizontalLine.X1 = 0;
             HorizontalLine.Y1 = TouchpadCanvas.ActualHeight / 2;
             HorizontalLine.X2 = TouchpadCanvas.ActualWidth;
             HorizontalLine.Y2 = TouchpadCanvas.ActualHeight / 2;
-            
+
             VerticalLine.X1 = TouchpadCanvas.ActualWidth / 2;
             VerticalLine.Y1 = 0;
             VerticalLine.X2 = TouchpadCanvas.ActualWidth / 2;
             VerticalLine.Y2 = TouchpadCanvas.ActualHeight;
-            
+
             try
             {
                 // 更新触摸板边界圆圈
@@ -183,7 +182,7 @@ namespace GearVRController.Views
                     Math.Max(0, (TouchpadCanvas.ActualHeight - 300) / 2),
                     0, 0);
             }
-            
+
             // 清除历史轨迹
             ClearHistory();
         }
@@ -199,10 +198,10 @@ namespace GearVRController.Views
                 TouchpadCanvas.Children.Remove(element);
             }
             _gridElements.Clear();
-            
+
             if (_canvasWidth <= 0 || _canvasHeight <= 0)
                 return;
-                
+
             // 创建同心圆
             for (int i = 1; i <= 3; i++)
             {
@@ -214,14 +213,14 @@ namespace GearVRController.Views
                     StrokeThickness = 1,
                     Opacity = 0.2
                 };
-                
+
                 Canvas.SetLeft(circle, _center.X - circle.Width / 2);
                 Canvas.SetTop(circle, _center.Y - circle.Height / 2);
-                
+
                 TouchpadCanvas.Children.Add(circle);
                 _gridElements.Add(circle);
             }
-            
+
             // 创建十字轴线
             var horizontalLine = new Line
             {
@@ -233,7 +232,7 @@ namespace GearVRController.Views
                 StrokeThickness = 2,
                 Opacity = 0.5
             };
-            
+
             var verticalLine = new Line
             {
                 X1 = _center.X,
@@ -244,19 +243,19 @@ namespace GearVRController.Views
                 StrokeThickness = 2,
                 Opacity = 0.5
             };
-            
+
             TouchpadCanvas.Children.Add(horizontalLine);
             TouchpadCanvas.Children.Add(verticalLine);
             _gridElements.Add(horizontalLine);
             _gridElements.Add(verticalLine);
-            
+
             // 绘制径向线
             for (int i = 0; i < 8; i++)
             {
                 double angle = i * Math.PI / 4;
                 double dx = Math.Cos(angle) * _radius;
                 double dy = Math.Sin(angle) * _radius;
-                
+
                 var line = new Line
                 {
                     X1 = _center.X,
@@ -267,7 +266,7 @@ namespace GearVRController.Views
                     StrokeThickness = 1,
                     Opacity = 0.2
                 };
-                
+
                 TouchpadCanvas.Children.Add(line);
                 _gridElements.Add(line);
             }
@@ -282,100 +281,72 @@ namespace GearVRController.Views
             {
                 double processedX = normalizedX;
                 double processedY = normalizedY;
-                
-                // 如果提供的是原始值（0~315范围），先进行归一化处理
-                if (normalizedX > 2.0 || normalizedY > 2.0)
-                {
-                    // 原始值范围是0~315，其中:
-                    // X轴：左边0到右边315
-                    // Y轴：上面0到下面315
-                    const double MAX_VALUE = 315.0; // 最大值
-                    const double CENTER_X = 157.5; // 触摸板中心X坐标 (315/2)
-                    const double CENTER_Y = 157.5; // 触摸板中心Y坐标 (315/2)
-                    const double MAX_RADIUS = 157.5; // 从中心到边缘的最大半径
-                    
-                    // 计算相对于中心点的偏移
-                    double deltaX = normalizedX - CENTER_X;
-                    double deltaY = normalizedY - CENTER_Y;
-                    
-                    // 归一化到[-1,1]范围，同时反转Y轴使之符合标准坐标系（向上为正）
-                    processedX = Math.Max(-1.0, Math.Min(1.0, deltaX / MAX_RADIUS));
-                    processedY = Math.Max(-1.0, Math.Min(1.0, -deltaY / MAX_RADIUS)); // Y轴翻转
-                    
-                    Debug.WriteLine($"触摸板数据转换: 原始值(X={normalizedX}, Y={normalizedY}) => 中心点偏移({deltaX:F2}, {deltaY:F2}) => 归一化(X={processedX:F2}, Y={processedY:F2})");
-                }
-                
+
                 // 记录历史
                 var point = new TouchpadPoint((float)processedX, (float)processedY, isPressed);
                 _touchpadHistory.Add(point);
-                
+
                 // 维持最大历史点数
                 while (_touchpadHistory.Count > MAX_HISTORY_POINTS)
                 {
                     _touchpadHistory.RemoveAt(0);
                 }
-                
-                // 更新手势缓冲区
-                UpdateGestureBuffer(point);
-                
+
                 // 更新UI
-                UpdateTouchpadVisualization(processedX, processedY, isPressed);
-                
-                // 检测手势
-                DetectGesture();
-                
+                UpdateTouchpadVisualization(processedX, processedY, isPressed, gesture);
+
                 // 更新状态文本
                 XValueText.Text = processedX.ToString("F2");
                 YValueText.Text = processedY.ToString("F2");
                 PressedStateText.Text = isPressed ? "已按下" : "未按下";
                 GestureText.Text = GetGestureText(gesture);
-                
-                Debug.WriteLine($"触摸板数据更新: X={processedX:F2}, Y={processedY:F2}, 按下={isPressed}, 手势={_currentGesture}");
+
+                Debug.WriteLine($"触摸板数据更新: X={processedX:F2}, Y={processedY:F2}, 按下={isPressed}, 手势={gesture}");
             });
         }
 
         /// <summary>
         /// 更新触摸板可视化
         /// </summary>
-        private void UpdateTouchpadVisualization(double normalizedX, double normalizedY, bool isPressed)
+        private void UpdateTouchpadVisualization(double normalizedX, double normalizedY, bool isPressed, EnumsNS.TouchpadGesture gesture)
         {
             if (_canvasWidth <= 0 || _canvasHeight <= 0)
                 return;
-                
+
             // 转换为画布坐标
             double x = _center.X + normalizedX * _radius;
             double y = _center.Y + normalizedY * _radius;
-            
+
             // 更新触摸点
             _touchPoint.Fill = new SolidColorBrush(isPressed ? Colors.Red : Colors.Blue);
             _touchPoint.Width = isPressed ? 20 : 16;
             _touchPoint.Height = isPressed ? 20 : 16;
-            
+
             Canvas.SetLeft(_touchPoint, x - _touchPoint.Width / 2);
             Canvas.SetTop(_touchPoint, y - _touchPoint.Height / 2);
             _touchPoint.Visibility = Visibility.Visible;
-            
+
             // 更新连线
             _touchLine.X1 = _center.X;
             _touchLine.Y1 = _center.Y;
             _touchLine.X2 = x;
             _touchLine.Y2 = y;
             _touchLine.Visibility = (normalizedX != 0 || normalizedY != 0) ? Visibility.Visible : Visibility.Collapsed;
-            
+
             // 更新坐标文本
             _coordsText.Text = $"({normalizedX:F2}, {normalizedY:F2})";
             Canvas.SetLeft(_coordsText, x - _coordsText.ActualWidth / 2);
             Canvas.SetTop(_coordsText, y + 15);
             _coordsText.Visibility = (normalizedX != 0 || normalizedY != 0) ? Visibility.Visible : Visibility.Collapsed;
-            
+
             // 更新轨迹
             if (_showTrail)
             {
                 DrawTrail();
             }
-            
+
             // 更新手势指示器
-            UpdateGestureIndicator();
+            UpdateGestureIndicator(gesture);
         }
 
         /// <summary>
@@ -389,25 +360,25 @@ namespace GearVRController.Views
                 TouchpadCanvas.Children.Remove(element);
             }
             _trailElements.Clear();
-            
+
             if (_touchpadHistory.Count < 2)
                 return;
-                
+
             // 绘制新轨迹
             for (int i = 1; i < _touchpadHistory.Count; i++)
             {
                 var prev = _touchpadHistory[i - 1];
                 var curr = _touchpadHistory[i];
-                
+
                 // 如果中间有断点，不连接
                 if ((DateTime.Now - curr.Timestamp).TotalSeconds > 1)
                     continue;
-                    
+
                 double prevX = _center.X + prev.X * _radius;
                 double prevY = _center.Y + prev.Y * _radius;
                 double currX = _center.X + curr.X * _radius;
                 double currY = _center.Y + curr.Y * _radius;
-                
+
                 var line = new Line
                 {
                     X1 = prevX,
@@ -418,87 +389,16 @@ namespace GearVRController.Views
                     StrokeThickness = 2,
                     Opacity = 0.5
                 };
-                
+
                 TouchpadCanvas.Children.Add(line);
                 _trailElements.Add(line);
             }
         }
 
         /// <summary>
-        /// 更新手势缓冲区
-        /// </summary>
-        private void UpdateGestureBuffer(TouchpadPoint point)
-        {
-            _gestureBuffer.Enqueue(point);
-            
-            while (_gestureBuffer.Count > GESTURE_BUFFER_SIZE)
-            {
-                _gestureBuffer.Dequeue();
-            }
-        }
-
-        /// <summary>
-        /// 检测手势
-        /// </summary>
-        private void DetectGesture()
-        {
-            if (_gestureBuffer.Count < GESTURE_BUFFER_SIZE)
-                return;
-                
-            // 简单的手势检测算法
-            var points = _gestureBuffer.ToList();
-            
-            // 计算起点和终点
-            var startPoint = points.First();
-            var endPoint = points.Last();
-            
-            // 计算移动距离
-            double deltaX = endPoint.X - startPoint.X;
-            double deltaY = endPoint.Y - startPoint.Y;
-            double distance = Math.Sqrt(deltaX * deltaX + deltaY * deltaY);
-            
-            // 如果移动太小，不认为是手势
-            if (distance < 0.3)
-            {
-                _currentGesture = EnumsNS.TouchpadGesture.None;
-                return;
-            }
-            
-            // 根据移动方向判断手势
-            double angle = Math.Atan2(deltaY, deltaX);
-            
-            // 角度转换为度数
-            double degrees = angle * 180 / Math.PI;
-            
-            // 调整为0-360度
-            if (degrees < 0)
-                degrees += 360;
-                
-            // 根据角度判断方向
-            if (degrees >= 315 || degrees < 45)
-            {
-                _currentGesture = EnumsNS.TouchpadGesture.SwipeRight;
-            }
-            else if (degrees >= 45 && degrees < 135)
-            {
-                _currentGesture = EnumsNS.TouchpadGesture.SwipeDown;
-            }
-            else if (degrees >= 135 && degrees < 225)
-            {
-                _currentGesture = EnumsNS.TouchpadGesture.SwipeLeft;
-            }
-            else // degrees >= 225 && degrees < 315
-            {
-                _currentGesture = EnumsNS.TouchpadGesture.SwipeUp;
-            }
-            
-            Debug.WriteLine($"检测到手势: {_currentGesture}, 角度: {degrees:F0}°, 距离: {distance:F2}");
-        }
-
-        /// <summary>
         /// 更新手势指示器
         /// </summary>
-        private void UpdateGestureIndicator()
+        private void UpdateGestureIndicator(EnumsNS.TouchpadGesture gesture)
         {
             // 移除旧的手势指示器
             if (_gestureIndicator != null)
@@ -506,12 +406,12 @@ namespace GearVRController.Views
                 TouchpadCanvas.Children.Remove(_gestureIndicator);
                 _gestureIndicator = null;
             }
-            
-            if (_currentGesture == EnumsNS.TouchpadGesture.None)
+
+            if (gesture == EnumsNS.TouchpadGesture.None)
                 return;
-                
+
             // 根据手势类型创建指示器
-            _gestureIndicator = CreateGestureIndicator(_currentGesture);
+            _gestureIndicator = CreateGestureIndicator(gesture);
             if (_gestureIndicator != null)
             {
                 TouchpadCanvas.Children.Add(_gestureIndicator);
@@ -525,7 +425,7 @@ namespace GearVRController.Views
         {
             double angle = 0;
             Windows.UI.Color color = Colors.Gray;
-            
+
             switch (gesture)
             {
                 case EnumsNS.TouchpadGesture.SwipeRight:
@@ -554,21 +454,21 @@ namespace GearVRController.Views
                     };
                     return emptyShape;
             }
-            
+
             // 转换为弧度
             double radians = angle * Math.PI / 180;
-            
+
             // 创建扇形背景
             var path = new Path
             {
                 Fill = new SolidColorBrush(color) { Opacity = 0.3 }
             };
-            
+
             var geometry = new PathGeometry();
             var figure = new PathFigure();
-            
+
             figure.StartPoint = _center;
-            
+
             // 添加弧线
             figure.Segments.Add(new ArcSegment
             {
@@ -579,7 +479,7 @@ namespace GearVRController.Views
                 SweepDirection = SweepDirection.Clockwise,
                 IsLargeArc = false
             });
-            
+
             // 添加弧线
             figure.Segments.Add(new ArcSegment
             {
@@ -590,11 +490,11 @@ namespace GearVRController.Views
                 SweepDirection = SweepDirection.Counterclockwise,
                 IsLargeArc = false
             });
-            
+
             figure.IsClosed = true;
             geometry.Figures.Add(figure);
             path.Data = geometry;
-            
+
             // 创建箭头
             var arrowLine = new Line
             {
@@ -606,12 +506,12 @@ namespace GearVRController.Views
                 StrokeThickness = 3,
                 StrokeEndLineCap = PenLineCap.Triangle
             };
-            
+
             // 创建容器
             var container = new Canvas();
             container.Children.Add(path);
             container.Children.Add(arrowLine);
-            
+
             return container;
         }
 
@@ -639,9 +539,7 @@ namespace GearVRController.Views
         public void ClearHistory()
         {
             _touchpadHistory.Clear();
-            _gestureBuffer.Clear();
-            _currentGesture = EnumsNS.TouchpadGesture.None;
-            
+
             // 更新UI
             _dispatcherQueue.TryEnqueue(() =>
             {
@@ -651,14 +549,14 @@ namespace GearVRController.Views
                     TouchpadCanvas.Children.Remove(element);
                 }
                 _trailElements.Clear();
-                
+
                 // 清除手势指示器
                 if (_gestureIndicator != null)
                 {
                     TouchpadCanvas.Children.Remove(_gestureIndicator);
                     _gestureIndicator = null;
                 }
-                
+
                 // 重置状态文本
                 GestureText.Text = "无";
             });
@@ -670,7 +568,7 @@ namespace GearVRController.Views
         public void SetShowTrail(bool show)
         {
             _showTrail = show;
-            
+
             _dispatcherQueue.TryEnqueue(() =>
             {
                 if (_showTrail)
@@ -695,16 +593,16 @@ namespace GearVRController.Views
             _canvasHeight = e.NewSize.Height;
             _radius = Math.Min(_canvasWidth, _canvasHeight) / 2 - 20;
             _center = new Point(_canvasWidth / 2, _canvasHeight / 2);
-            
+
             // 重新初始化网格
             InitializeGrid();
-            
+
             // 重新绘制轨迹
             if (_showTrail)
             {
                 DrawTrail();
             }
-            
+
             Debug.WriteLine($"画布大小变化: 宽={_canvasWidth}, 高={_canvasHeight}, 半径={_radius}");
         }
 
@@ -738,71 +636,48 @@ namespace GearVRController.Views
                 // 检查是否需要转换原始值
                 double processedX = normalizedX;
                 double processedY = normalizedY;
-                
-                // 如果提供的是原始值（0~315范围），先进行归一化处理
-                if (normalizedX > 2.0 || normalizedY > 2.0)
-                {
-                    // 原始值范围是0~315，其中:
-                    // X轴：左边0到右边315
-                    // Y轴：上面0到下面315
-                    const double MAX_VALUE = 315.0; // 最大值
-                    const double CENTER_X = 157.5; // 触摸板中心X坐标 (315/2)
-                    const double CENTER_Y = 157.5; // 触摸板中心Y坐标 (315/2)
-                    const double MAX_RADIUS = 157.5; // 从中心到边缘的最大半径
-                    
-                    // 计算相对于中心点的偏移
-                    double deltaX = normalizedX - CENTER_X;
-                    double deltaY = normalizedY - CENTER_Y;
-                    
-                    // 归一化到[-1,1]范围，同时反转Y轴使之符合标准坐标系（向上为正）
-                    processedX = Math.Max(-1.0, Math.Min(1.0, deltaX / MAX_RADIUS));
-                    processedY = Math.Max(-1.0, Math.Min(1.0, -deltaY / MAX_RADIUS)); // Y轴翻转
-                    
-                    Debug.WriteLine($"UpdateTouchpadData 数据转换: 原始值(X={normalizedX}, Y={normalizedY}) => 中心点偏移({deltaX:F2}, {deltaY:F2}) => 归一化(X={processedX:F2}, Y={processedY:F2})");
-                }
-                
+
                 _currentX = processedX;
                 _currentY = processedY;
                 _isTouching = isTouching;
-                _currentGesture = gesture;
-                
-                UpdateVisualization();
+
+                UpdateVisualization(gesture);
             });
         }
 
-        private void UpdateVisualization()
+        private void UpdateVisualization(EnumsNS.TouchpadGesture gesture)
         {
             // 检查尺寸是否有效
             if (_touchpadSize <= 0 || TouchpadCanvas.ActualWidth <= 0 || TouchpadCanvas.ActualHeight <= 0)
                 return;
-                
+
             // 计算触摸点在画布上的位置
             double canvasCenterX = TouchpadCanvas.ActualWidth / 2;
             double canvasCenterY = TouchpadCanvas.ActualHeight / 2;
-            
+
             double pointRadius = _touchpadSize / 2;
             double pointX = canvasCenterX + (_currentX * pointRadius);
             double pointY = canvasCenterY - (_currentY * pointRadius); // Y轴向上为正
-            
+
             // 更新触摸点位置
-            TouchPoint.Margin = new Thickness(pointX - TouchPoint.Width/2, pointY - TouchPoint.Height/2, 0, 0);
-            
+            TouchPoint.Margin = new Thickness(pointX - TouchPoint.Width / 2, pointY - TouchPoint.Height / 2, 0, 0);
+
             // 更新触摸点可见性
             TouchPoint.Visibility = _isTouching ? Visibility.Visible : Visibility.Collapsed;
-            
+
             // 如果正在触摸，添加历史轨迹点
             if (_isTouching)
             {
                 AddHistoryPoint(pointX, pointY);
             }
-            
+
             // 更新信息文本
             TouchpadInfoText.Text = _isTouching
                 ? $"触摸位置: X={_currentX:F2}, Y={_currentY:F2}"
                 : "未检测到触摸";
-                
+
             // 更新手势文本
-            UpdateGestureInfo();
+            UpdateGestureInfo(gesture);
         }
 
         private void AddHistoryPoint(double x, double y)
@@ -816,11 +691,11 @@ namespace GearVRController.Views
                 Opacity = 0.5,
                 Margin = new Thickness(x - 4, y - 4, 0, 0)
             };
-            
+
             // 添加到历史轨迹集合
             _historyPoints.Add(historyPoint);
             HistoryCanvas.Children.Add(historyPoint);
-            
+
             // 创建淡出动画
             var fadeAnimation = new DoubleAnimation
             {
@@ -828,14 +703,14 @@ namespace GearVRController.Views
                 To = 0.1,
                 Duration = new Duration(TimeSpan.FromSeconds(1))
             };
-            
+
             Storyboard.SetTarget(fadeAnimation, historyPoint);
             Storyboard.SetTargetProperty(fadeAnimation, "Opacity");
-            
+
             var storyboard = new Storyboard();
             storyboard.Children.Add(fadeAnimation);
             storyboard.Begin();
-            
+
             // 限制历史轨迹点的数量
             if (_historyPoints.Count > MaxHistoryPoints)
             {
@@ -845,9 +720,12 @@ namespace GearVRController.Views
             }
         }
 
-        private void UpdateGestureInfo()
+        /// <summary>
+        /// 更新手势信息文本
+        /// </summary>
+        private void UpdateGestureInfo(EnumsNS.TouchpadGesture gesture)
         {
-            string gestureText = _currentGesture switch
+            string gestureText = gesture switch
             {
                 EnumsNS.TouchpadGesture.None => "无手势",
                 EnumsNS.TouchpadGesture.Tap => "点击",
@@ -859,7 +737,7 @@ namespace GearVRController.Views
                 EnumsNS.TouchpadGesture.Circle => "画圈",
                 _ => "未知手势"
             };
-            
+
             GestureInfoText.Text = $"检测到手势: {gestureText}";
         }
 
@@ -868,4 +746,4 @@ namespace GearVRController.Views
             ClearHistory();
         }
     }
-} 
+}

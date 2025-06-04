@@ -56,7 +56,7 @@ namespace GearVRController
             IntPtr hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
             WindowId windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
             _appWindow = AppWindow.GetFromWindowId(windowId);
-            
+
             // 设置默认窗口大小
             _appWindow.Resize(new SizeInt32(900, 700));
 
@@ -70,50 +70,26 @@ namespace GearVRController
         {
             // 如果校准窗口打开，发送数据给校准窗口
             _calibrationWindow?.ProcessControllerData(data);
-            
+
             // 如果触摸板可视化窗口打开，发送数据给触摸板可视化窗口
             if (_touchpadVisualizerWindow != null)
             {
-                // 应用校准（复制MainViewModel中的逻辑）
-                double normalizedX = 0;
-                double normalizedY = 0;
-                
-                if (ViewModel.CalibrationData != null)
-                {
-                    // 计算相对于中心点的偏移
-                    double deltaX = data.AxisX - ViewModel.CalibrationData.CenterX;
-                    double deltaY = data.AxisY - ViewModel.CalibrationData.CenterY;
-                    
-                    // 计算归一化系数
-                    double xScale = deltaX > 0 ?
-                        Math.Max(10, ViewModel.CalibrationData.MaxX - ViewModel.CalibrationData.CenterX) :
-                        Math.Max(10, ViewModel.CalibrationData.CenterX - ViewModel.CalibrationData.MinX);
+                // Use processed data from ViewModel
+                double processedX = ViewModel.ProcessedTouchpadX;
+                double processedY = ViewModel.ProcessedTouchpadY;
 
-                    double yScale = deltaY > 0 ?
-                        Math.Max(10, ViewModel.CalibrationData.MaxY - ViewModel.CalibrationData.CenterY) :
-                        Math.Max(10, ViewModel.CalibrationData.CenterY - ViewModel.CalibrationData.MinY);
-                        
-                    // 归一化坐标
-                    normalizedX = Math.Max(-1.0, Math.Min(1.0, deltaX / xScale));
-                    normalizedY = Math.Max(-1.0, Math.Min(1.0, deltaY / yScale));
-                }
-                else
-                {
-                    // 如果没有校准数据，使用简单的归一化方法
-                    normalizedX = Math.Max(-1.0, Math.Min(1.0, (data.AxisX - 500) / 500.0));
-                    normalizedY = Math.Max(-1.0, Math.Min(1.0, (data.AxisY - 500) / 500.0));
-                }
-                
                 // 发送数据到可视化窗口
                 try
                 {
-                    _touchpadVisualizerWindow.ProcessTouchpadData(normalizedX, normalizedY, data.TouchpadButton, ViewModel.LastGesture);
+                    // Pass processed coordinates to the visualizer
+                    _touchpadVisualizerWindow.ProcessTouchpadData(processedX, processedY, data.TouchpadButton, ViewModel.LastGesture);
                 }
                 catch (Exception ex)
                 {
-                    // 如果ProcessTouchpadData方法不存在，尝试使用UpdateTouchpadData方法
+                    // 如果ProcessTouchpadData方法不存在或出错，尝试使用UpdateTouchpadData方法
                     System.Diagnostics.Debug.WriteLine($"触摸板可视化数据发送错误: {ex.Message}");
-                    _touchpadVisualizerWindow.UpdateTouchpadData(normalizedX, normalizedY, data.TouchpadButton, ViewModel.LastGesture);
+                    // Pass processed coordinates to the visualizer
+                    _touchpadVisualizerWindow.UpdateTouchpadData(processedX, processedY, data.TouchpadButton, ViewModel.LastGesture);
                 }
             }
         }
@@ -166,7 +142,7 @@ namespace GearVRController
                     {
                         ViewModel.StatusMessage = $"正在尝试连接到设备 {address.ToString("X")}...";
                         await ViewModel.ConnectAsync(address);
-                        
+
                         // 如果连接成功，跳出循环
                         if (ViewModel.IsConnected)
                         {
