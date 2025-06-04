@@ -12,15 +12,16 @@
                 <!-- Other merged dictionaries here -->
             </ResourceDictionary.MergedDictionaries>
             <!-- Other app resources here -->
-            
+
             <!-- 值转换器 -->
-            <converters:BoolToConnectionColorConverter x:Key="BoolToConnectionColorConverter"/>
-            <converters:BoolToButtonStateConverter x:Key="BoolToButtonStateConverter"/>
-            <converters:BoolToInverseConverter x:Key="BoolToInverseConverter"/>
-            <converters:BoolToControlStateConverter x:Key="BoolToControlStateConverter"/>
-            <converters:BooleanNegationConverter x:Key="BooleanNegationConverter"/>
-            <converters:BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
-            <local:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
+            <converters:BoolToConnectionColorConverter x:Key="BoolToConnectionColorConverter" />
+            <converters:BoolToButtonStateConverter x:Key="BoolToButtonStateConverter" />
+            <converters:BoolToInverseConverter x:Key="BoolToInverseConverter" />
+            <converters:BoolToControlStateConverter x:Key="BoolToControlStateConverter" />
+            <converters:BooleanNegationConverter x:Key="BooleanNegationConverter" />
+            <converters:BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+            <!--<local:BoolToVisibilityConverter
+            x:Key="BoolToVisibilityConverter"/>-->
         </ResourceDictionary>
     </Application.Resources>
 </Application>

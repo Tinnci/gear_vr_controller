@@ -266,19 +266,17 @@ namespace GearVRController.Services
 
         private void DataCharacteristic_ValueChanged(GattCharacteristic sender, GattValueChangedEventArgs args)
         {
-            if (args?.CharacteristicValue == null)
-            {
-                return;
-            }
-
-            // 快速获取数据
             var reader = DataReader.FromBuffer(args.CharacteristicValue);
             var byteArray = new byte[args.CharacteristicValue.Length];
             reader.ReadBytes(byteArray);
 
-            // 添加日志以显示收到的数据长度
-            // System.Diagnostics.Debug.WriteLine($"[BluetoothService] DataCharacteristic_ValueChanged: Received data length: {byteArray.Length} bytes.");
+            System.Diagnostics.Debug.WriteLine($"[BluetoothService] 收到数据, 长度: {byteArray.Length} 字节.");
 
+            // 增强日志：如果数据包长度不足，记录其十六进制内容
+            if (byteArray.Length < 57) // 假设 57 字节是预期的最小完整数据包长度
+            {
+                System.Diagnostics.Debug.WriteLine($"[BluetoothService] 警告：收到的数据长度不足，预期至少 57 字节. 实际: {byteArray.Length} 字节. 内容: {BitConverter.ToString(byteArray)}");
+            }
             // 将耗时处理移到后台线程
             Task.Run(() => ProcessDataAsync(byteArray));
         }

@@ -17,6 +17,8 @@ namespace GearVRController.Services
         private double _lastTouchpadProcessedX = 0;
         private double _lastTouchpadProcessedY = 0;
 
+        private const double MOUSE_SENSITIVITY_SCALING_FACTOR = 100.0;
+
         public event EventHandler<ControllerData>? ControllerDataProcessed;
 
         public ControllerService(IBluetoothService bluetoothService, ISettingsService settingsService, TouchpadProcessor touchpadProcessor, IInputSimulator inputSimulator, GestureRecognizer gestureRecognizer)
@@ -112,8 +114,8 @@ namespace GearVRController.Services
                     // 根据增量、灵敏度和缩放因子计算鼠标移动量
                     // 缩放因子需要调整以获得合适的移动速度，可能需要根据实际测试来确定。
                     // 一个小的缩放因子可能更合适，因为deltaX/Y是-2到2之间的变化。
-                    double mouseDeltaX = deltaX * _settingsService.MouseSensitivity * 100.0; // 示例缩放因子 100.0
-                    double mouseDeltaY = deltaY * _settingsService.MouseSensitivity * 100.0; // 示例缩放因子 100.0
+                    double mouseDeltaX = deltaX * _settingsService.MouseSensitivity * MOUSE_SENSITIVITY_SCALING_FACTOR;
+                    double mouseDeltaY = deltaY * _settingsService.MouseSensitivity * MOUSE_SENSITIVITY_SCALING_FACTOR;
 
                     System.Diagnostics.Debug.WriteLine($"[ControllerService] 触摸持续: rawX={{data.AxisX}}, rawY={{data.AxisY}}, processedX={{processedX:F2}}, processedY={{processedY:F2}}, deltaX={{deltaX:F2}}, deltaY={{deltaY:F2}}, mouseDeltaX={{mouseDeltaX:F2}}, mouseDeltaY={{mouseDeltaY:F2}}");
 

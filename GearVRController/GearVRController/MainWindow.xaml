@@ -202,7 +202,7 @@
                                     Width="200"
                                     HorizontalAlignment="Left"
                                     IsEnabled="{Binding EnableSmoothing}"
-                                    Visibility="{Binding IsRelativeMode, Converter={StaticResource BoolToVisibilityConverter}}" />
+                                    Visibility="{Binding IsRelativeMode, Converter={StaticResource BooleanToVisibilityConverter}}" />
                             </StackPanel>
 
                             <StackPanel Margin="0,0,0,12">
@@ -213,7 +213,7 @@
                                     Width="200"
                                     HorizontalAlignment="Left"
                                     IsEnabled="{Binding EnableNonLinearCurve}"
-                                    Visibility="{Binding IsRelativeMode, Converter={StaticResource BoolToVisibilityConverter}}" />
+                                    Visibility="{Binding IsRelativeMode, Converter={StaticResource BooleanToVisibilityConverter}}" />
                             </StackPanel>
 
                             <StackPanel Margin="0,0,0,12">
@@ -223,7 +223,7 @@
                                     Value="{Binding DeadZone, Mode=TwoWay}"
                                     Width="200"
                                     HorizontalAlignment="Left"
-                                    Visibility="{Binding IsRelativeMode, Converter={StaticResource BoolToVisibilityConverter}}" />
+                                    Visibility="{Binding IsRelativeMode, Converter={StaticResource BooleanToVisibilityConverter}}" />
                             </StackPanel>
 
                             <controls:WrapPanel HorizontalSpacing="12" VerticalSpacing="8">
