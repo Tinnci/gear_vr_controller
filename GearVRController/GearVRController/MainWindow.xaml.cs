@@ -62,8 +62,6 @@ namespace GearVRController
 
             // 订阅控制器数据更新事件
             ViewModel.ControllerDataReceived += ViewModel_ControllerDataReceived;
-            // 订阅自动校准事件
-            ViewModel.AutoCalibrationRequired += ViewModel_AutoCalibrationRequired;
         }
 
         private void ViewModel_ControllerDataReceived(object? sender, ControllerData data)
@@ -92,33 +90,6 @@ namespace GearVRController
                     _touchpadVisualizerWindow.UpdateTouchpadData(processedX, processedY, data.TouchpadButton, ViewModel.LastGesture);
                 }
             }
-        }
-
-        private void ViewModel_AutoCalibrationRequired(object? sender, EventArgs e)
-        {
-            // 在UI线程上执行
-            DispatcherQueue.TryEnqueue(() =>
-            {
-                if (_calibrationWindow != null)
-                {
-                    _calibrationWindow.Close();
-                }
-
-                _calibrationWindow = new TouchpadCalibrationWindow();
-                _calibrationWindow.CalibrationCompleted += (s, data) =>
-                {
-                    ViewModel.ApplyCalibrationData(data);
-                    ViewModel.EndCalibration();
-                    _calibrationWindow = null;
-                };
-                _calibrationWindow.Closed += (s, e) =>
-                {
-                    ViewModel.EndCalibration();
-                    _calibrationWindow = null;
-                };
-                ViewModel.StartAutoCalibration();
-                _calibrationWindow.Activate();
-            });
         }
 
         private async void ConnectButton_Click(object sender, RoutedEventArgs e)

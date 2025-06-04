@@ -301,7 +301,7 @@ namespace GearVRController.Views
                 PressedStateText.Text = isPressed ? "已按下" : "未按下";
                 GestureText.Text = GetGestureText(gesture);
 
-                Debug.WriteLine($"触摸板数据更新: X={processedX:F2}, Y={processedY:F2}, 按下={isPressed}, 手势={gesture}");
+                // Debug.WriteLine($"触摸板数据更新: X={processedX:F2}, Y={processedY:F2}, 按下={isPressed}, 手势={gesture}");
             });
         }
 

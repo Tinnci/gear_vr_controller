@@ -46,16 +46,11 @@ namespace GearVRController.ViewModels
         private double _nonLinearCurvePower = 1.5;
         private double _deadZone = 8.0;
 
-        // 添加异常移动检测相关字段
-        private const int ABNORMAL_MOVEMENT_THRESHOLD = 10; // 连续向左上角移动的次数阈值
-        private const double DIRECTION_TOLERANCE = 0.3; // 判定为左上角移动的方向容差
-        private int _abnormalMovementCount = 0;
-        private bool _isAutoCalibrating = false;
-        private DateTime _lastAbnormalMovementTime = DateTime.MinValue;
-        private const int RESET_INTERVAL_SECONDS = 5; // 重置异常计数的时间间隔
-
         private bool _isCalibrating = false;
         private bool _isConnecting = false;
+
+        // 添加手动校准相关字段
+        private bool _isAutoCalibrating = false; // 保留此字段用于内部状态管理，但不通过UI控制其启用
 
         private const int MOVEMENT_BUFFER_SIZE = 3;
         private Queue<(double X, double Y)> _movementBuffer = new Queue<(double X, double Y)>();
@@ -116,7 +111,6 @@ namespace GearVRController.ViewModels
 
         public event PropertyChangedEventHandler? PropertyChanged;
         public event EventHandler<ControllerData>? ControllerDataReceived;
-        public event EventHandler? AutoCalibrationRequired;
 
         public bool IsControlEnabled
         {
@@ -282,26 +276,6 @@ namespace GearVRController.ViewModels
 
         // 提供一个公共属性来访问校准数据
         public TouchpadCalibrationData? CalibrationData => _calibrationData;
-
-        public bool EnableAutoCalibration
-        {
-            get => _enableAutoCalibration;
-            set
-            {
-                if (_enableAutoCalibration != value)
-                {
-                    _enableAutoCalibration = value;
-                    OnPropertyChanged();
-
-                    // 如果禁用自动校准，重置相关计数器
-                    if (!value)
-                    {
-                        _abnormalMovementCount = 0;
-                        _isAutoCalibrating = false;
-                    }
-                }
-            }
-        }
 
         public bool EnableSmoothing
         {
@@ -619,12 +593,26 @@ namespace GearVRController.ViewModels
             IsControlEnabled = _settingsService.IsControlEnabled;
             UseNaturalScrolling = _settingsService.UseNaturalScrolling;
             InvertYAxis = _settingsService.InvertYAxis;
-            EnableAutoCalibration = _settingsService.EnableAutoCalibration;
             EnableSmoothing = _settingsService.EnableSmoothing;
             SmoothingLevel = _settingsService.SmoothingLevel;
             EnableNonLinearCurve = _settingsService.EnableNonLinearCurve;
             NonLinearCurvePower = _settingsService.NonLinearCurvePower;
             DeadZone = _settingsService.DeadZone;
+            IsGestureMode = _settingsService.IsGestureMode;
+            IsRelativeMode = _settingsService.IsRelativeMode;
+            GestureSensitivity = _settingsService.GestureSensitivity;
+            ShowGestureHints = _settingsService.ShowGestureHints;
+            SwipeUpAction = _settingsService.SwipeUpAction;
+            SwipeDownAction = _settingsService.SwipeDownAction;
+            SwipeLeftAction = _settingsService.SwipeLeftAction;
+            SwipeRightAction = _settingsService.SwipeRightAction;
+
+            // 尝试加载校准数据
+            var calibration = _settingsService.LoadCalibrationData();
+            if (calibration != null)
+            {
+                ApplyCalibrationData(calibration);
+            }
         }
 
         private void RegisterHotKeys()
@@ -844,14 +832,6 @@ namespace GearVRController.ViewModels
 
                     RecordTouchpadHistory(smoothX, smoothY, data.TouchpadButton);
 
-                    // Check abnormal movement using processed data (optional, depending on if this check relies on raw or processed values)
-                    // For now, keep it using finalDeltaX, finalDeltaY as they represent screen movement
-                    if (CheckAbnormalMovement(finalDeltaX, finalDeltaY))
-                    {
-                        TriggerAutoCalibration();
-                        return;
-                    }
-
                     if (Math.Abs(finalDeltaX) > 0 || Math.Abs(finalDeltaY) > 0)
                     {
                         if (data.TouchpadButton)
@@ -971,7 +951,6 @@ namespace GearVRController.ViewModels
             IsControlEnabled = _settingsService.IsControlEnabled;
             UseNaturalScrolling = _settingsService.UseNaturalScrolling;
             InvertYAxis = _settingsService.InvertYAxis;
-            EnableAutoCalibration = _settingsService.EnableAutoCalibration;
             EnableSmoothing = _settingsService.EnableSmoothing;
             SmoothingLevel = _settingsService.SmoothingLevel;
             EnableNonLinearCurve = _settingsService.EnableNonLinearCurve;
@@ -984,85 +963,6 @@ namespace GearVRController.ViewModels
             _calibrationData = calibrationData;
             _touchpadProcessor.SetCalibrationData(_calibrationData);
             StatusMessage = "已应用触摸板校准数据";
-        }
-
-        private bool CheckAbnormalMovement(double deltaX, double deltaY)
-        {
-            // 如果禁用了自动校准，直接返回false
-            if (!_enableAutoCalibration)
-            {
-                return false;
-            }
-
-            // 检查是否需要重置计数器
-            if ((DateTime.Now - _lastAbnormalMovementTime).TotalSeconds > RESET_INTERVAL_SECONDS)
-            {
-                _abnormalMovementCount = 0;
-            }
-
-            // 计算移动方向
-            double magnitude = Math.Sqrt(deltaX * deltaX + deltaY * deltaY);
-            if (magnitude < 3) // 增加阈值，忽略小幅度移动
-            {
-                return false;
-            }
-
-            // 归一化方向向量
-            double normalizedX = deltaX / magnitude;
-            double normalizedY = deltaY / magnitude;
-
-            // 检查是否向左上方移动（大约-135度方向）
-            // 理想的左上方向量是 (-0.707, -0.707)
-            // 增加容差范围，减少误判
-            double tolerance = DIRECTION_TOLERANCE * 1.5; // 增加50%的容差
-            if (normalizedX < -0.707 - tolerance || normalizedX > -0.707 + tolerance ||
-                normalizedY < -0.707 - tolerance || normalizedY > -0.707 + tolerance)
-            {
-                // 如果不是向左上方移动，重置计数
-                _abnormalMovementCount = 0;
-                return false;
-            }
-
-            // 更新计数和时间戳
-            _abnormalMovementCount++;
-            _lastAbnormalMovementTime = DateTime.Now;
-
-            // 增加阈值，需要更多次数的异常移动才触发校准
-            return _abnormalMovementCount >= (ABNORMAL_MOVEMENT_THRESHOLD + 5);
-        }
-
-        private void TriggerAutoCalibration()
-        {
-            if (_isAutoCalibrating)
-            {
-                return;
-            }
-
-            // 直接调用 StartAutoCalibration，其中包含了设置 IsCalibrating = true 的逻辑
-            StartAutoCalibration();
-            StatusMessage = "检测到异常移动，正在启动自动校准...";
-            // AutoCalibrationRequired?.Invoke(this, EventArgs.Empty); // 不再需要通过事件触发
-        }
-
-        public void StartAutoCalibration()
-        {
-            IsCalibrating = true;
-            _isAutoCalibrating = true;
-            StatusMessage = "自动校准已启动，请在触摸板边缘划圈...";
-        }
-
-        public void StartManualCalibration()
-        {
-            IsCalibrating = true;
-            StatusMessage = "手动校准已启动，请在触摸板边缘划圈...";
-        }
-
-        public void EndCalibration()
-        {
-            IsCalibrating = false;
-            _isAutoCalibrating = false;
-            _abnormalMovementCount = 0;
-            StatusMessage = "校准完成";
         }
 
         private void UpdateControlState()
@@ -1217,6 +1117,22 @@ namespace GearVRController.ViewModels
                     inputSimulator.SimulateModifiedKeyStroke(WindowsInputSimulator.VirtualKeyCode.CONTROL, WindowsInputSimulator.VirtualKeyCode.VK_A);
                     break;
             }
+        }
+
+        // 恢复手动校准相关方法
+        public void StartManualCalibration()
+        {
+            IsCalibrating = true;
+            _isAutoCalibrating = false; // 确保手动校准时自动校准标志为false
+            StatusMessage = "手动校准已启动，请在触摸板边缘划圈...";
+        }
+
+        public void EndCalibration()
+        {
+            IsCalibrating = false;
+            _isAutoCalibrating = false; // 校准结束时重置自动校准标志
+            // _abnormalMovementCount = 0; // 异常计数已删除，不再需要重置
+            StatusMessage = "校准完成";
         }
     }
 }
