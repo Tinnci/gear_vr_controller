@@ -20,33 +20,43 @@ namespace GearVRController.Services
         /// <returns>A tuple containing the processed X and Y coordinates.</returns>
         public (double processedX, double processedY) ProcessRawData(int rawX, int rawY)
         {
+            System.Diagnostics.Debug.WriteLine($"[TouchpadProcessor] ProcessRawData: rawX={rawX}, rawY={rawY}");
             double processedX = 0;
             double processedY = 0;
 
             if (_calibrationData != null)
             {
+                System.Diagnostics.Debug.WriteLine($"[TouchpadProcessor] Calibration Data: MinX={_calibrationData.MinX}, MaxX={_calibrationData.MaxX}, MinY={_calibrationData.MinY}, MaxY={_calibrationData.MaxY}, CenterX={_calibrationData.CenterX}, CenterY={_calibrationData.CenterY}");
+
                 // 计算相对于中心点的偏移
                 double deltaX = rawX - _calibrationData.CenterX;
                 double deltaY = rawY - _calibrationData.CenterY;
 
                 // 计算归一化系数
-                double xScale = deltaX > 0 ?
-                    Math.Max(10, _calibrationData.MaxX - _calibrationData.CenterX) :
-                    Math.Max(10, _calibrationData.CenterX - _calibrationData.MinX);
+                // 确保分母不会过小，避免除以零或产生极大值
+                double xScale = (_calibrationData.MaxX - _calibrationData.MinX) / 2.0; // 使用总范围的一半作为缩放基准
+                double yScale = (_calibrationData.MaxY - _calibrationData.MinY) / 2.0; // 使用总范围的一半作为缩放基准
 
-                double yScale = deltaY > 0 ?
-                    Math.Max(10, _calibrationData.MaxY - _calibrationData.CenterY) :
-                    Math.Max(10, _calibrationData.CenterY - _calibrationData.MinY);
+                // 避免除以零或过小的数值
+                xScale = Math.Max(1.0, xScale);
+                yScale = Math.Max(1.0, yScale);
 
                 // 归一化坐标
                 processedX = Math.Max(-1.0, Math.Min(1.0, deltaX / xScale));
                 processedY = Math.Max(-1.0, Math.Min(1.0, -deltaY / yScale)); // Y轴翻转
+
+                System.Diagnostics.Debug.WriteLine($"[TouchpadProcessor] Calibrated: deltaX={deltaX:F2}, deltaY={deltaY:F2}, xScale={xScale:F2}, yScale={yScale:F2}, processedX={processedX:F2}, processedY={processedY:F2}");
             }
             else
             {
                 // 如果没有校准数据，使用简单的归一化方法 ( assuming center is 157.5 and max radius is 157.5)
-                processedX = Math.Max(-1.0, Math.Min(1.0, (rawX - 157.5) / 157.5));
-                processedY = Math.Max(-1.0, Math.Min(1.0, -(rawY - 157.5) / 157.5)); // Y轴翻转
+                // 重新审视这些默认值，确保它们与实际数据范围匹配
+                const double DEFAULT_CENTER = 157.5;
+                const double DEFAULT_HALF_RANGE = 157.5; // (315 - 0) / 2
+
+                processedX = Math.Max(-1.0, Math.Min(1.0, (rawX - DEFAULT_CENTER) / DEFAULT_HALF_RANGE));
+                processedY = Math.Max(-1.0, Math.Min(1.0, -(rawY - DEFAULT_CENTER) / DEFAULT_HALF_RANGE)); // Y轴翻转
+                System.Diagnostics.Debug.WriteLine($"[TouchpadProcessor] Uncalibrated: processedX={processedX:F2}, processedY={processedY:F2}");
             }
 
             return (processedX, processedY);

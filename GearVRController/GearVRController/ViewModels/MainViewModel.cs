@@ -704,7 +704,7 @@ namespace GearVRController.ViewModels
                 }
 
                 UpdateControlState();
-                Debug.WriteLine($"[MainViewModel] UpdateControlState 已调用. IsCalibrating: {IsCalibrating}, IsConnecting: {IsConnecting}, IsConnected: {IsConnected}, IsControlEnabled: {IsControlEnabled}"); // 添加日志
+                // Debug.WriteLine($"[MainViewModel] UpdateControlState 已调用. IsCalibrating: {IsCalibrating}, IsConnecting: {IsConnecting}, IsConnected: {IsConnected}, IsControlEnabled: {IsControlEnabled}"); // 简化日志
             });
         }
 
@@ -712,21 +712,41 @@ namespace GearVRController.ViewModels
         {
             if (data == null) return;
 
+            // System.Diagnostics.Debug.WriteLine($"[MainViewModel] BluetoothService_DataReceived: Event received, enqueuing to DispatcherQueue."); // 简化日志
+
             _dispatcherQueue.TryEnqueue(() =>
             {
-                // 触发控制器数据接收事件
-                ControllerDataReceived?.Invoke(this, data);
+                try
+                {
+                    // 触发控制器数据接收事件
+                    ControllerDataReceived?.Invoke(this, data);
 
-                // 如果正在校准或控制被禁用，直接返回
-                if (IsCalibrating || !IsControlEnabled) return;
+                    System.Diagnostics.Debug.WriteLine($"[MainViewModel] BluetoothService_DataReceived - IsCalibrating: {IsCalibrating}, IsControlEnabled: {IsControlEnabled}");
 
-                LastControllerData = data;
+                    if (IsCalibrating || !IsControlEnabled)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[MainViewModel] BluetoothService_DataReceived - Skipping data processing due to IsCalibrating or IsControlEnabled.");
+                        return;
+                    }
 
-                // 处理触摸板输入 (此逻辑已移至 ControllerService)
-                // ProcessTouchpadMovement(data);
+                    System.Diagnostics.Debug.WriteLine($"[MainViewModel] BluetoothService_DataReceived - Proceeding to process data.");
 
-                // 处理按钮输入
-                HandleButtonInput(data);
+                    LastControllerData = data;
+
+                    // 将控制器数据传递给 ControllerService 进行处理
+                    System.Diagnostics.Debug.WriteLine($"[MainViewModel] 将数据传递给 ControllerService.ProcessControllerData.");
+                    _controllerService.ProcessControllerData(data);
+
+                    // 处理触摸板输入 (此逻辑已移至 ControllerService)
+                    // ProcessTouchpadMovement(data);
+
+                    // 处理按钮输入
+                    HandleButtonInput(data);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[MainViewModel] Error in DispatcherQueue enqueue action: {ex.Message}\n{ex.StackTrace}");
+                }
             });
         }
 

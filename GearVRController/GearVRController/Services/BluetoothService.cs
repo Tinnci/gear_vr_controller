@@ -60,16 +60,16 @@ namespace GearVRController.Services
 
                 // 注册连接状态变化事件
                 _device.ConnectionStatusChanged += Device_ConnectionStatusChanged;
-                Debug.WriteLine($"[BluetoothService] 已注册 ConnectionStatusChanged 事件.");
+                // System.Diagnostics.Debug.WriteLine($"[BluetoothService] 已注册 ConnectionStatusChanged 事件."); // 简化日志
 
                 await InitializeServicesAsync(linkedCts.Token);
-                Debug.WriteLine($"[BluetoothService] InitializeServicesAsync 完成.");
+                // System.Diagnostics.Debug.WriteLine($"[BluetoothService] InitializeServicesAsync 完成."); // 简化日志
 
                 // 连接成功后，再次触发 ConnectionStatusChanged 事件，确保 MainViewModel 更新状态
                 // 这可以帮助排除事件丢失或延迟的问题
                 Device_ConnectionStatusChanged(_device, null);
 
-                Debug.WriteLine($"[BluetoothService] 连接到设备 {bluetoothAddress} 成功.");
+                System.Diagnostics.Debug.WriteLine($"[BluetoothService] 连接到设备 {bluetoothAddress} 成功.");
             }
             catch (OperationCanceledException)
             {
@@ -179,7 +179,6 @@ namespace GearVRController.Services
                             else if (characteristic.Uuid == CONTROLLER_DATA_CHARACTERISTIC_UUID)
                             {
                                 _dataCharacteristic = characteristic;
-                                await SubscribeToNotificationsAsync();
                                 cancellationToken.ThrowIfCancellationRequested();
                             }
                         }
@@ -189,18 +188,19 @@ namespace GearVRController.Services
 
             if (_setupCharacteristic == null || _dataCharacteristic == null)
             {
-                Debug.WriteLine("[BluetoothService] 未找到必要的特征值.");
+                System.Diagnostics.Debug.WriteLine("[BluetoothService] 未找到必要的特征值.");
                 throw new Exception("未找到必要的特征值");
             }
-            Debug.WriteLine("[BluetoothService] 已找到所有必要的特征值.");
+            System.Diagnostics.Debug.WriteLine("[BluetoothService] 已找到所有必要的特征值.");
 
             await InitializeControllerAsync();
-            Debug.WriteLine("[BluetoothService] InitializeServicesAsync 完成.");
+            await SubscribeToNotificationsAsync();
+            // System.Diagnostics.Debug.WriteLine("[BluetoothService] InitializeServicesAsync 完成."); // 简化日志
         }
 
         private async Task SubscribeToNotificationsAsync()
         {
-            Debug.WriteLine("[BluetoothService] 开始 SubscribeToNotificationsAsync.");
+            System.Diagnostics.Debug.WriteLine("[BluetoothService] 开始 SubscribeToNotificationsAsync.");
             if (_dataCharacteristic == null)
             {
                 Debug.WriteLine("[BluetoothService] SubscribeToNotificationsAsync: 数据特征值未初始化.");
@@ -275,6 +275,9 @@ namespace GearVRController.Services
             var reader = DataReader.FromBuffer(args.CharacteristicValue);
             var byteArray = new byte[args.CharacteristicValue.Length];
             reader.ReadBytes(byteArray);
+
+            // 添加日志以显示收到的数据长度
+            // System.Diagnostics.Debug.WriteLine($"[BluetoothService] DataCharacteristic_ValueChanged: Received data length: {byteArray.Length} bytes.");
 
             // 将耗时处理移到后台线程
             Task.Run(() => ProcessDataAsync(byteArray));

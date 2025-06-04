@@ -97,7 +97,7 @@ namespace GearVRController.Services
                     _lastTouchpadProcessedX = processedX;
                     _lastTouchpadProcessedY = processedY;
                     _isTouchpadCurrentlyTouched = true;
-                    System.Diagnostics.Debug.WriteLine($"[ControllerService] 触摸开始: ({{processedX:F2}}, {{processedY:F2}})");
+                    System.Diagnostics.Debug.WriteLine($"[ControllerService] 触摸开始: ({{processedX:F2}}, {{processedY:F2}}), _lastTouchpadProcessedX={_lastTouchpadProcessedX:F2}, _lastTouchpadProcessedY={_lastTouchpadProcessedY:F2}");
                 }
                 else // 触摸持续
                 {
@@ -114,6 +114,8 @@ namespace GearVRController.Services
                     // 一个小的缩放因子可能更合适，因为deltaX/Y是-2到2之间的变化。
                     double mouseDeltaX = deltaX * _settingsService.MouseSensitivity * 100.0; // 示例缩放因子 100.0
                     double mouseDeltaY = deltaY * _settingsService.MouseSensitivity * 100.0; // 示例缩放因子 100.0
+
+                    System.Diagnostics.Debug.WriteLine($"[ControllerService] 触摸持续: rawX={{data.AxisX}}, rawY={{data.AxisY}}, processedX={{processedX:F2}}, processedY={{processedY:F2}}, deltaX={{deltaX:F2}}, deltaY={{deltaY:F2}}, mouseDeltaX={{mouseDeltaX:F2}}, mouseDeltaY={{mouseDeltaY:F2}}");
 
                     // 模拟鼠标移动
                     // 增加一个小的阈值，避免微小移动导致的抖动
