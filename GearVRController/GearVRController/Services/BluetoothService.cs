@@ -285,10 +285,10 @@ namespace GearVRController.Services
             var data = new ControllerData();
 
             // 添加数据长度检查和日志
-            if (byteArray.Length < 57) // 需要至少57字节的数据
+            if (byteArray.Length < 57) // 至少需要57字节来解析触摸板坐标
             {
-                System.Diagnostics.Debug.WriteLine($"收到的数据长度不足: {byteArray.Length} 字节");
-                return;
+                System.Diagnostics.Debug.WriteLine($"收到的数据长度不足: {byteArray.Length} 字节，跳过处理.");
+                return; // 数据长度不足时直接返回
             }
 
             try
@@ -361,7 +361,8 @@ namespace GearVRController.Services
                     }
                 }
 
-                if (byteArray.Length >= 59) // 按钮状态
+                // 尝试解析按钮状态，即使长度不足59，也不应阻止解析触摸状态
+                if (byteArray.Length >= 59)
                 {
                     try
                     {
@@ -373,17 +374,28 @@ namespace GearVRController.Services
                         data.VolumeUpButton = (buttonState & 16) == 16;
                         data.VolumeDownButton = (buttonState & 32) == 32;
                         data.NoButton = (buttonState & 64) == 64;
-                        data.TouchpadTouched = data.AxisX != 0 || data.AxisY != 0;
+                        // 不在这里设置 TouchpadTouched
                     }
                     catch (Exception ex)
                     {
                         System.Diagnostics.Debug.WriteLine($"按钮状态解析错误: {ex.Message}");
                     }
                 }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"数据长度不足 ({byteArray.Length})，无法解析完整按钮状态.");
+                }
+
+                // 在这里根据 AxisX 和 AxisY 的值判断逻辑上的触摸状态
+                // 这确保了即使按钮状态无法解析，触摸状态也能根据坐标反映
+                data.TouchpadTouched = data.AxisX != 0 || data.AxisY != 0;
+
 
                 // 减少不必要的日志输出，提高性能
                 // System.Diagnostics.Debug.WriteLine($"成功解析数据: AxisX={data.AxisX}, AxisY={data.AxisY}");
 
+                // 只有当数据包长度足够解析至少触摸板坐标时才触发事件
+                // 频繁发送不完整数据可能会导致性能问题，但为了诊断先保留
                 DataReceived?.Invoke(this, data);
             }
             catch (Exception ex)

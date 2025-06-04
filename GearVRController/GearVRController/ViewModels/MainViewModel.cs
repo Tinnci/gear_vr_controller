@@ -727,7 +727,7 @@ namespace GearVRController.ViewModels
                 }
 
                 UpdateControlState();
-                Debug.WriteLine($"[MainViewModel] UpdateControlState 已调用. IsControlEnabled: {IsControlEnabled}, IsMouseEnabled: {IsMouseEnabled}, IsKeyboardEnabled: {IsKeyboardEnabled}"); // 添加日志
+                Debug.WriteLine($"[MainViewModel] UpdateControlState 已调用. IsCalibrating: {IsCalibrating}, IsConnecting: {IsConnecting}, IsConnected: {IsConnected}, IsControlEnabled: {IsControlEnabled}"); // 添加日志
             });
         }
 
@@ -1038,9 +1038,10 @@ namespace GearVRController.ViewModels
                 return;
             }
 
-            _isAutoCalibrating = true;
+            // 直接调用 StartAutoCalibration，其中包含了设置 IsCalibrating = true 的逻辑
+            StartAutoCalibration();
             StatusMessage = "检测到异常移动，正在启动自动校准...";
-            AutoCalibrationRequired?.Invoke(this, EventArgs.Empty);
+            // AutoCalibrationRequired?.Invoke(this, EventArgs.Empty); // 不再需要通过事件触发
         }
 
         public void StartAutoCalibration()
@@ -1066,19 +1067,15 @@ namespace GearVRController.ViewModels
 
         private void UpdateControlState()
         {
-            // 在以下情况下禁用控制：
-            // 1. 正在校准
-            // 2. 正在连接
-            // 3. 未连接
-            // 4. 用户手动禁用
-            bool shouldBeEnabled = !_isCalibrating &&
-                                 !_isConnecting &&
-                                 _isConnected &&
-                                 _isControlEnabled;
+            // 此方法主要用于在连接/断开或校准状态改变时更新整体状态信息，
+            // 不再直接控制 IsMouseEnabled 和 IsKeyboardEnabled 的值。
+            // 这些子级控制的启用状态应仅由用户设置决定。
 
-            // 更新鼠标和键盘控制状态
-            IsMouseEnabled = shouldBeEnabled && _isMouseEnabled;
-            IsKeyboardEnabled = shouldBeEnabled && _isKeyboardEnabled;
+            // 在 ProcessTouchpadMovement 和 HandleButtonInput 中会综合判断
+            // IsControlEnabled, IsCalibrating, IsMouseEnabled, IsKeyboardEnabled。
+
+            // 保留此方法，如果未来需要根据连接/校准状态更新其他UI或状态信息。
+            System.Diagnostics.Debug.WriteLine($"[MainViewModel] UpdateControlState 已调用. IsCalibrating: {IsCalibrating}, IsConnecting: {IsConnecting}, IsConnected: {IsConnected}, IsControlEnabled: {IsControlEnabled}");
         }
 
         // 添加记录触摸板历史的方法
