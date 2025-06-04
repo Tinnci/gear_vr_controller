@@ -79,7 +79,7 @@ namespace GearVRController.Services
 
         public bool InvertYAxis
         {
-            get => GetSetting(INVERT_Y_AXIS_KEY, false);
+            get => GetSetting(INVERT_Y_AXIS_KEY, true);
             set => SaveSetting(INVERT_Y_AXIS_KEY, value);
         }
 
@@ -181,7 +181,7 @@ namespace GearVRController.Services
             IsKeyboardEnabled = true;
             IsControlEnabled = true;
             UseNaturalScrolling = false;
-            InvertYAxis = false;
+            InvertYAxis = true;
             EnableSmoothing = true;
             SmoothingLevel = 3;
             EnableNonLinearCurve = true;

@@ -8,7 +8,7 @@ namespace GearVRController.Services
     public class GestureRecognizer
     {
         private const int GESTURE_SAMPLE_COUNT = 5;
-        private const int MIN_GESTURE_DISTANCE = 10;
+        private const float MIN_GESTURE_DISTANCE = 0.2f;
 
         private float _sensitivity;
         private readonly Queue<TouchpadPoint> _points = new();
@@ -30,6 +30,7 @@ namespace GearVRController.Services
 
         public void ProcessTouchpadPoint(TouchpadPoint point)
         {
+            // System.Diagnostics.Debug.WriteLine($"[GestureRecognizer] ProcessTouchpadPoint: Received point ({{point.X:F2}}, {{point.Y:F2}}), IsTouched: {{point.IsTouched}}");
             if (!_isGestureInProgress && point.IsTouched)
             {
                 StartGesture(point);
@@ -49,6 +50,7 @@ namespace GearVRController.Services
 
         private void StartGesture(TouchpadPoint point)
         {
+            System.Diagnostics.Debug.WriteLine($"[GestureRecognizer] StartGesture: Starting gesture at ({{point.X:F2}}, {{point.Y:F2}})");
             _gestureStartPoint = point;
             _points.Clear();
             _points.Enqueue(point);
@@ -57,6 +59,7 @@ namespace GearVRController.Services
 
         private void UpdateGesture(TouchpadPoint point)
         {
+            System.Diagnostics.Debug.WriteLine($"[GestureRecognizer] UpdateGesture: Updating gesture with point ({{point.X:F2}}, {{point.Y:F2}})");
             _points.Enqueue(point);
             if (_points.Count > GESTURE_SAMPLE_COUNT)
             {
@@ -66,12 +69,18 @@ namespace GearVRController.Services
 
         private void EndGesture()
         {
+            System.Diagnostics.Debug.WriteLine($"[GestureRecognizer] EndGesture: Ending gesture. Point count: {{_points.Count}}");
             if (_points.Count >= 2 && _gestureStartPoint != null)
             {
                 var direction = CalculateGestureDirection();
                 if (direction != GestureDirection.None)
                 {
+                    System.Diagnostics.Debug.WriteLine($"[GestureRecognizer] EndGesture: Gesture detected: {{direction}}");
                     GestureDetected?.Invoke(this, direction);
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("[GestureRecognizer] EndGesture: No significant gesture detected.");
                 }
             }
 
@@ -81,6 +90,7 @@ namespace GearVRController.Services
 
         private GestureDirection CalculateGestureDirection()
         {
+            System.Diagnostics.Debug.WriteLine("[GestureRecognizer] CalculateGestureDirection: Calculating direction.");
             if (_points.Count < 2 || _gestureStartPoint == null) return GestureDirection.None;
 
             var pointsArray = _points.ToArray();
@@ -91,8 +101,16 @@ namespace GearVRController.Services
             float dy = endPoint.Y - startPoint.Y;
 
             float distance = (float)Math.Sqrt(dx * dx + dy * dy);
+            float minGestureDistanceThreshold = MIN_GESTURE_DISTANCE * _sensitivity;
 
-            if (distance < MIN_GESTURE_DISTANCE * _sensitivity)
+            System.Diagnostics.Debug.WriteLine("[GestureRecognizer] CalculateGestureDirection: " +
+                                               "Start: (" + startPoint.X.ToString("F2") + ", " + startPoint.Y.ToString("F2") + "), " +
+                                               "End: (" + endPoint.X.ToString("F2") + ", " + endPoint.Y.ToString("F2") + "), " +
+                                               "Delta: (" + dx.ToString("F2") + ", " + dy.ToString("F2") + "), " +
+                                               "Distance: " + distance.ToString("F2") + ", " +
+                                               "MinThreshold: " + minGestureDistanceThreshold.ToString("F2"));
+
+            if (distance < minGestureDistanceThreshold)
             {
                 return GestureDirection.None;
             }
@@ -103,7 +121,9 @@ namespace GearVRController.Services
             if (degrees < 0)
                 degrees += 360;
 
-            const double tolerance = 45 / 2.0;
+            System.Diagnostics.Debug.WriteLine("[GestureRecognizer] CalculateGestureDirection: Calculated degrees = " + degrees.ToString("F2"));
+
+            const double tolerance = 60 / 2.0;
 
             if (degrees >= (360 - tolerance) || degrees < tolerance)
             {

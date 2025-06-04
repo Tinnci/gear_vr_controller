@@ -783,6 +783,7 @@ namespace GearVRController.ViewModels
 
                 if (IsGestureMode)
                 {
+                    // System.Diagnostics.Debug.WriteLine($"[MainViewModel] ProcessTouchpadMovement: Entering Gesture Mode processing. RawData: ({{data.AxisX}}, {{data.AxisY}}), ProcessedData: ({{processedX:F2}}, {{processedY:F2}}), IsTouched: {{data.TouchpadTouched}}");
                     // 手势模式下只处理手势识别，不处理鼠标移动
                     if (!IsKeyboardEnabled) return; // 如果键盘控制被禁用，不处理手势
 
@@ -1001,8 +1002,41 @@ namespace GearVRController.ViewModels
         {
             if (!IsControlEnabled || _isCalibrating || !IsGestureMode || !IsKeyboardEnabled) return;
 
-            var action = _gestureConfig.GetGestureAction(direction);
-            ExecuteGestureAction(action);
+            // 在手势模式下模拟鼠标移动
+            SimulateMouseMovementForGesture(direction);
+        }
+
+        private void SimulateMouseMovementForGesture(GestureDirection direction)
+        {
+            const int SWIPE_MOUSE_DELTA = 100; // 定义每次滑动模拟的鼠标移动距离
+
+            int deltaX = 0;
+            int deltaY = 0;
+
+            switch (direction)
+            {
+                case GestureDirection.Up:
+                    deltaY = -SWIPE_MOUSE_DELTA;
+                    break;
+                case GestureDirection.Down:
+                    deltaY = SWIPE_MOUSE_DELTA;
+                    break;
+                case GestureDirection.Left:
+                    deltaX = -SWIPE_MOUSE_DELTA;
+                    break;
+                case GestureDirection.Right:
+                    deltaX = SWIPE_MOUSE_DELTA;
+                    break;
+                case GestureDirection.None:
+                    // 不做任何操作
+                    break;
+            }
+
+            if (deltaX != 0 || deltaY != 0)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] SimulateMouseMovementForGesture: Simulating mouse movement Delta=({{deltaX}}, {{deltaY}})");
+                _inputSimulator.SimulateMouseMovement(deltaX, deltaY);
+            }
         }
 
         private void ExecuteGestureAction(GestureAction action)
