@@ -13,6 +13,7 @@ using System.Collections.Generic;
 using System.Linq;
 using GearVRController.Enums;
 using EnumsNS = GearVRController.Enums; // 添加命名空间别名
+using System.Diagnostics; // 添加 Debug 命名空间
 
 namespace GearVRController.ViewModels
 {
@@ -480,21 +481,24 @@ namespace GearVRController.ViewModels
             TouchpadProcessor touchpadProcessor,
             RotationProcessor rotationProcessor)
         {
+            // 将事件订阅移到最前面
             _bluetoothService = bluetoothService;
             _controllerService = controllerService;
             _inputSimulator = inputSimulator;
             _settingsService = settingsService;
             _dispatcherQueue = dispatcherQueue;
             _touchpadProcessor = touchpadProcessor;
+            _rotationProcessor = rotationProcessor;
+
+            // 确保在任何可能触发事件的操作之前订阅事件
+            _bluetoothService.ConnectionStatusChanged += BluetoothService_ConnectionStatusChanged;
+            _bluetoothService.DataReceived += BluetoothService_DataReceived;
 
             // Initialize _gestureConfig with a default value before using it
             _gestureConfig = new GestureConfig(); // Initialize with default
 
             _gestureRecognizer = new GestureRecognizer(_gestureConfig.Sensitivity);
             _gestureRecognizer.GestureDetected += OnGestureDetected;
-
-            // Assign injected RotationProcessor
-            _rotationProcessor = rotationProcessor;
 
             InitializeConnectionCheck();
             InitializeStateCheck();
@@ -683,9 +687,12 @@ namespace GearVRController.ViewModels
 
         private void BluetoothService_ConnectionStatusChanged(object? sender, BluetoothConnectionStatus status)
         {
+            Debug.WriteLine($"[MainViewModel] 收到 ConnectionStatusChanged 事件. 新状态: {status}"); // 添加日志
             _dispatcherQueue.TryEnqueue(() =>
             {
+                Debug.WriteLine($"[MainViewModel] 在 DispatcherQueue 中处理状态更新. 当前 IsConnected (前): {IsConnected}, 新状态: {status}"); // 添加日志
                 IsConnected = status == BluetoothConnectionStatus.Connected;
+                Debug.WriteLine($"[MainViewModel] IsConnected 已更新为: {IsConnected}"); // 添加日志
 
                 if (!IsConnected)
                 {
@@ -694,6 +701,7 @@ namespace GearVRController.ViewModels
                     _leftButtonPressed = false;
                     _rightButtonPressed = false;
                     _movementBuffer.Clear();
+                    Debug.WriteLine("[MainViewModel] 检测到断开连接，已释放按键并清空缓冲区."); // 添加日志
                 }
 
                 // 更新状态消息
@@ -702,20 +710,24 @@ namespace GearVRController.ViewModels
                     StatusMessage = "已连接";
                     _reconnectAttempts = 0;
                     _connectionCheckTimer?.Start();
+                    Debug.WriteLine("[MainViewModel] 状态消息已更新为: 已连接"); // 添加日志
                 }
                 else
                 {
                     if (_isReconnecting)
                     {
                         StatusMessage = $"连接断开，正在尝试重新连接... (第 {_reconnectAttempts} 次)";
+                        Debug.WriteLine($"[MainViewModel] 状态消息已更新为: {StatusMessage}"); // 添加日志
                     }
                     else
                     {
                         StatusMessage = "连接已断开";
+                        Debug.WriteLine("[MainViewModel] 状态消息已更新为: 连接已断开"); // 添加日志
                     }
                 }
 
                 UpdateControlState();
+                Debug.WriteLine($"[MainViewModel] UpdateControlState 已调用. IsControlEnabled: {IsControlEnabled}, IsMouseEnabled: {IsMouseEnabled}, IsKeyboardEnabled: {IsKeyboardEnabled}"); // 添加日志
             });
         }
 

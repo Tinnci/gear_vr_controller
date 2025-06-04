@@ -8,6 +8,7 @@ using Windows.Storage.Streams;
 using GearVRController.Models;
 using System.Threading;
 using GearVRController.Services.Interfaces;
+using System.Diagnostics;
 
 namespace GearVRController.Services
 {
@@ -36,6 +37,7 @@ namespace GearVRController.Services
 
         public async Task ConnectAsync(ulong bluetoothAddress, int timeoutMs = 10000)
         {
+            Debug.WriteLine($"[BluetoothService] 开始连接到设备地址: {bluetoothAddress}");
             try
             {
                 _lastConnectedAddress = bluetoothAddress;
@@ -46,36 +48,52 @@ namespace GearVRController.Services
                 using var timeoutCts = new CancellationTokenSource(timeoutMs);
                 using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(timeoutCts.Token, _connectionCts.Token);
 
+                Debug.WriteLine($"[BluetoothService] 尝试从地址获取设备: {bluetoothAddress}");
                 _device = await BluetoothLEDevice.FromBluetoothAddressAsync(bluetoothAddress);
+
                 if (_device == null)
                 {
+                    Debug.WriteLine($"[BluetoothService] 无法从地址获取设备: {bluetoothAddress}");
                     throw new Exception("无法连接到设备");
                 }
+                Debug.WriteLine($"[BluetoothService] 成功获取到设备对象. ConnectionStatus: {_device.ConnectionStatus}");
 
                 // 注册连接状态变化事件
                 _device.ConnectionStatusChanged += Device_ConnectionStatusChanged;
+                Debug.WriteLine($"[BluetoothService] 已注册 ConnectionStatusChanged 事件.");
 
                 await InitializeServicesAsync(linkedCts.Token);
+                Debug.WriteLine($"[BluetoothService] InitializeServicesAsync 完成.");
+
+                // 连接成功后，再次触发 ConnectionStatusChanged 事件，确保 MainViewModel 更新状态
+                // 这可以帮助排除事件丢失或延迟的问题
+                Device_ConnectionStatusChanged(_device, null);
+
+                Debug.WriteLine($"[BluetoothService] 连接到设备 {bluetoothAddress} 成功.");
             }
             catch (OperationCanceledException)
             {
+                Debug.WriteLine($"[BluetoothService] 连接到设备超时: {bluetoothAddress}");
                 throw new TimeoutException("连接超时");
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Debug.WriteLine($"[BluetoothService] 连接到设备 {bluetoothAddress} 失败: {ex.Message}");
                 _device?.Dispose();
                 _device = null;
                 throw;
             }
         }
 
-        private async void Device_ConnectionStatusChanged(BluetoothLEDevice sender, object args)
+        private async void Device_ConnectionStatusChanged(BluetoothLEDevice sender, object? args)
         {
             var status = sender.ConnectionStatus;
+            Debug.WriteLine($"[BluetoothService] ConnectionStatusChanged 事件触发. 新状态: {status}");
             ConnectionStatusChanged?.Invoke(this, status);
 
             if (status == BluetoothConnectionStatus.Disconnected)
             {
+                Debug.WriteLine("[BluetoothService] 检测到断开连接，尝试重新连接...");
                 await AttemptReconnectAsync();
             }
         }
@@ -83,8 +101,13 @@ namespace GearVRController.Services
         private async Task AttemptReconnectAsync()
         {
             if (_isReconnecting || _lastConnectedAddress == 0)
+            {
+                if (_isReconnecting) Debug.WriteLine("[BluetoothService] 正在重连，跳过新的重连尝试.");
+                if (_lastConnectedAddress == 0) Debug.WriteLine("[BluetoothService] 无上次连接地址，跳过重连.");
                 return;
+            }
 
+            Debug.WriteLine("[BluetoothService] 开始尝试重新连接流程.");
             try
             {
                 await _reconnectionSemaphore.WaitAsync();
@@ -94,32 +117,37 @@ namespace GearVRController.Services
                 {
                     try
                     {
-                        System.Diagnostics.Debug.WriteLine($"尝试重新连接，第 {attempt + 1} 次");
+                        System.Diagnostics.Debug.WriteLine($"[BluetoothService] 尝试重新连接，第 {attempt + 1} 次，地址: {_lastConnectedAddress}");
                         await ConnectAsync(_lastConnectedAddress);
-                        System.Diagnostics.Debug.WriteLine("重新连接成功");
+                        System.Diagnostics.Debug.WriteLine("[BluetoothService] 重新连接成功");
                         return;
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"重新连接失败: {ex.Message}");
+                        System.Diagnostics.Debug.WriteLine($"[BluetoothService] 重新连接失败: {ex.Message}");
                         if (attempt < MAX_RECONNECTION_ATTEMPTS - 1)
                         {
+                            System.Diagnostics.Debug.WriteLine($"[BluetoothService] 等待 {RECONNECTION_DELAY_MS}ms 后再次尝试.");
                             await Task.Delay(RECONNECTION_DELAY_MS);
                         }
                     }
                 }
+                System.Diagnostics.Debug.WriteLine($"[BluetoothService] 达到最大重连次数 ({MAX_RECONNECTION_ATTEMPTS})，停止重连.");
             }
             finally
             {
                 _isReconnecting = false;
                 _reconnectionSemaphore.Release();
+                Debug.WriteLine("[BluetoothService] 尝试重新连接流程结束.");
             }
         }
 
         private async Task InitializeServicesAsync(CancellationToken cancellationToken)
         {
+            Debug.WriteLine("[BluetoothService] 开始 InitializeServicesAsync.");
             if (_device == null)
             {
+                Debug.WriteLine("[BluetoothService] InitializeServicesAsync: 设备未连接.");
                 throw new Exception("设备未连接");
             }
 
@@ -128,8 +156,10 @@ namespace GearVRController.Services
 
             if (result.Status != GattCommunicationStatus.Success)
             {
+                Debug.WriteLine($"[BluetoothService] GetGattServicesAsync 失败: {result.Status}");
                 throw new Exception("无法获取GATT服务");
             }
+            Debug.WriteLine($"[BluetoothService] 成功获取 GATT 服务 ({result.Services.Count} 个).");
 
             foreach (var service in result.Services)
             {
@@ -159,16 +189,21 @@ namespace GearVRController.Services
 
             if (_setupCharacteristic == null || _dataCharacteristic == null)
             {
+                Debug.WriteLine("[BluetoothService] 未找到必要的特征值.");
                 throw new Exception("未找到必要的特征值");
             }
+            Debug.WriteLine("[BluetoothService] 已找到所有必要的特征值.");
 
             await InitializeControllerAsync();
+            Debug.WriteLine("[BluetoothService] InitializeServicesAsync 完成.");
         }
 
         private async Task SubscribeToNotificationsAsync()
         {
+            Debug.WriteLine("[BluetoothService] 开始 SubscribeToNotificationsAsync.");
             if (_dataCharacteristic == null)
             {
+                Debug.WriteLine("[BluetoothService] SubscribeToNotificationsAsync: 数据特征值未初始化.");
                 throw new Exception("数据特征值未初始化");
             }
 
@@ -179,11 +214,14 @@ namespace GearVRController.Services
             if (status == GattCommunicationStatus.Success)
             {
                 _dataCharacteristic.ValueChanged += DataCharacteristic_ValueChanged;
+                Debug.WriteLine("[BluetoothService] 成功订阅数据通知.");
             }
             else
             {
+                Debug.WriteLine($"[BluetoothService] 订阅通知失败: {status}");
                 throw new Exception("无法订阅通知");
             }
+            Debug.WriteLine("[BluetoothService] SubscribeToNotificationsAsync 完成.");
         }
 
         private async Task InitializeControllerAsync()
@@ -193,7 +231,7 @@ namespace GearVRController.Services
             await SendCommandAsync(new byte[] { 0x06, 0x00 }, repeat: 1);
             await SendCommandAsync(new byte[] { 0x07, 0x00 }, repeat: 1);
             await SendCommandAsync(new byte[] { 0x08, 0x00 }, repeat: 3);
-            
+
             // 优化连接参数以降低延迟
             await OptimizeConnectionParametersAsync();
         }
@@ -258,17 +296,19 @@ namespace GearVRController.Services
                 // 解析触摸板数据 - 增加安全检查
                 if (byteArray.Length >= 57)
                 {
-                    try {
+                    try
+                    {
                         // 解析原始值（0-1023范围）
                         int rawAxisX = (((byteArray[54] & 0xF) << 6) + ((byteArray[55] & 0xFC) >> 2)) & 0x3FF;
                         int rawAxisY = (((byteArray[55] & 0x3) << 8) + ((byteArray[56] & 0xFF) >> 0)) & 0x3FF;
-                        
+
                         // 根据实际测量范围调整映射
                         // 先直接记录原始值，便于观察实际范围
                         data.AxisX = rawAxisX;
                         data.AxisY = rawAxisY;
                     }
-                    catch (Exception ex) {
+                    catch (Exception ex)
+                    {
                         System.Diagnostics.Debug.WriteLine($"触摸板数据解析错误: {ex.Message}");
                         // 设置默认值
                         data.AxisX = 0;
@@ -279,7 +319,8 @@ namespace GearVRController.Services
                 // 确保其他数据索引也在有效范围内
                 if (byteArray.Length >= 16) // 加速度计和陀螺仪数据
                 {
-                    try {
+                    try
+                    {
                         // 使用short类型进行转换，避免溢出
                         short accelXRaw = (short)((byteArray[4] << 8) | byteArray[5]);
                         short accelYRaw = (short)((byteArray[6] << 8) | byteArray[7]);
@@ -287,7 +328,7 @@ namespace GearVRController.Services
                         short gyroXRaw = (short)((byteArray[10] << 8) | byteArray[11]);
                         short gyroYRaw = (short)((byteArray[12] << 8) | byteArray[13]);
                         short gyroZRaw = (short)((byteArray[14] << 8) | byteArray[15]);
-                        
+
                         // 转换为物理单位
                         data.AccelX = accelXRaw * 9.80665f / 2048.0f;
                         data.AccelY = accelYRaw * 9.80665f / 2048.0f;
@@ -296,30 +337,34 @@ namespace GearVRController.Services
                         data.GyroY = gyroYRaw * 0.017453292f / 14.285f;
                         data.GyroZ = gyroZRaw * 0.017453292f / 14.285f;
                     }
-                    catch (Exception ex) {
+                    catch (Exception ex)
+                    {
                         System.Diagnostics.Debug.WriteLine($"IMU数据解析错误: {ex.Message}");
                     }
                 }
 
                 if (byteArray.Length >= 38) // 磁力计数据
                 {
-                    try {
+                    try
+                    {
                         short magXRaw = (short)((byteArray[32] << 8) | byteArray[33]);
                         short magYRaw = (short)((byteArray[34] << 8) | byteArray[35]);
                         short magZRaw = (short)((byteArray[36] << 8) | byteArray[37]);
-                        
+
                         data.MagnetX = (int)(magXRaw * 0.06);
                         data.MagnetY = (int)(magYRaw * 0.06);
                         data.MagnetZ = (int)(magZRaw * 0.06);
                     }
-                    catch (Exception ex) {
+                    catch (Exception ex)
+                    {
                         System.Diagnostics.Debug.WriteLine($"磁力计数据解析错误: {ex.Message}");
                     }
                 }
 
                 if (byteArray.Length >= 59) // 按钮状态
                 {
-                    try {
+                    try
+                    {
                         byte buttonState = byteArray[58];
                         data.TriggerButton = (buttonState & 1) == 1;
                         data.HomeButton = (buttonState & 2) == 2;
@@ -330,7 +375,8 @@ namespace GearVRController.Services
                         data.NoButton = (buttonState & 64) == 64;
                         data.TouchpadTouched = data.AxisX != 0 || data.AxisY != 0;
                     }
-                    catch (Exception ex) {
+                    catch (Exception ex)
+                    {
                         System.Diagnostics.Debug.WriteLine($"按钮状态解析错误: {ex.Message}");
                     }
                 }

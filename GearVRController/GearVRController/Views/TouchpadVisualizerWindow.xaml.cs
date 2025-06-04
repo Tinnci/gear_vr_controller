@@ -25,7 +25,6 @@ namespace GearVRController.Views
         private double _canvasHeight;
         private double _radius;
         private Point _center;
-        private readonly Queue<TouchpadPoint> _gestureBuffer = new Queue<TouchpadPoint>();
         private readonly DispatcherQueue _dispatcherQueue;
 
         // 用于绘制的元素
@@ -279,10 +278,11 @@ namespace GearVRController.Views
         {
             _dispatcherQueue.TryEnqueue(() =>
             {
+                // Remove redundant data processing
                 double processedX = normalizedX;
                 double processedY = normalizedY;
 
-                // 记录历史
+                // 记录历史 (Keep history recording as it's for visualization)
                 var point = new TouchpadPoint((float)processedX, (float)processedY, isPressed);
                 _touchpadHistory.Add(point);
 
@@ -292,10 +292,10 @@ namespace GearVRController.Views
                     _touchpadHistory.RemoveAt(0);
                 }
 
-                // 更新UI
+                // 更新UI (Pass processedX, processedY, isPressed, and gesture received from MainViewModel)
                 UpdateTouchpadVisualization(processedX, processedY, isPressed, gesture);
 
-                // 更新状态文本
+                // Update status text based on received data and gesture
                 XValueText.Text = processedX.ToString("F2");
                 YValueText.Text = processedY.ToString("F2");
                 PressedStateText.Text = isPressed ? "已按下" : "未按下";
@@ -633,7 +633,7 @@ namespace GearVRController.Views
         {
             DispatcherQueue.TryEnqueue(() =>
             {
-                // 检查是否需要转换原始值
+                // No need to check or transform raw values here, they are already processed
                 double processedX = normalizedX;
                 double processedY = normalizedY;
 
@@ -641,13 +641,14 @@ namespace GearVRController.Views
                 _currentY = processedY;
                 _isTouching = isTouching;
 
+                // Pass the received gesture to UpdateVisualization
                 UpdateVisualization(gesture);
             });
         }
 
         private void UpdateVisualization(EnumsNS.TouchpadGesture gesture)
         {
-            // 检查尺寸是否有效
+            // Check for valid dimensions
             if (_touchpadSize <= 0 || TouchpadCanvas.ActualWidth <= 0 || TouchpadCanvas.ActualHeight <= 0)
                 return;
 
@@ -676,7 +677,7 @@ namespace GearVRController.Views
                 ? $"触摸位置: X={_currentX:F2}, Y={_currentY:F2}"
                 : "未检测到触摸";
 
-            // 更新手势文本
+            // Update gesture text - use the received gesture directly
             UpdateGestureInfo(gesture);
         }
 
