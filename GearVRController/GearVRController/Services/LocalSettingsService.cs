@@ -13,12 +13,31 @@ namespace GearVRController.Services
         private const string IS_CONTROL_ENABLED_KEY = "IsControlEnabled";
         private const string USE_NATURAL_SCROLLING_KEY = "UseNaturalScrolling";
         private const string INVERT_Y_AXIS_KEY = "InvertYAxis";
-        private const string ENABLE_AUTO_CALIBRATION_KEY = "EnableAutoCalibration";
         private const string ENABLE_SMOOTHING_KEY = "EnableSmoothing";
         private const string SMOOTHING_LEVEL_KEY = "SmoothingLevel";
         private const string ENABLE_NON_LINEAR_CURVE_KEY = "EnableNonLinearCurve";
         private const string NON_LINEAR_CURVE_POWER_KEY = "NonLinearCurvePower";
         private const string DEAD_ZONE_KEY = "DeadZone";
+
+        // Add keys for gesture settings
+        private const string IS_GESTURE_MODE_KEY = "IsGestureMode";
+        private const string GESTURE_SENSITIVITY_KEY = "GestureSensitivity";
+        private const string SHOW_GESTURE_HINTS_KEY = "ShowGestureHints";
+        private const string SWIPE_UP_ACTION_KEY = "SwipeUpAction";
+        private const string SWIPE_DOWN_ACTION_KEY = "SwipeDownAction";
+        private const string SWIPE_LEFT_ACTION_KEY = "SwipeLeftAction";
+        private const string SWIPE_RIGHT_ACTION_KEY = "SwipeRightAction";
+
+        // Add keys for calibration data
+        private const string CALIBRATION_MIN_X_KEY = "CalibrationMinX";
+        private const string CALIBRATION_MAX_X_KEY = "CalibrationMaxX";
+        private const string CALIBRATION_MIN_Y_KEY = "CalibrationMinY";
+        private const string CALIBRATION_MAX_Y_KEY = "CalibrationMaxY";
+        private const string CALIBRATION_CENTER_X_KEY = "CalibrationCenterX";
+        private const string CALIBRATION_CENTER_Y_KEY = "CalibrationCenterY";
+        // Directional calibration keys could be added here if needed, but for simplicity,
+        // we might only save min/max/center for basic processing or save the whole object serialized.
+        // Let's just save min/max/center for now as per the interface return type (TouchpadCalibrationData).
 
         private readonly ApplicationDataContainer _localSettings;
 
@@ -64,12 +83,6 @@ namespace GearVRController.Services
             set => SaveSetting(INVERT_Y_AXIS_KEY, value);
         }
 
-        public bool EnableAutoCalibration
-        {
-            get => GetSetting(ENABLE_AUTO_CALIBRATION_KEY, true);
-            set => SaveSetting(ENABLE_AUTO_CALIBRATION_KEY, value);
-        }
-
         public bool EnableSmoothing
         {
             get => GetSetting(ENABLE_SMOOTHING_KEY, true);
@@ -100,6 +113,55 @@ namespace GearVRController.Services
             set => SaveSetting(DEAD_ZONE_KEY, Math.Max(0.0, Math.Min(value, 20.0)));
         }
 
+        // Implement gesture settings properties
+        public bool IsGestureMode
+        {
+            get => GetSetting(IS_GESTURE_MODE_KEY, false);
+            set => SaveSetting(IS_GESTURE_MODE_KEY, value);
+        }
+
+        public bool IsRelativeMode
+        {   // IsRelativeMode is the inverse of IsGestureMode
+            get => !IsGestureMode;
+            set => IsGestureMode = !value;
+        }
+
+        public float GestureSensitivity
+        {
+            get => GetSetting(GESTURE_SENSITIVITY_KEY, 0.3f);
+            set => SaveSetting(GESTURE_SENSITIVITY_KEY, Math.Clamp(value, 0.1f, 1.0f));
+        }
+
+        public bool ShowGestureHints
+        {
+            get => GetSetting(SHOW_GESTURE_HINTS_KEY, true);
+            set => SaveSetting(SHOW_GESTURE_HINTS_KEY, value);
+        }
+
+        public GearVRController.Enums.GestureAction SwipeUpAction
+        {
+            get => (GearVRController.Enums.GestureAction)GetSetting(SWIPE_UP_ACTION_KEY, (int)GearVRController.Enums.GestureAction.PageUp);
+            set => SaveSetting(SWIPE_UP_ACTION_KEY, (int)value);
+        }
+
+        public GearVRController.Enums.GestureAction SwipeDownAction
+        {
+            get => (GearVRController.Enums.GestureAction)GetSetting(SWIPE_DOWN_ACTION_KEY, (int)GearVRController.Enums.GestureAction.PageDown);
+            set => SaveSetting(SWIPE_DOWN_ACTION_KEY, (int)value);
+        }
+
+        public GearVRController.Enums.GestureAction SwipeLeftAction
+        {
+            get => (GearVRController.Enums.GestureAction)GetSetting(SWIPE_LEFT_ACTION_KEY, (int)GearVRController.Enums.GestureAction.BrowserBack);
+            set => SaveSetting(SWIPE_LEFT_ACTION_KEY, (int)value);
+        }
+
+        public GearVRController.Enums.GestureAction SwipeRightAction
+        {
+            get => (GearVRController.Enums.GestureAction)GetSetting(SWIPE_RIGHT_ACTION_KEY, (int)GearVRController.Enums.GestureAction.BrowserForward);
+            set => SaveSetting(SWIPE_RIGHT_ACTION_KEY, (int)value);
+        }
+
         public Task LoadSettingsAsync()
         {
             // 设置已经在属性访问器中加载
@@ -120,12 +182,28 @@ namespace GearVRController.Services
             IsControlEnabled = true;
             UseNaturalScrolling = false;
             InvertYAxis = false;
-            EnableAutoCalibration = true;
             EnableSmoothing = true;
             SmoothingLevel = 3;
             EnableNonLinearCurve = true;
             NonLinearCurvePower = 1.5;
             DeadZone = 8.0;
+
+            // Reset gesture settings
+            IsGestureMode = false;
+            GestureSensitivity = 0.3f;
+            ShowGestureHints = true;
+            SwipeUpAction = GearVRController.Enums.GestureAction.PageUp;
+            SwipeDownAction = GearVRController.Enums.GestureAction.PageDown;
+            SwipeLeftAction = GearVRController.Enums.GestureAction.BrowserBack;
+            SwipeRightAction = GearVRController.Enums.GestureAction.BrowserForward;
+
+            // Reset calibration data keys by removing them
+            _localSettings.Values.Remove(CALIBRATION_MIN_X_KEY);
+            _localSettings.Values.Remove(CALIBRATION_MAX_X_KEY);
+            _localSettings.Values.Remove(CALIBRATION_MIN_Y_KEY);
+            _localSettings.Values.Remove(CALIBRATION_MAX_Y_KEY);
+            _localSettings.Values.Remove(CALIBRATION_CENTER_X_KEY);
+            _localSettings.Values.Remove(CALIBRATION_CENTER_Y_KEY);
         }
 
         private void LoadDefaultSettings()
@@ -151,6 +229,58 @@ namespace GearVRController.Services
         private void SaveSetting<T>(string key, T value)
         {
             _localSettings.Values[key] = value;
+        }
+
+        // Implement LoadCalibrationData method
+        public ViewModels.TouchpadCalibrationData? LoadCalibrationData()
+        {
+            if (_localSettings.Values.ContainsKey(CALIBRATION_MIN_X_KEY) &&
+                _localSettings.Values.ContainsKey(CALIBRATION_MAX_X_KEY) &&
+                _localSettings.Values.ContainsKey(CALIBRATION_MIN_Y_KEY) &&
+                _localSettings.Values.ContainsKey(CALIBRATION_MAX_Y_KEY) &&
+                _localSettings.Values.ContainsKey(CALIBRATION_CENTER_X_KEY) &&
+                _localSettings.Values.ContainsKey(CALIBRATION_CENTER_Y_KEY))
+            {
+                try
+                {
+                    var calibrationData = new ViewModels.TouchpadCalibrationData
+                    {
+                        MinX = GetSetting(CALIBRATION_MIN_X_KEY, 0), // Default 0, but should always be present if keys exist
+                        MaxX = GetSetting(CALIBRATION_MAX_X_KEY, 0),
+                        MinY = GetSetting(CALIBRATION_MIN_Y_KEY, 0),
+                        MaxY = GetSetting(CALIBRATION_MAX_Y_KEY, 0),
+                        CenterX = GetSetting(CALIBRATION_CENTER_X_KEY, 0),
+                        CenterY = GetSetting(CALIBRATION_CENTER_Y_KEY, 0)
+                        // Directional data is not saved/loaded this way currently.
+                    };
+                    // Validate loaded data might be needed
+                    if (calibrationData.MaxX > calibrationData.MinX && calibrationData.MaxY > calibrationData.MinY) // Basic validation
+                    {
+                        return calibrationData;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"加载校准数据失败: {ex.Message}");
+                }
+            }
+            return null; // Return null if not all keys exist or loading fails
+        }
+
+        // Implement SaveCalibrationData method
+        public void SaveCalibrationData(GearVRController.ViewModels.TouchpadCalibrationData calibrationData)
+        {
+            if (calibrationData != null)
+            {
+                SaveSetting(CALIBRATION_MIN_X_KEY, calibrationData.MinX);
+                SaveSetting(CALIBRATION_MAX_X_KEY, calibrationData.MaxX);
+                SaveSetting(CALIBRATION_MIN_Y_KEY, calibrationData.MinY);
+                SaveSetting(CALIBRATION_MAX_Y_KEY, calibrationData.MaxY);
+                SaveSetting(CALIBRATION_CENTER_X_KEY, calibrationData.CenterX);
+                SaveSetting(CALIBRATION_CENTER_Y_KEY, calibrationData.CenterY);
+                // Note: Directional calibration data is not saved here currently.
+                System.Diagnostics.Debug.WriteLine("触摸板校准数据已保存");
+            }
         }
     }
 }

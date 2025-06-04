@@ -227,8 +227,6 @@
                             </StackPanel>
 
                             <controls:WrapPanel HorizontalSpacing="12" VerticalSpacing="8">
-                                <CheckBox Content="自动校准"
-                                    IsChecked="{Binding EnableAutoCalibration, Mode=TwoWay}" />
                                 <CheckBox Content="移动平滑"
                                     IsChecked="{Binding EnableSmoothing, Mode=TwoWay}"
                                     IsEnabled="{Binding IsRelativeMode}" />

@@ -39,7 +39,6 @@ namespace GearVRController.ViewModels
         private bool _isKeyboardEnabled = true;
         private bool _useNaturalScrolling = false;
         private bool _invertYAxis = false;
-        private bool _enableAutoCalibration = true;
         private bool _enableSmoothing = true;
         private int _smoothingLevel = 3;
         private bool _enableNonLinearCurve = true;
@@ -48,9 +47,6 @@ namespace GearVRController.ViewModels
 
         private bool _isCalibrating = false;
         private bool _isConnecting = false;
-
-        // 添加手动校准相关字段
-        private bool _isAutoCalibrating = false; // 保留此字段用于内部状态管理，但不通过UI控制其启用
 
         private const int MOVEMENT_BUFFER_SIZE = 3;
         private Queue<(double X, double Y)> _movementBuffer = new Queue<(double X, double Y)>();
@@ -992,66 +988,6 @@ namespace GearVRController.ViewModels
             {
                 _touchpadHistory.RemoveAt(0);
             }
-
-            // 检测手势
-            DetectGesture();
-        }
-
-        // 添加手势检测方法
-        private void DetectGesture()
-        {
-            if (_touchpadHistory.Count < 10)
-            {
-                LastGesture = EnumsNS.TouchpadGesture.None; // 使用命名空间别名
-                return;
-            }
-
-            // 获取最近的10个点
-            var recentPoints = _touchpadHistory.Skip(_touchpadHistory.Count - 10).ToList();
-
-            // 计算起点和终点
-            var startPoint = recentPoints.First();
-            var endPoint = recentPoints.Last();
-
-            // 计算移动距离
-            double deltaX = endPoint.X - startPoint.X;
-            double deltaY = endPoint.Y - startPoint.Y;
-            double distance = Math.Sqrt(deltaX * deltaX + deltaY * deltaY);
-
-            // 如果移动太小，不认为是手势
-            if (distance < 0.3)
-            {
-                LastGesture = EnumsNS.TouchpadGesture.None; // 使用命名空间别名
-                return;
-            }
-
-            // 根据移动方向判断手势
-            double angle = Math.Atan2(deltaY, deltaX);
-
-            // 角度转换为度数
-            double degrees = angle * 180 / Math.PI;
-
-            // 调整为0-360度
-            if (degrees < 0)
-                degrees += 360;
-
-            // 根据角度判断方向
-            if (degrees >= 315 || degrees < 45)
-            {
-                LastGesture = EnumsNS.TouchpadGesture.SwipeRight; // 使用命名空间别名
-            }
-            else if (degrees >= 45 && degrees < 135)
-            {
-                LastGesture = EnumsNS.TouchpadGesture.SwipeDown; // 使用命名空间别名
-            }
-            else if (degrees >= 135 && degrees < 225)
-            {
-                LastGesture = EnumsNS.TouchpadGesture.SwipeLeft; // 使用命名空间别名
-            }
-            else // degrees >= 225 && degrees < 315
-            {
-                LastGesture = EnumsNS.TouchpadGesture.SwipeUp; // 使用命名空间别名
-            }
         }
 
         // 添加清除触摸板历史的方法
@@ -1123,15 +1059,12 @@ namespace GearVRController.ViewModels
         public void StartManualCalibration()
         {
             IsCalibrating = true;
-            _isAutoCalibrating = false; // 确保手动校准时自动校准标志为false
             StatusMessage = "手动校准已启动，请在触摸板边缘划圈...";
         }
 
         public void EndCalibration()
         {
             IsCalibrating = false;
-            _isAutoCalibrating = false; // 校准结束时重置自动校准标志
-            // _abnormalMovementCount = 0; // 异常计数已删除，不再需要重置
             StatusMessage = "校准完成";
         }
     }

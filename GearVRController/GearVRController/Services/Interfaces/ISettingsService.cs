@@ -11,7 +11,6 @@ namespace GearVRController.Services.Interfaces
         bool IsControlEnabled { get; set; }
         bool UseNaturalScrolling { get; set; }
         bool InvertYAxis { get; set; }
-        bool EnableAutoCalibration { get; set; }
         bool EnableSmoothing { get; set; }
         int SmoothingLevel { get; set; }
         bool EnableNonLinearCurve { get; set; }
@@ -29,5 +28,6 @@ namespace GearVRController.Services.Interfaces
         Task SaveSettingsAsync();
         Task LoadSettingsAsync();
         GearVRController.ViewModels.TouchpadCalibrationData? LoadCalibrationData();
+        void SaveCalibrationData(GearVRController.ViewModels.TouchpadCalibrationData calibrationData);
     }
 }

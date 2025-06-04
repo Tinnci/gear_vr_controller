@@ -83,25 +83,47 @@ namespace GearVRController.Services
         {
             if (_points.Count < 2 || _gestureStartPoint == null) return GestureDirection.None;
 
-            var lastPoint = _points.ToArray()[_points.Count - 1];
-            float dx = lastPoint.X - _gestureStartPoint.X;
-            float dy = lastPoint.Y - _gestureStartPoint.Y;
+            var pointsArray = _points.ToArray();
+            var startPoint = pointsArray[0];
+            var endPoint = pointsArray[_points.Count - 1];
 
-            // 计算手势距离
+            float dx = endPoint.X - startPoint.X;
+            float dy = endPoint.Y - startPoint.Y;
+
             float distance = (float)Math.Sqrt(dx * dx + dy * dy);
+
             if (distance < MIN_GESTURE_DISTANCE * _sensitivity)
             {
                 return GestureDirection.None;
             }
 
-            // 判断手势方向
-            if (Math.Abs(dx) > Math.Abs(dy))
+            double angle = Math.Atan2(dy, dx);
+            double degrees = angle * 180 / Math.PI;
+
+            if (degrees < 0)
+                degrees += 360;
+
+            const double tolerance = 45 / 2.0;
+
+            if (degrees >= (360 - tolerance) || degrees < tolerance)
             {
-                return dx > 0 ? GestureDirection.Right : GestureDirection.Left;
+                return GestureDirection.Right;
+            }
+            else if (degrees >= (90 - tolerance) && degrees < (90 + tolerance))
+            {
+                return GestureDirection.Down;
+            }
+            else if (degrees >= (180 - tolerance) && degrees < (180 + tolerance))
+            {
+                return GestureDirection.Left;
+            }
+            else if (degrees >= (270 - tolerance) && degrees < (270 + tolerance))
+            {
+                return GestureDirection.Up;
             }
             else
             {
-                return dy > 0 ? GestureDirection.Down : GestureDirection.Up;
+                return GestureDirection.None;
             }
         }
     }
