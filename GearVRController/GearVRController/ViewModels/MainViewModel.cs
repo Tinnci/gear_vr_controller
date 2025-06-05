@@ -634,6 +634,7 @@ namespace GearVRController.ViewModels
             _inputHandlerService = inputHandlerService;
 
             _bluetoothService.DataReceived += BluetoothService_DataReceived;
+            _bluetoothService.ConnectionStatusChanged += BluetoothService_ConnectionStatusChanged;
             _calibrationCompletedSubscription = _eventAggregator.Subscribe<CalibrationCompletedEvent>(OnCalibrationCompleted);
             _gestureRecognizer = new GestureRecognizer(_settingsService, _dispatcherQueue);
             _gestureRecognizer.GestureDetected += OnGestureDetected;
@@ -901,6 +902,8 @@ namespace GearVRController.ViewModels
         public void Dispose()
         {
             _bluetoothService.DataReceived -= BluetoothService_DataReceived;
+            _bluetoothService.ConnectionStatusChanged -= BluetoothService_ConnectionStatusChanged;
+
             if (_controllerService != null)
             {
                 // Removed _controllerService.Dispose(); as IControllerService does not have a Dispose method.
@@ -948,6 +951,26 @@ namespace GearVRController.ViewModels
             {
                 ApplyCalibrationData(calibration);
             }
+        }
+
+        private void BluetoothService_ConnectionStatusChanged(object? sender, Windows.Devices.Bluetooth.BluetoothConnectionStatus status)
+        {
+            // 确保在UI线程上更新属性
+            _dispatcherQueue.TryEnqueue(() =>
+            {
+                IsConnected = (status == Windows.Devices.Bluetooth.BluetoothConnectionStatus.Connected);
+
+                // 也可以在这里更新状态文本
+                if (IsConnected)
+                {
+                    // 你可以设置一个更明确的状态消息
+                    // StatusMessage = "设备已连接"; 
+                }
+                else
+                {
+                    StatusMessage = "设备已断开连接";
+                }
+            });
         }
     }
 }
