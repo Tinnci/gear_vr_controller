@@ -209,7 +209,7 @@ namespace GearVRController.Services
             // 注意：当AxisX和AxisY都很小（接近零）且TouchpadButton为false时，认为没有触摸
             System.Diagnostics.Debug.WriteLine($"[ControllerService] ProcessControllerData: Raw AxisX={{data.AxisX}}, AxisY={{data.AxisY}}, TouchpadButton={{data.TouchpadButton}}");
             data.TouchpadTouched = data.TouchpadButton ||
-                                  (Math.Abs(data.AxisX) > _settingsService.TouchThreshold || Math.Abs(data.AxisY) > _settingsService.TouchThreshold);
+                                  (Math.Abs(data.AxisX) > _settingsService.TouchThreshold && Math.Abs(data.AxisY) > _settingsService.TouchThreshold);
             System.Diagnostics.Debug.WriteLine($"[ControllerService] ProcessControllerData: Calculated TouchpadTouched={{data.TouchpadTouched}}");
 
             // 处理按钮状态

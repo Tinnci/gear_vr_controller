@@ -52,6 +52,10 @@ namespace GearVRController.ViewModels
         private bool _isCalibrating = false;
         private bool _isConnecting = false;
 
+        // Add internal button state tracking
+        private bool _isTriggerButtonPressed = false;
+        private bool _isTouchpadButtonPressed = false;
+
         // 在类的字段部分添加触摸板可视化相关的字段
         private EnumsNS.TouchpadGesture _lastGesture = EnumsNS.TouchpadGesture.None; // 使用命名空间别名
         private readonly List<TouchpadPoint> _touchpadHistory = new List<TouchpadPoint>();
@@ -465,7 +469,7 @@ namespace GearVRController.ViewModels
             _gestureRecognizer.GestureDetected += OnGestureDetected;
 
             LoadSettings();
-            _inputStateMonitorService.Initialize(); // Initialize the input state monitor
+            _inputStateMonitorService.StartMonitor(); // Changed from Initialize
             RegisterHotKeys();
 
             // Subscribe to calibration completion event
@@ -622,6 +626,9 @@ namespace GearVRController.ViewModels
                 // Invoke event for UI updates
                 ControllerDataReceived?.Invoke(this, data);
 
+                // Notify InputStateMonitorService of activity
+                _inputStateMonitorService.NotifyInputActivity();
+
                 // Handle button input if mouse is enabled
                 if (IsMouseEnabled)
                 {
@@ -651,8 +658,23 @@ namespace GearVRController.ViewModels
 
                 if (IsMouseEnabled)
                 {
-                    // 检测按键状态变化并更新状态
-                    _inputStateMonitorService.UpdateInputState(data.TriggerButton, data.TouchpadButton, IsControlEnabled, _isCalibrating);
+                    // Right mouse button (TriggerButton)
+                    if (_isTriggerButtonPressed != data.TriggerButton)
+                    {
+                        _isTriggerButtonPressed = data.TriggerButton;
+                        _inputSimulator.SimulateMouseButtonEx(data.TriggerButton, (int)EnumsNS.MouseButtons.Right);
+                        Debug.WriteLine($"[MainViewModel] Right button state changed to: {data.TriggerButton}");
+                        _inputStateMonitorService.NotifyInputActivity();
+                    }
+
+                    // Left mouse button (TouchpadButton)
+                    if (_isTouchpadButtonPressed != data.TouchpadButton)
+                    {
+                        _isTouchpadButtonPressed = data.TouchpadButton;
+                        _inputSimulator.SimulateMouseButtonEx(data.TouchpadButton, (int)EnumsNS.MouseButtons.Left);
+                        Debug.WriteLine($"[MainViewModel] Left button state changed to: {data.TouchpadButton}");
+                        _inputStateMonitorService.NotifyInputActivity();
+                    }
                 }
 
                 if (IsKeyboardEnabled)
@@ -660,21 +682,25 @@ namespace GearVRController.ViewModels
                     if (data.HomeButton)
                     {
                         _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.VK_HOME);
+                        _inputStateMonitorService.NotifyInputActivity();
                     }
 
                     if (data.BackButton)
                     {
                         _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.VK_BACK);
+                        _inputStateMonitorService.NotifyInputActivity();
                     }
 
                     if (data.VolumeUpButton)
                     {
                         _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.VOLUME_UP);
+                        _inputStateMonitorService.NotifyInputActivity();
                     }
 
                     if (data.VolumeDownButton)
                     {
                         _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.VOLUME_DOWN);
+                        _inputStateMonitorService.NotifyInputActivity();
                     }
                 }
             }

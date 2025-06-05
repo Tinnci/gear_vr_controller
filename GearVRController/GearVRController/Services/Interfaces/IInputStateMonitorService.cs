@@ -4,10 +4,10 @@ namespace GearVRController.Services.Interfaces
 {
     public interface IInputStateMonitorService
     {
-        void Initialize();
+        void StartMonitor();
         void ForceReleaseAllButtons();
         void StopMonitor();
-        void UpdateInputState(bool triggerButton, bool touchpadButton, bool isControlEnabled, bool isCalibrating);
+        void NotifyInputActivity();
         // Additional methods or properties if needed by other services/viewmodels
     }
 }

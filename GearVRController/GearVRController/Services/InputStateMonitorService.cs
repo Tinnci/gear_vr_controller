@@ -14,8 +14,6 @@ namespace GearVRController.Services
         private readonly IInputSimulator _inputSimulator;
         private readonly DispatcherQueue _dispatcherQueue; // Used for DispatcherTimer
 
-        private bool _leftButtonPressed = false;
-        private bool _rightButtonPressed = false;
         private DateTime _lastInputTime = DateTime.MinValue;
         private const int INPUT_TIMEOUT_MS = 5000; // 5秒超时
         private DispatcherTimer? _stateCheckTimer;
@@ -26,19 +24,18 @@ namespace GearVRController.Services
             _dispatcherQueue = dispatcherQueue;
         }
 
-        public void Initialize()
+        public void StartMonitor() // Renamed from Initialize
         {
-            InitializeStateCheck();
-        }
-
-        private void InitializeStateCheck()
-        {
-            _stateCheckTimer = new DispatcherTimer();
-            _stateCheckTimer.Interval = TimeSpan.FromSeconds(1);
-            _stateCheckTimer.Tick += (s, e) =>
+            if (_stateCheckTimer == null)
             {
-                MonitorInputState();
-            };
+                _stateCheckTimer = new DispatcherTimer();
+                _stateCheckTimer.Interval = TimeSpan.FromSeconds(1); // Check every second
+                _stateCheckTimer.Tick += (s, e) =>
+                {
+                    MonitorInputState();
+                };
+            }
+            _lastInputTime = DateTime.Now; // Reset timer on start
             _stateCheckTimer.Start();
             Debug.WriteLine("[InputStateMonitorService] State check timer initialized and started.");
         }
@@ -48,20 +45,11 @@ namespace GearVRController.Services
             try
             {
                 var now = DateTime.Now;
-                if (_leftButtonPressed || _rightButtonPressed)
+                if ((now - _lastInputTime).TotalMilliseconds > INPUT_TIMEOUT_MS)
                 {
-                    if ((now - _lastInputTime).TotalMilliseconds > INPUT_TIMEOUT_MS)
-                    {
-                        System.Diagnostics.Debug.WriteLine("检测到按键可能卡住，强制释放");
-                        ForceReleaseAllButtons();
-                        _leftButtonPressed = false;
-                        _rightButtonPressed = false;
-                    }
-                }
-                // Update _lastInputTime only if buttons were pressed or are currently pressed to prevent false timeouts.
-                // If no buttons are pressed, _lastInputTime remains at the last actual input.
-                if (_leftButtonPressed || _rightButtonPressed)
-                {
+                    System.Diagnostics.Debug.WriteLine("检测到长时间无输入，强制释放所有按键 (守护机制)");
+                    ForceReleaseAllButtons();
+                    // Reset last input time to avoid continuous releases if no input is ever received again
                     _lastInputTime = now;
                 }
             }
@@ -75,18 +63,10 @@ namespace GearVRController.Services
         {
             try
             {
-                // Check if _inputSimulator is of type WindowsInputSimulator before casting
-                // if (_inputSimulator is WindowsInputSimulator inputSimulator) // 不再需要强制转换
-                // {
                 _inputSimulator.SimulateMouseButtonEx(false, (int)MouseButtons.Left);
                 _inputSimulator.SimulateMouseButtonEx(false, (int)MouseButtons.Right);
                 _inputSimulator.SimulateMouseButtonEx(false, (int)MouseButtons.Middle);
                 System.Diagnostics.Debug.WriteLine("已强制释放所有按键");
-                // }
-                // else
-                // {
-                //     System.Diagnostics.Debug.WriteLine("InputSimulator is not a WindowsInputSimulator instance, cannot force release specific mouse buttons.");
-                // }
             }
             catch (Exception ex)
             {
@@ -94,41 +74,16 @@ namespace GearVRController.Services
             }
         }
 
-        // Method to stop the state check timer, useful during disconnect
         public void StopMonitor()
         {
             _stateCheckTimer?.Stop();
             Debug.WriteLine("[InputStateMonitorService] State check timer stopped.");
         }
 
-        public void UpdateInputState(bool triggerButton, bool touchpadButton, bool isControlEnabled, bool isCalibrating)
+        public void NotifyInputActivity()
         {
-            if (!isControlEnabled || isCalibrating) return; // Only process if control is enabled and not calibrating
-
-            // Cast _inputSimulator to WindowsInputSimulator
-            // if (_inputSimulator is not WindowsInputSimulator inputSimulator) // 不再需要强制转换
-            // {
-            //     Debug.WriteLine("InputSimulator is not a WindowsInputSimulator instance. Cannot simulate mouse events.");
-            //     return;
-            // }
-
-            // Update right button state
-            if (_rightButtonPressed != triggerButton)
-            {
-                _rightButtonPressed = triggerButton;
-                _inputSimulator.SimulateMouseButtonEx(triggerButton, (int)MouseButtons.Right);
-                _lastInputTime = DateTime.Now;
-                Debug.WriteLine($"[InputStateMonitorService] Right button state changed to: {triggerButton}");
-            }
-
-            // Update left button state
-            if (_leftButtonPressed != touchpadButton)
-            {
-                _leftButtonPressed = touchpadButton;
-                _inputSimulator.SimulateMouseButtonEx(touchpadButton, (int)MouseButtons.Left);
-                _lastInputTime = DateTime.Now;
-                Debug.WriteLine($"[InputStateMonitorService] Left button state changed to: {touchpadButton}");
-            }
+            _lastInputTime = DateTime.Now;
+            // Debug.WriteLine("[InputStateMonitorService] Input activity notified, timer reset."); // Too verbose
         }
     }
 }
