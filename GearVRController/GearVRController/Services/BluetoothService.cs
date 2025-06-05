@@ -159,6 +159,7 @@ namespace GearVRController.Services
 
         private readonly ISettingsService _settingsService;
         private readonly ILogger _logger;
+        private readonly IInputHandlerService _inputHandlerService;
 
         /// <summary>
         /// 当接收到新的控制器数据时触发的事件。
@@ -178,10 +179,13 @@ namespace GearVRController.Services
         /// BluetoothService 的构造函数。
         /// </summary>
         /// <param name="settingsService">设置服务，用于获取重连参数等配置。</param>
-        public BluetoothService(ISettingsService settingsService, ILogger logger)
+        /// <param name="logger">日志服务，用于记录日志。</param>
+        /// <param name="inputHandlerService">输入处理服务，用于处理接收到的控制器数据。</param>
+        public BluetoothService(ISettingsService settingsService, ILogger logger, IInputHandlerService inputHandlerService)
         {
             _settingsService = settingsService;
             _logger = logger;
+            _inputHandlerService = inputHandlerService;
         }
 
         /// <summary>
@@ -411,25 +415,23 @@ namespace GearVRController.Services
         /// <exception cref="Exception">如果设置特征值未初始化或命令发送失败则抛出。</exception>
         private async Task InitializeControllerAsync()
         {
-            _logger.LogInfo("开始 InitializeControllerAsync.", nameof(BluetoothService));
-            if (_setupCharacteristic == null)
-            {
-                _logger.LogError("InitializeControllerAsync: 设置特征值未初始化.", nameof(BluetoothService));
-                throw new Exception("设置特征值未初始化");
-            }
+            _logger.LogInfo("开始初始化控制器...", nameof(BluetoothService));
 
-            // 发送初始化命令序列
+            // 发送 CMD_INIT_1 (0x01, 0x00)，重复 3 次
             await SendCommandAsync(CMD_INIT_1);
-            await Task.Delay(COMMAND_DELAY_MS); // 短暂延迟，确保命令被控制器处理
-            await SendCommandAsync(CMD_INIT_2);
-            await Task.Delay(COMMAND_DELAY_MS);
-            await SendCommandAsync(CMD_INIT_3);
-            await Task.Delay(COMMAND_DELAY_MS);
-            await SendCommandAsync(CMD_INIT_4);
-            await Task.Delay(COMMAND_DELAY_MS);
+            await SendCommandAsync(CMD_INIT_1);
+            await SendCommandAsync(CMD_INIT_1);
 
-            // 优化连接参数
-            await OptimizeConnectionParametersAsync();
+            // 发送 CMD_INIT_2 (0x06, 0x00)，重复 1 次
+            await SendCommandAsync(CMD_INIT_2);
+
+            // 发送 CMD_INIT_3 (0x07, 0x00)，重复 1 次
+            await SendCommandAsync(CMD_INIT_3);
+
+            // 发送 CMD_INIT_4 (0x08, 0x00)，重复 3 次
+            await SendCommandAsync(CMD_INIT_4);
+            await SendCommandAsync(CMD_INIT_4);
+            await SendCommandAsync(CMD_INIT_4);
 
             _logger.LogInfo("控制器初始化完成.", nameof(BluetoothService));
         }
@@ -575,62 +577,45 @@ namespace GearVRController.Services
         {
             if (byteArray.Length != EXPECTED_PACKET_LENGTH)
             {
-                _logger.LogWarning($"接收到的数据包长度不符合预期: {byteArray.Length} (预期 {EXPECTED_PACKET_LENGTH})。数据包将被丢弃。", nameof(BluetoothService));
-                return; // 直接丢弃不符合长度要求的数据包
+                // 新增代码：将接收到的字节转换为十六进制字符串并打印
+                string hexString = BitConverter.ToString(byteArray).Replace("-", " ");
+                _logger.LogWarning($"接收到的数据包长度不符合预期: {byteArray.Length} (预期 {EXPECTED_PACKET_LENGTH})。内容: [{hexString}]。数据包将被丢弃。", nameof(BluetoothService));
+                return;
             }
 
-            try
-            {
-                // 解析按钮状态
-                byte buttonState = byteArray[BUTTON_STATE_OFFSET];
-                bool touchpadButton = (buttonState & TOUCHPAD_BUTTON_MASK) != 0;
-                bool homeButton = (buttonState & HOME_BUTTON_MASK) != 0;
-                bool triggerButton = (buttonState & TRIGGER_BUTTON_MASK) != 0;
-                bool backButton = (buttonState & BACK_BUTTON_MASK) != 0;
-                bool volumeUpButton = (buttonState & VOLUME_UP_BUTTON_MASK) != 0;
-                bool volumeDownButton = (buttonState & VOLUME_DOWN_BUTTON_MASK) != 0;
+            // 创建 ControllerData 实例并填充数据
+            ControllerData controllerData = new ControllerData();
 
-                // 解析触摸板坐标（假设为ushort，需要转换）
-                // 注意：Gear VR 控制器触摸板的原始范围通常是 0-1023
-                ushort touchpadXRaw = BitConverter.ToUInt16(byteArray, TOUCHPAD_X_OFFSET);
-                ushort touchpadYRaw = BitConverter.ToUInt16(byteArray, TOUCHPAD_Y_OFFSET);
+            // 解析触摸板坐标 (使用位运算)
+            controllerData.AxisX = (((byteArray[54] & 0xF) << 6) + ((byteArray[55] & 0xFC) >> 2)) & 0x3FF;
+            controllerData.AxisY = (((byteArray[55] & 0x3) << 8) + ((byteArray[56] & 0xFF) >> 0)) & 0x3FF;
 
-                // 解析加速度计数据（假设为short，需要转换）
-                short accelXRaw = BitConverter.ToInt16(byteArray, ACCEL_X_OFFSET);
-                short accelYRaw = BitConverter.ToInt16(byteArray, ACCEL_Y_OFFSET);
-                short accelZRaw = BitConverter.ToInt16(byteArray, ACCEL_Z_OFFSET);
+            // 填充原始触摸板坐标
+            controllerData.TouchpadX = (ushort)controllerData.AxisX;
+            controllerData.TouchpadY = (ushort)controllerData.AxisY;
 
-                // 解析陀螺仪数据（假设为short，需要转换）
-                short gyroXRaw = BitConverter.ToInt16(byteArray, GYRO_X_OFFSET);
-                short gyroYRaw = BitConverter.ToInt16(byteArray, GYRO_Y_OFFSET);
-                short gyroZRaw = BitConverter.ToInt16(byteArray, GYRO_Z_OFFSET);
+            // 解析按钮状态 (从第58个字节)
+            controllerData.TriggerButton = ((byteArray[58] & 1) == 1);
+            controllerData.HomeButton = ((byteArray[58] & 2) == 2);
+            controllerData.BackButton = ((byteArray[58] & 4) == 4);
+            controllerData.TouchpadButton = ((byteArray[58] & 8) == 8);
+            controllerData.VolumeUpButton = ((byteArray[58] & 16) == 16);
+            controllerData.VolumeDownButton = ((byteArray[58] & 32) == 32);
+            controllerData.NoButton = ((byteArray[58] & 64) == 64);
 
-                // 创建 ControllerData 模型
-                var controllerData = new ControllerData
-                {
-                    TouchpadButton = touchpadButton,
-                    HomeButton = homeButton,
-                    TriggerButton = triggerButton,
-                    BackButton = backButton,
-                    VolumeUpButton = volumeUpButton,
-                    VolumeDownButton = volumeDownButton,
-                    AxisX = touchpadXRaw,
-                    AxisY = touchpadYRaw,
-                    AccelX = accelXRaw,
-                    AccelY = accelYRaw,
-                    AccelZ = accelZRaw,
-                    GyroX = gyroXRaw,
-                    GyroY = gyroYRaw,
-                    GyroZ = gyroZRaw
-                };
+            // 解析传感器数据 (加速度和陀螺仪)
+            controllerData.AccelX = (float)(((byteArray[4] << 8) + byteArray[5]) * 10000.0 * 9.80665 / 2048.0);
+            controllerData.AccelY = (float)(((byteArray[6] << 8) + byteArray[7]) * 10000.0 * 9.80665 / 2048.0);
+            controllerData.AccelZ = (float)(((byteArray[8] << 8) + byteArray[9]) * 10000.0 * 9.80665 / 2048.0);
+            controllerData.GyroX = (float)(((byteArray[10] << 8) + byteArray[11]) * 10000.0 * 0.017453292 / 14.285);
+            controllerData.GyroY = (float)(((byteArray[12] << 8) + byteArray[13]) * 10000.0 * 0.017453292 / 14.285);
+            controllerData.GyroZ = (float)(((byteArray[14] << 8) + byteArray[15]) * 10000.0 * 0.017453292 / 14.285);
 
-                // 触发数据接收事件
-                DataReceived?.Invoke(this, controllerData);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError($"处理数据包时发生错误.", nameof(BluetoothService), ex);
-            }
+            // 设置时间戳
+            controllerData.Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+            // 将解析后的数据传递给 InputHandlerService
+            _inputHandlerService.ProcessInput(controllerData);
         }
 
         /// <summary>
