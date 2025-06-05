@@ -296,6 +296,22 @@ namespace GearVRController.ViewModels
         }
 
         /// <summary>
+        /// 获取或设置整体控制是否启用。
+        /// </summary>
+        public bool IsControlEnabled
+        {
+            get => _settingsService.IsControlEnabled;
+            set
+            {
+                if (_settingsService.IsControlEnabled != value)
+                {
+                    _settingsService.IsControlEnabled = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        /// <summary>
         /// 获取所有可用的手势动作列表。
         /// </summary>
         public IEnumerable<GestureAction> AvailableGestureActions => Enum.GetValues<GestureAction>();
@@ -392,6 +408,7 @@ namespace GearVRController.ViewModels
             _logger.LogInfo("接收到设置更改事件，更新相关属性.", nameof(MainViewModel));
             // Update UI-bound properties that reflect settings
             OnPropertyChanged(nameof(IsGestureMode));
+            OnPropertyChanged(nameof(IsControlEnabled));
             // Add other properties that are directly bound to UI and reflect settings here
             // For example, if you have a property for ShowTouchpadVisualizer in MainViewModel
             // OnPropertyChanged(nameof(ShowTouchpadVisualizer)); 

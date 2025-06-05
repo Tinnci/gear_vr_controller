@@ -6,6 +6,7 @@ using GearVRController.Services.Interfaces;
 using GearVRController.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
 using System.Diagnostics;
+using GearVRController.Models;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -54,6 +55,7 @@ namespace GearVRController
             services.AddSingleton(DispatcherQueue.GetForCurrentThread());
 
             // Register Services
+            services.AddSingleton<IControllerProfile, GearVRControllerProfile>();
             services.AddSingleton<IBluetoothService, BluetoothService>();
             services.AddSingleton<WindowsInputSimulator>();
             services.AddSingleton<IInputStateMonitorService>(provider =>
@@ -81,6 +83,8 @@ namespace GearVRController
 
             // Register ViewModels as transient (or singleton if their state needs to persist globally)
             services.AddSingleton<MainViewModel>();
+            services.AddSingleton<ConnectionViewModel>();
+            services.AddSingleton<SettingsViewModel>();
             services.AddTransient<TouchpadCalibrationViewModel>();
 
             // Register Views (MainWindow, etc.) as transient or singleton as needed
