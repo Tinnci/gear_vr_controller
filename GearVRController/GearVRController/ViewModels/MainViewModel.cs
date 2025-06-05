@@ -13,11 +13,11 @@ using System.Linq;
 using GearVRController.Enums;
 using EnumsNS = GearVRController.Enums; // 添加命名空间别名
 using System.Diagnostics; // 添加 Debug 命名空间
-// using static GearVRController.Enums.WindowsInputConstants; // 已删除，因为 VirtualKeys 已合并到 VirtualKeyCode
+using GearVRController.Events; // Add this
 
 namespace GearVRController.ViewModels
 {
-    public class MainViewModel : INotifyPropertyChanged
+    public class MainViewModel : INotifyPropertyChanged, IDisposable
     {
         private readonly IBluetoothService _bluetoothService;
         private readonly IControllerService _controllerService;
@@ -26,6 +26,8 @@ namespace GearVRController.ViewModels
         private readonly DispatcherQueue _dispatcherQueue;
         private readonly TouchpadProcessor _touchpadProcessor;
         private readonly IInputStateMonitorService _inputStateMonitorService;
+        private readonly IWindowManagerService _windowManagerService;
+        private readonly IEventAggregator _eventAggregator;
         private bool _isConnected;
         private string _statusMessage = string.Empty;
         private ControllerData _lastControllerData = new ControllerData();
@@ -77,6 +79,8 @@ namespace GearVRController.ViewModels
         private GestureAction _swipeDownAction = GestureAction.PageDown;
         private GestureAction _swipeLeftAction = GestureAction.BrowserBack;
         private GestureAction _swipeRightAction = GestureAction.BrowserForward;
+
+        private IDisposable? _calibrationCompletedSubscription; // To manage subscription lifecycle
 
         public event PropertyChangedEventHandler? PropertyChanged;
         public event EventHandler<ControllerData>? ControllerDataReceived;
@@ -439,7 +443,9 @@ namespace GearVRController.ViewModels
             ISettingsService settingsService,
             DispatcherQueue dispatcherQueue,
             TouchpadProcessor touchpadProcessor,
-            IInputStateMonitorService inputStateMonitorService)
+            IInputStateMonitorService inputStateMonitorService,
+            IWindowManagerService windowManagerService, // Add this parameter
+            IEventAggregator eventAggregator) // Add this parameter
         {
             _bluetoothService = bluetoothService;
             _controllerService = controllerService;
@@ -448,6 +454,8 @@ namespace GearVRController.ViewModels
             _dispatcherQueue = dispatcherQueue;
             _touchpadProcessor = touchpadProcessor;
             _inputStateMonitorService = inputStateMonitorService;
+            _windowManagerService = windowManagerService; // Assign
+            _eventAggregator = eventAggregator; // Assign
 
             _bluetoothService.ConnectionStatusChanged += BluetoothService_ConnectionStatusChanged;
             _bluetoothService.DataReceived += BluetoothService_DataReceived;
@@ -459,6 +467,17 @@ namespace GearVRController.ViewModels
             LoadSettings();
             _inputStateMonitorService.Initialize(); // Initialize the input state monitor
             RegisterHotKeys();
+
+            // Subscribe to calibration completion event
+            _calibrationCompletedSubscription = _eventAggregator.Subscribe<CalibrationCompletedEvent>(OnCalibrationCompleted);
+        }
+
+        // New method to handle calibration completion event
+        private void OnCalibrationCompleted(CalibrationCompletedEvent e)
+        {
+            ApplyCalibrationData(e.CalibrationData);
+            EndCalibration();
+            _windowManagerService.CloseTouchpadCalibrationWindow(); // Close the window
         }
 
         private async void LoadSettings()
@@ -844,6 +863,22 @@ namespace GearVRController.ViewModels
         {
             IsCalibrating = false;
             StatusMessage = "校准完成";
+        }
+
+        // Dispose method to unsubscribe from events (important for preventing memory leaks)
+        public void Dispose()
+        {
+            _bluetoothService.ConnectionStatusChanged -= BluetoothService_ConnectionStatusChanged;
+            _bluetoothService.DataReceived -= BluetoothService_DataReceived;
+            if (_controllerService != null)
+            {
+                _controllerService.ControllerDataProcessed -= (sender, data) => LastControllerData = data;
+            }
+            if (_gestureRecognizer != null)
+            {
+                _gestureRecognizer.GestureDetected -= OnGestureDetected;
+            }
+            _calibrationCompletedSubscription?.Dispose();
         }
     }
 }

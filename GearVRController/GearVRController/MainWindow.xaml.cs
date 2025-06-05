@@ -21,6 +21,7 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI;
 using Windows.Graphics;
 using Microsoft.Extensions.DependencyInjection;
+using GearVRController.Services.Interfaces;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -33,13 +34,15 @@ namespace GearVRController
     public sealed partial class MainWindow : Window
     {
         public MainViewModel ViewModel { get; }
-        private TouchpadCalibrationWindow? _calibrationWindow;
-        private Views.TouchpadVisualizerWindow? _touchpadVisualizerWindow;
         private AppWindow _appWindow;
+        private readonly IWindowManagerService _windowManagerService;
+        private readonly ISettingsService _settingsService;
 
-        public MainWindow(MainViewModel viewModel)
+        public MainWindow(MainViewModel viewModel, IWindowManagerService windowManagerService, ISettingsService settingsService)
         {
             ViewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
+            _windowManagerService = windowManagerService;
+            _settingsService = settingsService;
 
             this.InitializeComponent();
 
@@ -56,49 +59,21 @@ namespace GearVRController
 
             // 设置默认窗口大小
             _appWindow.Resize(new SizeInt32(900, 700));
-
-            // 订阅控制器数据更新事件
-            ViewModel.ControllerDataReceived += ViewModel_ControllerDataReceived;
-        }
-
-        private void ViewModel_ControllerDataReceived(object? sender, ControllerData data)
-        {
-            // 如果校准窗口打开，发送数据给校准窗口
-            _calibrationWindow?.ProcessControllerData(data);
-
-            // 如果触摸板可视化窗口打开，发送数据给触摸板可视化窗口
-            if (_touchpadVisualizerWindow != null)
-            {
-                // Use processed data from ViewModel
-                double processedX = ViewModel.ProcessedTouchpadX;
-                double processedY = ViewModel.ProcessedTouchpadY;
-
-                // 发送数据到可视化窗口
-                // Pass processed coordinates to the visualizer
-                _touchpadVisualizerWindow.UpdateTouchpadVisualization(processedX, processedY, data.TouchpadButton, ViewModel.LastGesture);
-            }
         }
 
         private async void ConnectButton_Click(object sender, RoutedEventArgs e)
         {
             try
             {
-                // 尝试连接到已知的Gear VR控制器MAC地址
-                // 这里提供几个常见的Gear VR控制器MAC地址
-                ulong[] knownAddresses = new ulong[]
-                {
-                    49180499202480, // 2C:BA:BA:25:6A:A1
-                    49180499202481, // 2C:BA:BA:25:6A:A2 (可能的变体)
-                    49180499202482, // 2C:BA:BA:25:6A:A3 (可能的变体)
-                    // 可以添加更多已知地址
-                };
+                // 从设置服务获取已知的Gear VR控制器MAC地址
+                List<ulong> knownAddresses = _settingsService.KnownBluetoothAddresses;
 
                 // 尝试连接到每个已知地址
                 foreach (var address in knownAddresses)
                 {
                     try
                     {
-                        ViewModel.StatusMessage = $"正在尝试连接到设备 {address.ToString("X")}...";
+                        ViewModel.StatusMessage = $"正在尝试连接到设备 {address.ToString("X")}";
                         await ViewModel.ConnectAsync(address);
 
                         // 如果连接成功，跳出循环
@@ -141,52 +116,14 @@ namespace GearVRController
 
         private void CalibrateButton_Click(object sender, RoutedEventArgs e)
         {
-            if (_calibrationWindow != null)
-            {
-                _calibrationWindow.Close();
-            }
-
-            // Get TouchpadCalibrationViewModel from DI
-            var calibrationViewModel = App.ServiceProvider!.GetRequiredService<TouchpadCalibrationViewModel>();
-            _calibrationWindow = new TouchpadCalibrationWindow(calibrationViewModel); // Pass ViewModel to the window
-
-            _calibrationWindow.CalibrationCompleted += (s, data) =>
-            {
-                ViewModel.ApplyCalibrationData(data);
-                ViewModel.EndCalibration();
-                _calibrationWindow = null;
-            };
-            _calibrationWindow.Closed += (s, e) =>
-            {
-                ViewModel.EndCalibration();
-                _calibrationWindow = null;
-            };
-
-            // 激活窗口并自动开始校准
-            _calibrationWindow.Activate();
+            // 启动校准流程
             ViewModel.StartManualCalibration();
+            _windowManagerService.OpenTouchpadCalibrationWindow();
         }
 
         private void TouchpadVisualizerButton_Click(object sender, RoutedEventArgs e)
         {
-            // 如果窗口已经打开，激活它
-            if (_touchpadVisualizerWindow != null)
-            {
-                _touchpadVisualizerWindow.Activate();
-                return;
-            }
-
-            // 创建新的触摸板可视化窗口 (assuming it takes MainViewModel or relevant data)
-            // For simplicity, directly pass the view model data it needs, or if it has its own view model, resolve it.
-            // Given it's just for visualization, it might not need its own complex VM, but let's pass the relevant data.
-            _touchpadVisualizerWindow = new Views.TouchpadVisualizerWindow(ViewModel); // Pass MainViewModel for data access
-            _touchpadVisualizerWindow.Closed += (s, e) =>
-            {
-                _touchpadVisualizerWindow = null;
-            };
-
-            // 激活窗口
-            _touchpadVisualizerWindow.Activate();
+            _windowManagerService.OpenTouchpadVisualizerWindow();
         }
     }
 }

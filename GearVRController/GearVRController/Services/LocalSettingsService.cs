@@ -2,6 +2,8 @@ using System;
 using System.Threading.Tasks;
 using Windows.Storage;
 using GearVRController.Services.Interfaces;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace GearVRController.Services
 {
@@ -44,6 +46,9 @@ namespace GearVRController.Services
         private const string MOUSE_SENSITIVITY_SCALING_FACTOR_KEY = "MouseSensitivityScalingFactor";
         private const string MOVE_THRESHOLD_KEY = "MoveThreshold";
         private const string TOUCH_THRESHOLD_KEY = "TouchThreshold";
+
+        // Add key for known Bluetooth addresses
+        private const string KNOWN_BLUETOOTH_ADDRESSES_KEY = "KnownBluetoothAddresses";
 
         private readonly ApplicationDataContainer _localSettings;
 
@@ -206,6 +211,31 @@ namespace GearVRController.Services
             get => GetSetting(TOUCH_THRESHOLD_KEY, 10);
         }
 
+        public List<ulong> KnownBluetoothAddresses
+        {
+            get
+            {
+                if (_localSettings.Values.TryGetValue(KNOWN_BLUETOOTH_ADDRESSES_KEY, out object? value) && value is string addressesString)
+                {
+                    return addressesString.Split(',')
+                                        .Where(s => ulong.TryParse(s.Trim(), out ulong address))
+                                        .Select(s => ulong.Parse(s.Trim()))
+                                        .ToList();
+                }
+                // Default known addresses if not found or parse failed
+                return new List<ulong>
+                {
+                    49180499202480, // 2C:BA:BA:25:6A:A1
+                    49180499202481, // 2C:BA:BA:25:6A:A2 (可能的变体)
+                    49180499202482  // 2C:BA:BA:25:6A:A3 (可能的变体)
+                };
+            }
+            set
+            {
+                SaveSetting(KNOWN_BLUETOOTH_ADDRESSES_KEY, string.Join(",", value));
+            }
+        }
+
         public Task LoadSettingsAsync()
         {
             // 设置已经在属性访问器中加载
@@ -257,6 +287,9 @@ namespace GearVRController.Services
             _localSettings.Values.Remove(CALIBRATION_MAX_Y_KEY);
             _localSettings.Values.Remove(CALIBRATION_CENTER_X_KEY);
             _localSettings.Values.Remove(CALIBRATION_CENTER_Y_KEY);
+
+            // Reset known Bluetooth addresses
+            _localSettings.Values.Remove(KNOWN_BLUETOOTH_ADDRESSES_KEY); // This will cause it to revert to the default list in the getter.
         }
 
         private void LoadDefaultSettings()
@@ -297,6 +330,15 @@ namespace GearVRController.Services
             GetSetting(TOUCH_THRESHOLD_KEY, 10);
 
             // Calibration settings are loaded separately by LoadCalibrationData
+
+            // Ensure known Bluetooth addresses have a default value if not present
+            // This will ensure that new settings automatically get defaults
+            // when the app is run for the first time or after an update.
+            GetSetting(KNOWN_BLUETOOTH_ADDRESSES_KEY, string.Join(",", new ulong[] {
+                49180499202480, // 2C:BA:BA:25:6A:A1
+                49180499202481, // 2C:BA:BA:25:6A:A2 (可能的变体)
+                49180499202482  // 2C:BA:BA:25:6A:A3 (可能的变体)
+            }));
         }
 
         private T GetSetting<T>(string key, T defaultValue)
@@ -308,6 +350,8 @@ namespace GearVRController.Services
                     return typedValue;
                 }
             }
+            // Also save the default value if it was not found, so next time it's there
+            SaveSetting(key, defaultValue);
             return defaultValue;
         }
 

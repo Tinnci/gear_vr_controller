@@ -142,11 +142,5 @@ namespace GearVRController.Views
             // Optionally, you might want to re-open the window or clear the current view to reflect the reset state
             // For now, it just resets the ViewModel's state.
         }
-
-        public event EventHandler<TouchpadCalibrationData>? CalibrationCompleted
-        {
-            add => _viewModel.CalibrationCompleted += value;
-            remove => _viewModel.CalibrationCompleted -= value;
-        }
     }
 }

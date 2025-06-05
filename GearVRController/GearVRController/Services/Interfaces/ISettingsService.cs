@@ -1,6 +1,7 @@
 using System.Threading.Tasks;
 using GearVRController.ViewModels;
 using GearVRController.Models;
+using System.Collections.Generic;
 
 namespace GearVRController.Services.Interfaces
 {
@@ -33,6 +34,9 @@ namespace GearVRController.Services.Interfaces
         double MouseSensitivityScalingFactor { get; }
         double MoveThreshold { get; }
         int TouchThreshold { get; }
+
+        // New property for known Bluetooth addresses
+        List<ulong> KnownBluetoothAddresses { get; set; }
 
         void ResetToDefaults();
         Task SaveSettingsAsync();
