@@ -14,6 +14,7 @@
 
    - 将触摸板映射为鼠标移动
    - 支持触摸板点击作为鼠标点击
+   - 更精确的触摸板坐标解析
    - 智能化的触摸板校准功能
      - 自动化的多步骤校准流程
      - 实时进度显示和状态反馈
@@ -27,7 +28,7 @@
 
 4. **运动控制**
 
-   - 支持陀螺仪数据读取
+   - 准确读取陀螺仪和加速度计数据
    - 实时显示传感器数据
 
 5. **用户界面**
@@ -39,49 +40,12 @@
      - 双进度条显示（触摸结束检测和自动进入倒计时）
      - 实时数据可视化
 
-## 项目结构
-
-```
-GearVRController/
-├── GearVRController/              # 主项目目录
-│   ├── Models/                    # 数据模型
-│   │   └── ControllerData.cs     # 控制器数据模型
-│   ├── ViewModels/               # 视图模型
-│   │   ├── MainViewModel.cs      # 主窗口视图模型
-│   │   └── TouchpadCalibrationViewModel.cs  # 触摸板校准视图模型
-│   ├── Views/                    # 视图
-│   │   ├── TouchpadCalibrationWindow.xaml   # 触摸板校准窗口
-│   │   └── TouchpadCalibrationWindow.xaml.cs # 触摸板校准窗口代码
-│   ├── Services/                 # 服务
-│   │   ├── BluetoothService.cs   # 蓝牙服务
-│   │   ├── ControllerService.cs  # 控制器服务
-│   │   ├── LocalSettingsService.cs # 本地设置服务
-│   │   ├── WindowsInputSimulator.cs # Windows输入模拟器
-│   │   ├── ServiceLocator.cs     # 服务定位器
-│   │   └── Interfaces/           # 服务接口
-│   ├── Helpers/                  # 辅助类
-│   │   └── InputSimulator.cs     # 输入模拟器
-│   ├── Converters/              # 值转换器
-│   │   ├── BoolToControlStateConverter.cs   # 控制状态转换器
-│   │   ├── BooleanConverters.cs  # 布尔值转换器
-│   │   └── StatusConverters.cs   # 状态转换器
-│   ├── Assets/                  # 资源文件
-│   ├── Properties/              # 项目属性
-│   ├── MainWindow.xaml          # 主窗口界面
-│   ├── MainWindow.xaml.cs       # 主窗口代码
-│   ├── App.xaml                 # 应用程序资源
-│   ├── App.xaml.cs              # 应用程序代码
-│   ├── Package.appxmanifest     # 应用程序清单
-│   └── app.manifest             # 应用程序清单
-└── GearVRController.sln         # 解决方案文件
-```
-
 ## 主要功能模块
 
 ### 1. 蓝牙连接 (BluetoothService)
 
 - 处理与 Gear VR 控制器的蓝牙通信
-- 实现数据包的解析和处理
+- 实现健壮且准确的 60 字节数据包解析和处理
 - 管理连接生命周期
 
 ### 2. 输入模拟 (InputSimulator)
