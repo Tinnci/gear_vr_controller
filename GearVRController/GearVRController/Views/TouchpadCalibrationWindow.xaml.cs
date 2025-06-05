@@ -27,6 +27,90 @@ namespace GearVRController.Views
             }
 
             _viewModel.StartCalibration();
+
+            // Subscribe to PropertyChanged event to update visualization
+            _viewModel.PropertyChanged += ViewModel_PropertyChanged;
+
+            // Initial visualization update
+            UpdateCalibrationVisualization();
+        }
+
+        private void ViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            // Update visualization when relevant properties change
+            if (e.PropertyName == nameof(TouchpadCalibrationViewModel.MinX) ||
+                e.PropertyName == nameof(TouchpadCalibrationViewModel.MaxX) ||
+                e.PropertyName == nameof(TouchpadCalibrationViewModel.MinY) ||
+                e.PropertyName == nameof(TouchpadCalibrationViewModel.MaxY) ||
+                e.PropertyName == nameof(TouchpadCalibrationViewModel.CenterX) ||
+                e.PropertyName == nameof(TouchpadCalibrationViewModel.CenterY))
+            {
+                UpdateCalibrationVisualization();
+            }
+        }
+
+        private void UpdateCalibrationVisualization()
+        {
+            // Ensure the canvas is ready and has valid dimensions
+            if (CalibrationCanvas == null || CalibrationCanvas.ActualWidth == 0 || CalibrationCanvas.ActualHeight == 0)
+            {
+                return;
+            }
+
+            // Clear existing elements (if any, though we only have two fixed shapes)
+            // CalibrationCanvas.Children.Clear(); // Not needed for fixed shapes
+
+            // Get calibration data from ViewModel
+            int minX = _viewModel.MinX;
+            int maxX = _viewModel.MaxX;
+            int minY = _viewModel.MinY;
+            int maxY = _viewModel.MaxY;
+            int centerX = _viewModel.CenterX;
+            int centerY = _viewModel.CenterY;
+
+            // Determine if calibration data is meaningful (not default int.MaxValue/MinValue)
+            bool hasValidBounds = (minX != int.MaxValue && maxX != int.MinValue && minY != int.MaxValue && maxY != int.MinValue);
+
+            if (hasValidBounds)
+            {
+                // Scale raw data (0-1023) to canvas size (200x200)
+                double canvasWidth = CalibrationCanvas.ActualWidth;
+                double canvasHeight = CalibrationCanvas.ActualHeight;
+                const double rawRange = 1023.0; // Assuming 0-1023 as the full raw range
+
+                double scaleX = canvasWidth / rawRange;
+                double scaleY = canvasHeight / rawRange;
+
+                // Update Rectangle (Boundary)
+                double rectLeft = minX * scaleX;
+                double rectTop = minY * scaleY;
+                double rectWidth = (maxX - minX) * scaleX;
+                double rectHeight = (maxY - minY) * scaleY;
+
+                // Ensure positive dimensions for the rectangle
+                rectWidth = Math.Max(0, rectWidth);
+                rectHeight = Math.Max(0, rectHeight);
+
+                Canvas.SetLeft(CalibrationRect, rectLeft);
+                Canvas.SetTop(CalibrationRect, rectTop);
+                CalibrationRect.Width = rectWidth;
+                CalibrationRect.Height = rectHeight;
+                CalibrationRect.Visibility = Visibility.Visible;
+
+                // Update Ellipse (Center Dot)
+                double dotLeft = centerX * scaleX - CalibrationCenterDot.Width / 2;
+                double dotTop = centerY * scaleY - CalibrationCenterDot.Height / 2;
+
+                Canvas.SetLeft(CalibrationCenterDot, dotLeft);
+                Canvas.SetTop(CalibrationCenterDot, dotTop);
+                CalibrationCenterDot.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                // Hide visualization if no valid calibration data yet
+                CalibrationRect.Visibility = Visibility.Collapsed;
+                CalibrationCenterDot.Visibility = Visibility.Collapsed;
+            }
         }
 
         public void ProcessControllerData(ControllerData data)
@@ -52,6 +136,13 @@ namespace GearVRController.Views
         private void NextStep_Click(object sender, RoutedEventArgs e)
         {
             _viewModel.ProceedToNextStep();
+        }
+
+        private void Reset_Click(object sender, RoutedEventArgs e)
+        {
+            _viewModel.ResetCalibration();
+            // Optionally, you might want to re-open the window or clear the current view to reflect the reset state
+            // For now, it just resets the ViewModel's state.
         }
 
         public event EventHandler<TouchpadCalibrationData>? CalibrationCompleted

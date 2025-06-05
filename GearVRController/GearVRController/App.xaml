@@ -20,6 +20,10 @@
             <converters:BoolToControlStateConverter x:Key="BoolToControlStateConverter" />
             <converters:BooleanNegationConverter x:Key="BooleanNegationConverter" />
             <converters:BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+            <converters:CalibrationStepToStyleConverter x:Key="CalibrationStepToStyleConverter" />
+            <converters:CalibrationStepToForegroundConverter
+                x:Key="CalibrationStepToForegroundConverter" />
+            <converters:CalibrationStepToContentConverter x:Key="CalibrationStepToContentConverter" />
             <!--<local:BoolToVisibilityConverter
             x:Key="BoolToVisibilityConverter"/>-->
         </ResourceDictionary>

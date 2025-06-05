@@ -23,7 +23,7 @@ namespace GearVRController.ViewModels
         private const int MIN_CIRCLE_POINTS = 20; // 最小圆周运动点数
         private const int INACTIVITY_TIMEOUT_MS = 1000; // 停止操作超时时间（毫秒）
         private const int MIN_POINTS_REQUIRED = 5; // 最小需要的点数
-        private int _progressValue = 0; // 进度值
+        private int _autoProceedCountdownValue = 0; // 自动进入下一步的倒计时值
         private System.Timers.Timer _inactivityTimer;
         private DateTime _lastActivityTime;
         private int _circlePointCount = 0;
@@ -36,6 +36,22 @@ namespace GearVRController.ViewModels
         private const int COUNTDOWN_DURATION_MS = 3000;
         private const int COUNTDOWN_INTERVAL_MS = 50; // 更新频率50ms，使进度条更平滑
         private int _touchEndProgressValue = 0;
+        private string _currentStepGuidanceMessage = "";
+
+        public CalibrationStep CurrentStep
+        {
+            get => _currentStep;
+            private set
+            {
+                if (_currentStep != value)
+                {
+                    _currentStep = value;
+                    OnPropertyChanged();
+                    UpdateCurrentStepGuidanceMessage();
+                }
+            }
+        }
+
         public int TouchEndProgressValue
         {
             get => _touchEndProgressValue;
@@ -44,6 +60,32 @@ namespace GearVRController.ViewModels
                 if (_touchEndProgressValue != value)
                 {
                     _touchEndProgressValue = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        public int AutoProceedCountdownValue
+        {
+            get => _autoProceedCountdownValue;
+            private set
+            {
+                if (_autoProceedCountdownValue != value)
+                {
+                    _autoProceedCountdownValue = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        public string CurrentStepGuidanceMessage
+        {
+            get => _currentStepGuidanceMessage;
+            private set
+            {
+                if (_currentStepGuidanceMessage != value)
+                {
+                    _currentStepGuidanceMessage = value;
                     OnPropertyChanged();
                 }
             }
@@ -169,19 +211,6 @@ namespace GearVRController.ViewModels
             }
         }
 
-        public int ProgressValue
-        {
-            get => _progressValue;
-            private set
-            {
-                if (_progressValue != value)
-                {
-                    _progressValue = value;
-                    OnPropertyChanged();
-                }
-            }
-        }
-
         public DirectionalCalibrationData UpDirection => _calibrationData.UpDirection;
         public DirectionalCalibrationData DownDirection => _calibrationData.DownDirection;
         public DirectionalCalibrationData LeftDirection => _calibrationData.LeftDirection;
@@ -198,6 +227,7 @@ namespace GearVRController.ViewModels
             {
                 _dispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
             }
+            UpdateCurrentStepGuidanceMessage(); // Initial message
         }
 
         private void InactivityTimer_Elapsed(object? sender, System.Timers.ElapsedEventArgs e)
@@ -236,19 +266,19 @@ namespace GearVRController.ViewModels
 
         private void ValidateAndProceed()
         {
-            switch (_currentStep)
+            switch (CurrentStep)
             {
                 case CalibrationStep.CircularMotion:
                     if (_circlePointCount >= MIN_POINTS_REQUIRED)
                     {
                         CanProceedToNextStep = true;
-                        StatusMessage = "边界校准完成！3秒后自动进入下一步...\\n（或点击\"下一步\"立即继续）";
+                        StatusMessage = "边界校准完成！3秒后自动进入下一步...\n（或点击\"下一步\"立即继续）";
                         _inactivityTimer.Stop();
 
                         // 开始倒计时
                         StartCountdown(() =>
                         {
-                            if (CanProceedToNextStep && _currentStep == CalibrationStep.CircularMotion)
+                            if (CanProceedToNextStep && CurrentStep == CalibrationStep.CircularMotion)
                             {
                                 ProceedToNextStep();
                             }
@@ -265,16 +295,16 @@ namespace GearVRController.ViewModels
                         if (ValidateDirectionalCalibration(currentDirection))
                         {
                             CanProceedToNextStep = true;
-                            StatusMessage = "方向校准完成！3秒后自动进入下一步...\\n（或点击\"下一步\"立即继续）";
+                            StatusMessage = "方向校准完成！3秒后自动进入下一步...\n（或点击\"下一步\"立即继续）";
                             _inactivityTimer.Stop();
 
                             // 开始倒计时
                             StartCountdown(() =>
                             {
-                                if (CanProceedToNextStep && (_currentStep == CalibrationStep.Up ||
-                                    _currentStep == CalibrationStep.Down ||
-                                    _currentStep == CalibrationStep.Left ||
-                                    _currentStep == CalibrationStep.Right))
+                                if (CanProceedToNextStep && (CurrentStep == CalibrationStep.Up ||
+                                    CurrentStep == CalibrationStep.Down ||
+                                    CurrentStep == CalibrationStep.Left ||
+                                    CurrentStep == CalibrationStep.Right))
                                 {
                                     ProceedToNextStep();
                                 }
@@ -288,15 +318,16 @@ namespace GearVRController.ViewModels
         public void StartCalibration()
         {
             IsCalibrating = true;
-            _currentStep = CalibrationStep.CircularMotion;
+            CurrentStep = CalibrationStep.CircularMotion;
             StatusMessage = "第1步：请在触摸板边缘顺时针划一个完整的圆...";
             ResetCalibrationData();
             CanProceedToNextStep = false;
             _circlePointCount = 0;
             TouchEndProgressValue = 0;
-            ProgressValue = 0;
+            AutoProceedCountdownValue = 100; // Initialize for countdown
             _lastActivityTime = DateTime.Now;
             _inactivityTimer.Start();
+            UpdateCurrentStepGuidanceMessage();
         }
 
         public void ProcessTouchpadData(ControllerData data)
@@ -314,7 +345,7 @@ namespace GearVRController.ViewModels
                 }
             }
 
-            switch (_currentStep)
+            switch (CurrentStep)
             {
                 case CalibrationStep.CircularMotion:
                     ProcessCircularMotion(data);
@@ -336,6 +367,7 @@ namespace GearVRController.ViewModels
             // 如果没有触摸，不处理数据
             if (!_isCurrentlyTouching)
             {
+                StatusMessage = "请触摸并沿着触摸板边缘划圈以校准边界。";
                 return;
             }
 
@@ -369,11 +401,15 @@ namespace GearVRController.ViewModels
 
             if (!hasValidRange)
             {
-                StatusMessage = "请在触摸板边缘划圈，尽量靠近边缘...";
+                StatusMessage = $"当前范围：X [{MinX}-{MaxX}], Y [{MinY}-{MaxY}]。请继续在触摸板边缘划圈，扩大校准范围。已收集点数: {_circlePointCount}";
             }
             else if (_circlePointCount < MIN_CIRCLE_POINTS)
             {
-                StatusMessage = $"继续划圈，已收集 {_circlePointCount} 个点，需要 {MIN_CIRCLE_POINTS} 个...";
+                StatusMessage = $"已检测到有效边界。请继续划圈，确保轨迹平滑。已收集点数: {_circlePointCount}/{MIN_CIRCLE_POINTS}";
+            }
+            else
+            {
+                StatusMessage = $"边界校准完成。已收集点数: {_circlePointCount}/{MIN_CIRCLE_POINTS}。请抬起手指。";
             }
         }
 
@@ -408,7 +444,7 @@ namespace GearVRController.ViewModels
                 _countdownTimer = null;
             }
 
-            switch (_currentStep)
+            switch (CurrentStep)
             {
                 case CalibrationStep.CircularMotion:
                     _currentStep = CalibrationStep.Center;
@@ -434,9 +470,9 @@ namespace GearVRController.ViewModels
             if (data.TouchpadButton)
             {
                 // 验证中心点是否在合理范围内
-                double centerX = (MaxX + MinX) / 2.0;
-                double centerY = (MaxY + MinY) / 2.0;
-                double maxDistance = Math.Min(MaxX - MinX, MaxY - MinY) * 0.3; // 允许的最大偏差
+                double centerX = (_calibrationData.MaxX + _calibrationData.MinX) / 2.0;
+                double centerY = (_calibrationData.MaxY + _calibrationData.MinY) / 2.0;
+                double maxDistance = Math.Min(_calibrationData.MaxX - _calibrationData.MinX, _calibrationData.MaxY - _calibrationData.MinY) * 0.3; // 允许的最大偏差
 
                 if (Math.Abs(data.AxisX - centerX) <= maxDistance &&
                     Math.Abs(data.AxisY - centerY) <= maxDistance)
@@ -446,12 +482,16 @@ namespace GearVRController.ViewModels
                     CenterX = _calibrationData.CenterX;
                     CenterY = _calibrationData.CenterY;
                     CanProceedToNextStep = true;
-                    StatusMessage = "中心点已记录，请点击\"下一步\"继续...";
+                    StatusMessage = $"中心点 ({CenterX}, {CenterY}) 已记录成功！请点击\"下一步\"继续。";
                 }
                 else
                 {
-                    StatusMessage = "所选中心点偏离预期太远，请重试...";
+                    StatusMessage = $"中心点({data.AxisX}, {data.AxisY}) 偏离预期太远。请尝试更精确地点击触摸板中心区域。";
                 }
+            }
+            else
+            {
+                StatusMessage = "请点击触摸板中心以记录中心点。";
             }
         }
 
@@ -460,6 +500,7 @@ namespace GearVRController.ViewModels
             // 如果没有触摸，不处理数据
             if (!_isCurrentlyTouching)
             {
+                StatusMessage = $"请触摸并从中心点向 {GetDirectionalGuidance()} 滑动。";
                 return;
             }
 
@@ -475,20 +516,32 @@ namespace GearVRController.ViewModels
             // 如果移动距离太小，忽略
             if (magnitude < MOVEMENT_THRESHOLD)
             {
+                StatusMessage = $"移动距离太小，请确保您的滑动动作幅度足够大。已收集样本: {GetCurrentDirectionData()?.SampleCount ?? 0}/{SAMPLES_REQUIRED}";
                 return;
             }
 
             // 根据当前步骤更新相应的方向数据
             DirectionalCalibrationData? currentDirection = GetCurrentDirectionData();
-            if (currentDirection != null && IsValidDirectionalMovement(deltaX, deltaY))
+            if (currentDirection != null)
             {
-                currentDirection.AddSample(deltaX / magnitude, deltaY / magnitude);
-                ValidateAndProceed();
-
-                // 更新状态消息
-                if (currentDirection.SampleCount < MIN_POINTS_REQUIRED)
+                if (IsValidDirectionalMovement(deltaX, deltaY))
                 {
-                    StatusMessage = $"继续滑动，已收集 {currentDirection.SampleCount} 个样本，需要 {MIN_POINTS_REQUIRED} 个...";
+                    currentDirection.AddSample(deltaX / magnitude, deltaY / magnitude);
+                    ValidateAndProceed();
+
+                    // 更新状态消息
+                    if (currentDirection.SampleCount < SAMPLES_REQUIRED)
+                    {
+                        StatusMessage = $"继续向 {GetDirectionalGuidance()} 滑动。已收集样本: {currentDirection.SampleCount}/{SAMPLES_REQUIRED}";
+                    }
+                    else
+                    {
+                        StatusMessage = $"向 {GetDirectionalGuidance()} 校准完成。已收集样本: {currentDirection.SampleCount}/{SAMPLES_REQUIRED}。请抬起手指。";
+                    }
+                }
+                else
+                {
+                    StatusMessage = $"滑动方向不正确。请从中心点向 {GetDirectionalGuidance()} 笔直滑动。已收集样本: {currentDirection.SampleCount}/{SAMPLES_REQUIRED}";
                 }
             }
         }
@@ -536,39 +589,40 @@ namespace GearVRController.ViewModels
 
         private string GetDirectionalGuidance()
         {
-            return _currentStep switch
+            return CurrentStep switch
             {
-                CalibrationStep.Up => "请保持垂直向上滑动",
-                CalibrationStep.Down => "请保持垂直向下滑动",
-                CalibrationStep.Left => "请保持水平向左滑动",
-                CalibrationStep.Right => "请保持水平向右滑动",
+                CalibrationStep.Up => "上",
+                CalibrationStep.Down => "下",
+                CalibrationStep.Left => "左",
+                CalibrationStep.Right => "右",
                 _ => string.Empty
             };
         }
 
         private void MoveToNextDirectionalStep()
         {
-            switch (_currentStep)
+            switch (CurrentStep)
             {
                 case CalibrationStep.Up:
-                    _currentStep = CalibrationStep.Down;
+                    CurrentStep = CalibrationStep.Down;
                     StatusMessage = "第4步：请在触摸板上从中心向下滑动多次";
                     break;
                 case CalibrationStep.Down:
-                    _currentStep = CalibrationStep.Left;
+                    CurrentStep = CalibrationStep.Left;
                     StatusMessage = "第5步：请在触摸板上从中心向左滑动多次";
                     break;
                 case CalibrationStep.Left:
-                    _currentStep = CalibrationStep.Right;
+                    CurrentStep = CalibrationStep.Right;
                     StatusMessage = "第6步：请在触摸板上从中心向右滑动多次";
                     break;
                 case CalibrationStep.Right:
-                    _currentStep = CalibrationStep.Completed;
+                    CurrentStep = CalibrationStep.Completed;
                     StatusMessage = "校准完成！";
                     FinishCalibration();
                     break;
             }
             CanProceedToNextStep = false;
+            UpdateCurrentStepGuidanceMessage(); // Update guidance message after step change
         }
 
         public void FinishCalibration()
@@ -577,6 +631,7 @@ namespace GearVRController.ViewModels
 
             IsCalibrating = false;
             StatusMessage = "校准完成";
+            UpdateCurrentStepGuidanceMessage(); // Update guidance message on completion
 
             CalibrationCompleted?.Invoke(this, _calibrationData);
         }
@@ -584,8 +639,24 @@ namespace GearVRController.ViewModels
         public void CancelCalibration()
         {
             IsCalibrating = false;
-            StatusMessage = "校准已取消";
+            _inactivityTimer.Stop();
+            _countdownTimer?.Stop();
+            ResetCalibrationData(); // Reset data upon cancellation
+            StatusMessage = "校准已取消。";
+            UpdateCurrentStepGuidanceMessage(); // Update guidance message on cancellation
+        }
+
+        /// <summary>
+        /// Resets the entire calibration process, clearing all collected data and returning to the initial state.
+        /// </summary>
+        public void ResetCalibration()
+        {
+            IsCalibrating = false; // Ensure calibration is stopped
+            _inactivityTimer.Stop();
+            _countdownTimer?.Stop();
             ResetCalibrationData();
+            StatusMessage = "校准已重置。请点击 '开始校准' 重新开始。";
+            UpdateCurrentStepGuidanceMessage(); // Update guidance message on reset
         }
 
         private void ResetCalibrationData()
@@ -647,11 +718,11 @@ namespace GearVRController.ViewModels
                 if (_dispatcher != null)
                 {
                     var elapsed = (DateTime.Now - startTime).TotalMilliseconds;
-                    var progress = Math.Max(0, Math.Min(100, (elapsed / COUNTDOWN_DURATION_MS) * 100));
+                    var remainingProgress = Math.Max(0, 100 - (int)((elapsed / COUNTDOWN_DURATION_MS) * 100));
 
                     _dispatcher.TryEnqueue(() =>
                     {
-                        ProgressValue = 100 - (int)progress; // 倒计时，所以用100减
+                        AutoProceedCountdownValue = remainingProgress;
 
                         if (elapsed >= COUNTDOWN_DURATION_MS)
                         {
@@ -664,8 +735,39 @@ namespace GearVRController.ViewModels
                 }
             };
 
-            ProgressValue = 100; // 初始值设为100%
+            AutoProceedCountdownValue = 100; // Initial value for countdown
             _countdownTimer.Start();
+        }
+
+        private void UpdateCurrentStepGuidanceMessage()
+        {
+            switch (CurrentStep)
+            {
+                case CalibrationStep.NotStarted:
+                    CurrentStepGuidanceMessage = "点击 \'开始校准\' 按钮开始校准过程。";
+                    break;
+                case CalibrationStep.CircularMotion:
+                    CurrentStepGuidanceMessage = "请在触摸板边缘顺时针匀速划一个完整的圆，确保手指紧贴边缘，不要离开触摸板。";
+                    break;
+                case CalibrationStep.Center:
+                    CurrentStepGuidanceMessage = "请用一根手指点击触摸板的中心点，直到它被记录。";
+                    break;
+                case CalibrationStep.Up:
+                    CurrentStepGuidanceMessage = "请从中心点开始，向上笔直滑动多次，确保每次滑动都经过中心点。";
+                    break;
+                case CalibrationStep.Down:
+                    CurrentStepGuidanceMessage = "请从中心点开始，向下笔直滑动多次，确保每次滑动都经过中心点。";
+                    break;
+                case CalibrationStep.Left:
+                    CurrentStepGuidanceMessage = "请从中心点开始，向左笔直滑动多次，确保每次滑动都经过中心点。";
+                    break;
+                case CalibrationStep.Right:
+                    CurrentStepGuidanceMessage = "请从中心点开始，向右笔直滑动多次，确保每次滑动都经过中心点。";
+                    break;
+                case CalibrationStep.Completed:
+                    CurrentStepGuidanceMessage = "校准过程已成功完成！您可以保存校准数据或重新校准。";
+                    break;
+            }
         }
     }
 
