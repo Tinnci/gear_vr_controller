@@ -193,23 +193,8 @@
                         </TextBlock>
 
                         <!-- 磁力计数据 -->
-                        <TextBlock Grid.Row="6" Grid.Column="0" Text="Magnet X:"
-                            Margin="0,12,8,4" />
-                        <TextBlock Grid.Row="6" Grid.Column="1" Margin="0,12,0,4">
-                            <Run Text="{Binding LastControllerData.MagnetX, Mode=OneWay}" />
-                        </TextBlock>
-
-                        <TextBlock Grid.Row="7" Grid.Column="0" Text="Magnet Y:"
-                            Margin="0,0,8,4" />
-                        <TextBlock Grid.Row="7" Grid.Column="1" Margin="0,0,0,4">
-                            <Run Text="{Binding LastControllerData.MagnetY, Mode=OneWay}" />
-                        </TextBlock>
-
-                        <TextBlock Grid.Row="8" Grid.Column="0" Text="Magnet Z:"
-                            Margin="0,0,8,4" />
-                        <TextBlock Grid.Row="8" Grid.Column="1" Margin="0,0,0,4">
-                            <Run Text="{Binding LastControllerData.MagnetZ, Mode=OneWay}" />
-                        </TextBlock>
+                        <!-- Removed Magnetometer data binding as properties are no longer available
+                        in ControllerData model -->
                     </Grid>
                 </Expander>
 

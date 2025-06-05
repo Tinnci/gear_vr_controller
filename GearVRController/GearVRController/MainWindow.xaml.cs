@@ -105,7 +105,7 @@ namespace GearVRController
                         ContentFrame.Navigate(typeof(HomePage), ViewModel);
                         break;
                     case "settings":
-                        ContentFrame.Navigate(typeof(SettingsPage), ViewModel);
+                        ContentFrame.Navigate(typeof(SettingsPage));
                         break;
                     case "calibrate":
                         ContentFrame.Navigate(typeof(CalibrationPage), ViewModel);

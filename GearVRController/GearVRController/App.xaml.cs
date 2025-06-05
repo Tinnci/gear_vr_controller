@@ -56,7 +56,13 @@ namespace GearVRController
             // Register Services
             services.AddSingleton<IBluetoothService, BluetoothService>();
             services.AddSingleton<WindowsInputSimulator>();
-            services.AddSingleton<IInputStateMonitorService, InputStateMonitorService>();
+            services.AddSingleton<IInputStateMonitorService>(provider =>
+                new InputStateMonitorService(
+                    provider.GetRequiredService<WindowsInputSimulator>(),
+                    provider.GetRequiredService<DispatcherQueue>(),
+                    provider.GetRequiredService<ILogger>()
+                )
+            );
             services.AddSingleton<IInputSimulator>(provider =>
                 new MonitoredInputSimulator(
                     provider.GetRequiredService<WindowsInputSimulator>(),
@@ -94,11 +100,20 @@ namespace GearVRController
         /// <param name="args">Details about the launch request and process.</param>
         protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
         {
-            Debug.WriteLine("App.OnLaunched: Creating MainWindow...");
-            m_window = ServiceProvider!.GetRequiredService<MainWindow>();
-            Debug.WriteLine("App.OnLaunched: Activating MainWindow...");
-            m_window.Activate();
-            Debug.WriteLine("App.OnLaunched: MainWindow activated.");
+            try
+            {
+                Debug.WriteLine("App.OnLaunched: Creating MainWindow...");
+                m_window = ServiceProvider!.GetRequiredService<MainWindow>();
+                Debug.WriteLine("App.OnLaunched: Activating MainWindow...");
+                m_window.Activate();
+                Debug.WriteLine("App.OnLaunched: MainWindow activated.");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[FATAL ERROR] Failed to create or activate MainWindow. Exception: {ex.ToString()}");
+                // You might want to set a breakpoint here in a real debugging scenario
+                // Debugger.Break();
+            }
         }
 
         private Window? m_window;
