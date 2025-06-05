@@ -11,7 +11,7 @@ namespace GearVRController.ViewModels
     /// 它指导用户完成多步校准过程（包括圆周运动、中心点和方向校准），
     /// 收集数据，计算校准参数，并向其他组件发布校准完成事件。
     /// </summary>
-    public class TouchpadCalibrationViewModel : INotifyPropertyChanged
+    public class TouchpadCalibrationViewModel : INotifyPropertyChanged, IDisposable
     {
         /// <summary>
         /// 记录触摸板X轴的最小值。
@@ -137,6 +137,7 @@ namespace GearVRController.ViewModels
         /// 事件聚合器，用于发布校准完成事件。
         /// </summary>
         private readonly Services.Interfaces.IEventAggregator _eventAggregator;
+        private IDisposable _dataSubscription;
 
         /// <summary>
         /// 获取当前校准步骤。
@@ -385,6 +386,13 @@ namespace GearVRController.ViewModels
                 _dispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
             }
             UpdateCurrentStepGuidanceMessage();
+
+            // Subscribe to ControllerDataReceivedEvent
+            _dataSubscription = _eventAggregator.Subscribe<ControllerDataReceivedEvent>(e =>
+            {
+                // Ensure on UI thread
+                _dispatcher?.TryEnqueue(() => ProcessTouchpadData(e.Data));
+            });
         }
 
         /// <summary>
@@ -879,11 +887,14 @@ namespace GearVRController.ViewModels
         /// </summary>
         public void Dispose()
         {
-            _inactivityTimer.Stop();
-            _inactivityTimer.Elapsed -= InactivityTimer_Elapsed;
-            _inactivityTimer.Dispose();
+            _inactivityTimer?.Stop();
+            _inactivityTimer?.Dispose();
             _countdownTimer?.Stop();
             _countdownTimer?.Dispose();
+            _dataSubscription?.Dispose();
+
+            // Release event handlers
+            PropertyChanged = null;
         }
 
         /// <summary>

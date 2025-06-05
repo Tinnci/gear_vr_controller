@@ -4,6 +4,7 @@ using GearVRController.Models;
 using GearVRController.Services.Interfaces;
 using System.Collections.Generic;
 using System.Linq;
+using GearVRController.Events;
 
 namespace GearVRController.Services
 {
@@ -11,7 +12,7 @@ namespace GearVRController.Services
     /// ControllerService 负责处理来自 Gear VR 控制器的原始数据，并根据应用程序设置将其转换为可模拟的输入事件。
     /// 它集成了触摸板处理、手势识别和输入模拟功能。
     /// </summary>
-    public class ControllerService : IControllerService
+    public class ControllerService : IControllerService, IDisposable
     {
         private readonly IBluetoothService _bluetoothService;
         private readonly ISettingsService _settingsService;
@@ -19,6 +20,8 @@ namespace GearVRController.Services
         private readonly IInputSimulator _inputSimulator;
         private readonly GestureRecognizer _gestureRecognizer;
         private readonly ILogger _logger;
+        private readonly IEventAggregator _eventAggregator;
+        private IDisposable _dataSubscription;
 
         private bool _isTouchpadCurrentlyTouched = false;
         private double _lastTouchpadProcessedX = 0;
@@ -56,7 +59,8 @@ namespace GearVRController.Services
         /// <param name="inputSimulator">输入模拟器，用于模拟鼠标和键盘输入。</param>
         /// <param name="gestureRecognizer">手势识别器，用于识别触摸板手势。</param>
         /// <param name="logger">日志服务，用于记录日志。</param>
-        public ControllerService(IBluetoothService bluetoothService, ISettingsService settingsService, TouchpadProcessor touchpadProcessor, IInputSimulator inputSimulator, GestureRecognizer gestureRecognizer, ILogger logger)
+        /// <param name="eventAggregator">事件聚合器，用于订阅控制器数据事件。</param>
+        public ControllerService(IBluetoothService bluetoothService, ISettingsService settingsService, TouchpadProcessor touchpadProcessor, IInputSimulator inputSimulator, GestureRecognizer gestureRecognizer, ILogger logger, IEventAggregator eventAggregator)
         {
             _bluetoothService = bluetoothService;
             _settingsService = settingsService;
@@ -64,9 +68,13 @@ namespace GearVRController.Services
             _inputSimulator = inputSimulator;
             _gestureRecognizer = gestureRecognizer;
             _logger = logger;
+            _eventAggregator = eventAggregator;
 
             _smoothingBufferX = new List<double>();
             _smoothingBufferY = new List<double>();
+
+            // Subscribe to ControllerDataReceivedEvent
+            _dataSubscription = _eventAggregator.Subscribe<ControllerDataReceivedEvent>(e => ProcessControllerData(e.Data));
         }
 
         // public Task InitializeAsync()
@@ -351,6 +359,12 @@ namespace GearVRController.Services
         protected virtual void OnControllerDataProcessed(ControllerData data)
         {
             ControllerDataProcessed?.Invoke(this, data);
+        }
+
+        public void Dispose()
+        {
+            _dataSubscription?.Dispose();
+            // Optionally, dispose other disposable resources here if any
         }
     }
 }

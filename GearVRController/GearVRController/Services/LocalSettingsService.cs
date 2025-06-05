@@ -75,6 +75,10 @@ namespace GearVRController.Services
         /// </summary>
         private const string SHOW_GESTURE_HINTS_KEY = "ShowGestureHints";
         /// <summary>
+        /// 显示触摸板可视化工具设置的键名。
+        /// </summary>
+        private const string SHOW_TOUCHPAD_VISUALIZER_KEY = "ShowTouchpadVisualizer";
+        /// <summary>
         /// 按钮去抖动阈值设置的键名。
         /// </summary>
         private const string BUTTON_DEBOUNCE_THRESHOLD_KEY = "ButtonDebounceThreshold";
@@ -317,12 +321,22 @@ namespace GearVRController.Services
         }
 
         /// <summary>
+        /// 获取或设置是否显示触摸板可视化工具。
+        /// 默认值为 true。
+        /// </summary>
+        public bool ShowTouchpadVisualizer
+        {
+            get => GetSetting(SHOW_TOUCHPAD_VISUALIZER_KEY, true);
+            set => SaveSetting(SHOW_TOUCHPAD_VISUALIZER_KEY, value);
+        }
+
+        /// <summary>
         /// 获取或设置按钮去抖动阈值。
-        /// 默认值为 2。
+        /// 默认值为 5。
         /// </summary>
         public int ButtonDebounceThreshold
         {
-            get => GetSetting(BUTTON_DEBOUNCE_THRESHOLD_KEY, 2);
+            get => GetSetting(BUTTON_DEBOUNCE_THRESHOLD_KEY, 5);
             set => SaveSetting(BUTTON_DEBOUNCE_THRESHOLD_KEY, value);
         }
 
@@ -497,6 +511,8 @@ namespace GearVRController.Services
             SaveSetting(IS_GESTURE_MODE_KEY, false);
             SaveSetting(GESTURE_SENSITIVITY_KEY, 0.3f);
             SaveSetting(SHOW_GESTURE_HINTS_KEY, true);
+            SaveSetting(SHOW_TOUCHPAD_VISUALIZER_KEY, true);
+            SaveSetting(BUTTON_DEBOUNCE_THRESHOLD_KEY, 5);
             SaveSetting(SWIPE_UP_ACTION_KEY, (int)GestureAction.PageUp);
             SaveSetting(SWIPE_DOWN_ACTION_KEY, (int)GestureAction.PageDown);
             SaveSetting(SWIPE_LEFT_ACTION_KEY, (int)GestureAction.BrowserBack);

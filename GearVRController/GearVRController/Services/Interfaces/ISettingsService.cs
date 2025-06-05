@@ -69,6 +69,10 @@ namespace GearVRController.Services.Interfaces
         /// </summary>
         bool ShowGestureHints { get; set; }
         /// <summary>
+        /// 获取或设置是否显示触摸板可视化工具。
+        /// </summary>
+        bool ShowTouchpadVisualizer { get; set; }
+        /// <summary>
         /// 获取或设置按钮去抖动阈值。
         /// </summary>
         int ButtonDebounceThreshold { get; set; }

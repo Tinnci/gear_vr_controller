@@ -6,6 +6,7 @@ using Windows.Storage.Streams;
 using GearVRController.Models;
 using System.Threading;
 using GearVRController.Services.Interfaces;
+using GearVRController.Events;
 
 namespace GearVRController.Services
 {
@@ -155,7 +156,7 @@ namespace GearVRController.Services
 
         private readonly ISettingsService _settingsService;
         private readonly ILogger _logger;
-        private readonly IInputHandlerService _inputHandlerService;
+        private readonly IEventAggregator _eventAggregator;
 
         /// <summary>
         /// 当接收到新的控制器数据时触发的事件。
@@ -176,12 +177,12 @@ namespace GearVRController.Services
         /// </summary>
         /// <param name="settingsService">设置服务，用于获取重连参数等配置。</param>
         /// <param name="logger">日志服务，用于记录日志。</param>
-        /// <param name="inputHandlerService">输入处理服务，用于处理接收到的控制器数据。</param>
-        public BluetoothService(ISettingsService settingsService, ILogger logger, IInputHandlerService inputHandlerService)
+        /// <param name="eventAggregator">事件聚合器服务，用于发布控制器数据事件。</param>
+        public BluetoothService(ISettingsService settingsService, ILogger logger, IEventAggregator eventAggregator)
         {
             _settingsService = settingsService;
             _logger = logger;
-            _inputHandlerService = inputHandlerService;
+            _eventAggregator = eventAggregator;
         }
 
         /// <summary>
@@ -571,47 +572,51 @@ namespace GearVRController.Services
         /// <param name="byteArray">包含原始控制器数据的数据包。</param>
         private void ProcessDataAsync(byte[] byteArray)
         {
-            if (byteArray.Length != EXPECTED_PACKET_LENGTH)
+            if (byteArray == null || byteArray.Length < EXPECTED_PACKET_LENGTH)
             {
-                // 新增代码：将接收到的字节转换为十六进制字符串并打印
-                string hexString = BitConverter.ToString(byteArray).Replace("-", " ");
-                _logger.LogWarning($"接收到的数据包长度不符合预期: {byteArray.Length} (预期 {EXPECTED_PACKET_LENGTH})。内容: [{hexString}]。数据包将被丢弃。", nameof(BluetoothService));
+                _logger.LogWarning("接收到无效数据包: 长度不正确.", nameof(BluetoothService));
                 return;
             }
 
-            // 创建 ControllerData 实例并填充数据
-            ControllerData controllerData = new ControllerData();
+            try
+            {
+                var controllerData = new ControllerData
+                {
+                    // 解析触摸板坐标 (10位精度，分布在字节54-56)
+                    // X轴: [字节54的低4位] << 6 | [字节55的高6位] >> 2
+                    AxisX = (((byteArray[TOUCHPAD_X_OFFSET] & 0x0F) << 6) | ((byteArray[TOUCHPAD_X_OFFSET + 1] & 0xFC) >> 2)) & 0x3FF,
+                    // Y轴: [字节55的低2位] << 8 | [字节56的全部8位]
+                    AxisY = (((byteArray[TOUCHPAD_X_OFFSET + 1] & 0x03) << 8) | (byteArray[TOUCHPAD_Y_OFFSET])) & 0x3FF,
 
-            // 解析触摸板坐标 (使用位运算)
-            controllerData.AxisX = (((byteArray[54] & 0xF) << 6) + ((byteArray[55] & 0xFC) >> 2)) & 0x3FF;
-            controllerData.AxisY = (((byteArray[55] & 0x3) << 8) + ((byteArray[56] & 0xFF) >> 0)) & 0x3FF;
+                    // 解析按钮状态
+                    TouchpadButton = (byteArray[BUTTON_STATE_OFFSET] & TOUCHPAD_BUTTON_MASK) != 0,
+                    HomeButton = (byteArray[BUTTON_STATE_OFFSET] & HOME_BUTTON_MASK) != 0,
+                    TriggerButton = (byteArray[BUTTON_STATE_OFFSET] & TRIGGER_BUTTON_MASK) != 0,
+                    BackButton = (byteArray[BUTTON_STATE_OFFSET] & BACK_BUTTON_MASK) != 0,
+                    VolumeUpButton = (byteArray[BUTTON_STATE_OFFSET] & VOLUME_UP_BUTTON_MASK) != 0,
+                    VolumeDownButton = (byteArray[BUTTON_STATE_OFFSET] & VOLUME_DOWN_BUTTON_MASK) != 0,
 
-            // 填充原始触摸板坐标
-            controllerData.TouchpadX = (ushort)controllerData.AxisX;
-            controllerData.TouchpadY = (ushort)controllerData.AxisY;
+                    // 解析加速度计数据 (16位有符号整数)
+                    AccelX = BitConverter.ToInt16(byteArray, ACCEL_X_OFFSET),
+                    AccelY = BitConverter.ToInt16(byteArray, ACCEL_Y_OFFSET),
+                    AccelZ = BitConverter.ToInt16(byteArray, ACCEL_Z_OFFSET),
 
-            // 解析按钮状态 (从第58个字节)
-            controllerData.TriggerButton = ((byteArray[58] & 1) == 1);
-            controllerData.HomeButton = ((byteArray[58] & 2) == 2);
-            controllerData.BackButton = ((byteArray[58] & 4) == 4);
-            controllerData.TouchpadButton = ((byteArray[58] & 8) == 8);
-            controllerData.VolumeUpButton = ((byteArray[58] & 16) == 16);
-            controllerData.VolumeDownButton = ((byteArray[58] & 32) == 32);
-            controllerData.NoButton = ((byteArray[58] & 64) == 64);
+                    // 解析陀螺仪数据 (16位有符号整数)
+                    GyroX = BitConverter.ToInt16(byteArray, GYRO_X_OFFSET),
+                    GyroY = BitConverter.ToInt16(byteArray, GYRO_Y_OFFSET),
+                    GyroZ = BitConverter.ToInt16(byteArray, GYRO_Z_OFFSET)
+                };
 
-            // 解析传感器数据 (加速度和陀螺仪)
-            controllerData.AccelX = (float)(((byteArray[4] << 8) + byteArray[5]) * 10000.0 * 9.80665 / 2048.0);
-            controllerData.AccelY = (float)(((byteArray[6] << 8) + byteArray[7]) * 10000.0 * 9.80665 / 2048.0);
-            controllerData.AccelZ = (float)(((byteArray[8] << 8) + byteArray[9]) * 10000.0 * 9.80665 / 2048.0);
-            controllerData.GyroX = (float)(((byteArray[10] << 8) + byteArray[11]) * 10000.0 * 0.017453292 / 14.285);
-            controllerData.GyroY = (float)(((byteArray[12] << 8) + byteArray[13]) * 10000.0 * 0.017453292 / 14.285);
-            controllerData.GyroZ = (float)(((byteArray[14] << 8) + byteArray[15]) * 10000.0 * 0.017453292 / 14.285);
+                // 通过事件总线发布数据，解耦各服务
+                _eventAggregator.Publish(new ControllerDataReceivedEvent(controllerData));
 
-            // 设置时间戳
-            controllerData.Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-
-            // 将解析后的数据传递给 InputHandlerService
-            _inputHandlerService.ProcessInput(controllerData);
+                // 触发 DataReceived 事件 (如果仍有订阅者需要原始数据)
+                DataReceived?.Invoke(this, controllerData);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"处理控制器数据失败: {ex.Message}", nameof(BluetoothService), ex);
+            }
         }
 
         /// <summary>

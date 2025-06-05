@@ -1,41 +1,49 @@
 using GearVRController.Enums;
 using GearVRController.Models;
 using GearVRController.Services.Interfaces;
+using GearVRController.Events;
+using System;
 // using System.Diagnostics; // Added for Debug.WriteLine, will be replaced by logger
 
 namespace GearVRController.Services
 {
-    public class InputHandlerService : IInputHandlerService
+    public class InputHandlerService : IInputHandlerService, IDisposable
     {
         private readonly IInputSimulator _inputSimulator;
         private readonly IInputStateMonitorService _inputStateMonitorService;
         private readonly ISettingsService _settingsService;
         private readonly ILogger _logger;
+        private readonly IEventAggregator _eventAggregator;
+        private IDisposable _dataSubscription;
 
-        // Debounce and state variables from MainViewModel
+        // Debounce and state variables
         private bool _isTriggerButtonPressed = false;
+        private DateTime _lastTriggerActionTime = DateTime.MinValue;
 
-        private int _volumeUpDebounceCounter = 0;
         private bool _isVolumeUpHeld = false;
+        private DateTime _lastVolumeUpActionTime = DateTime.MinValue;
 
-        private int _volumeDownDebounceCounter = 0;
         private bool _isVolumeDownHeld = false;
+        private DateTime _lastVolumeDownActionTime = DateTime.MinValue;
 
-        private int _backDebounceCounter = 0;
         private bool _isBackButtonPressed = false;
+        private DateTime _lastBackActionTime = DateTime.MinValue;
 
         private bool _isTouchpadButtonPressed = false;
-        private int _touchpadButtonPressCounter = 0;
-        private int _touchpadButtonReleaseCounter = 0;
-        private int _triggerButtonPressCounter = 0;
-        private int _triggerButtonReleaseCounter = 0;
+        private DateTime _lastTouchpadButtonActionTime = DateTime.MinValue;
 
-        public InputHandlerService(IInputSimulator inputSimulator, IInputStateMonitorService inputStateMonitorService, ISettingsService settingsService, ILogger logger)
+        private readonly TimeSpan _debounceTime = TimeSpan.FromMilliseconds(50);
+
+        public InputHandlerService(IInputSimulator inputSimulator, IInputStateMonitorService inputStateMonitorService, ISettingsService settingsService, ILogger logger, IEventAggregator eventAggregator)
         {
             _inputSimulator = inputSimulator;
             _inputStateMonitorService = inputStateMonitorService;
             _settingsService = settingsService;
             _logger = logger;
+            _eventAggregator = eventAggregator;
+
+            // Subscribe to the event
+            _dataSubscription = _eventAggregator.Subscribe<ControllerDataReceivedEvent>(e => ProcessInput(e.Data));
         }
 
         public void ProcessInput(ControllerData data)
@@ -45,121 +53,115 @@ namespace GearVRController.Services
             _logger.LogInfo("InputHandlerService: Processing input...");
 
             // Handle Trigger Button
-            if (data.TriggerButton)
+            bool isCurrentlyTriggerPressed = data.TriggerButton;
+            if (isCurrentlyTriggerPressed != _isTriggerButtonPressed)
             {
-                _triggerButtonPressCounter++;
-                _triggerButtonReleaseCounter = 0;
-                if (_triggerButtonPressCounter >= _settingsService.ButtonDebounceThreshold && !_isTriggerButtonPressed)
+                if ((DateTime.UtcNow - _lastTriggerActionTime) > _debounceTime)
                 {
-                    _isTriggerButtonPressed = true;
-                    _inputSimulator.SimulateMouseButtonEx(true, (int)MouseButtons.Left);
-                    _logger.LogInfo("Left mouse button pressed");
-                }
-            }
-            else
-            {
-                _triggerButtonReleaseCounter++;
-                _triggerButtonPressCounter = 0;
-                if (_triggerButtonReleaseCounter >= _settingsService.ButtonDebounceThreshold && _isTriggerButtonPressed)
-                {
-                    _isTriggerButtonPressed = false;
-                    _inputSimulator.SimulateMouseButtonEx(false, (int)MouseButtons.Left);
-                    _logger.LogInfo("Left mouse button released");
+                    _isTriggerButtonPressed = isCurrentlyTriggerPressed;
+                    _lastTriggerActionTime = DateTime.UtcNow;
+
+                    if (_isTriggerButtonPressed)
+                    {
+                        _inputSimulator.SimulateMouseButtonEx(true, (int)MouseButtons.Left);
+                        _logger.LogInfo("Left mouse button pressed");
+                    }
+                    else
+                    {
+                        _inputSimulator.SimulateMouseButtonEx(false, (int)MouseButtons.Left);
+                        _logger.LogInfo("Left mouse button released");
+                    }
                 }
             }
 
             // Handle Volume Up Button
-            if (data.VolumeUpButton)
+            bool isCurrentlyVolumeUpPressed = data.VolumeUpButton;
+            if (isCurrentlyVolumeUpPressed != _isVolumeUpHeld)
             {
-                _volumeUpDebounceCounter++;
-                if (_volumeUpDebounceCounter >= _settingsService.ButtonDebounceThreshold && !_isVolumeUpHeld)
+                if ((DateTime.UtcNow - _lastVolumeUpActionTime) > _debounceTime)
                 {
-                    _isVolumeUpHeld = true;
-                    _inputSimulator.SimulateKeyDown((int)VirtualKeyCode.VOLUME_UP);
-                    _logger.LogInfo("Volume Up pressed");
+                    _isVolumeUpHeld = isCurrentlyVolumeUpPressed;
+                    _lastVolumeUpActionTime = DateTime.UtcNow;
+
+                    if (_isVolumeUpHeld)
+                    {
+                        _inputSimulator.SimulateKeyDown((int)VirtualKeyCode.VOLUME_UP);
+                        _logger.LogInfo("Volume Up pressed");
+                    }
+                    else
+                    {
+                        _inputSimulator.SimulateKeyUp((int)VirtualKeyCode.VOLUME_UP);
+                        _logger.LogInfo("Volume Up released");
+                    }
                 }
-            }
-            else
-            {
-                if (_isVolumeUpHeld)
-                {
-                    _inputSimulator.SimulateKeyUp((int)VirtualKeyCode.VOLUME_UP);
-                    _isVolumeUpHeld = false;
-                    _logger.LogInfo("Volume Up released");
-                }
-                _volumeUpDebounceCounter = 0;
             }
 
             // Handle Volume Down Button
-            if (data.VolumeDownButton)
+            bool isCurrentlyVolumeDownPressed = data.VolumeDownButton;
+            if (isCurrentlyVolumeDownPressed != _isVolumeDownHeld)
             {
-                _volumeDownDebounceCounter++;
-                if (_volumeDownDebounceCounter >= _settingsService.ButtonDebounceThreshold && !_isVolumeDownHeld)
+                if ((DateTime.UtcNow - _lastVolumeDownActionTime) > _debounceTime)
                 {
-                    _isVolumeDownHeld = true;
-                    _inputSimulator.SimulateKeyDown((int)VirtualKeyCode.VOLUME_DOWN);
-                    _logger.LogInfo("Volume Down pressed");
+                    _isVolumeDownHeld = isCurrentlyVolumeDownPressed;
+                    _lastVolumeDownActionTime = DateTime.UtcNow;
+
+                    if (_isVolumeDownHeld)
+                    {
+                        _inputSimulator.SimulateKeyDown((int)VirtualKeyCode.VOLUME_DOWN);
+                        _logger.LogInfo("Volume Down pressed");
+                    }
+                    else
+                    {
+                        _inputSimulator.SimulateKeyUp((int)VirtualKeyCode.VOLUME_DOWN);
+                        _logger.LogInfo("Volume Down released");
+                    }
                 }
-            }
-            else
-            {
-                if (_isVolumeDownHeld)
-                {
-                    _inputSimulator.SimulateKeyUp((int)VirtualKeyCode.VOLUME_DOWN);
-                    _isVolumeDownHeld = false;
-                    _logger.LogInfo("Volume Down released");
-                }
-                _volumeDownDebounceCounter = 0;
             }
 
             // Handle Back Button
-            if (data.BackButton)
+            bool isCurrentlyBackPressed = data.BackButton;
+            if (isCurrentlyBackPressed != _isBackButtonPressed)
             {
-                _backDebounceCounter++;
-                if (_backDebounceCounter >= _settingsService.ButtonDebounceThreshold && !_isBackButtonPressed)
+                if ((DateTime.UtcNow - _lastBackActionTime) > _debounceTime)
                 {
-                    _isBackButtonPressed = true;
-                    _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.BROWSER_BACK);
-                    _logger.LogInfo("Browser Back pressed");
+                    _isBackButtonPressed = isCurrentlyBackPressed;
+                    _lastBackActionTime = DateTime.UtcNow;
+
+                    if (_isBackButtonPressed)
+                    {
+                        _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.BROWSER_BACK);
+                        _logger.LogInfo("Browser Back pressed");
+                    }
+                    // No 'else' for KeyPress, as it's a single press, not a hold
                 }
-            }
-            else
-            {
-                _backDebounceCounter = 0;
-                _isBackButtonPressed = false;
             }
 
             // Handle Touchpad Press (mouse right click)
-            if (data.TouchpadButton)
+            bool isCurrentlyTouchpadPressed = data.TouchpadButton;
+            if (isCurrentlyTouchpadPressed != _isTouchpadButtonPressed)
             {
-                _touchpadButtonPressCounter++;
-                _touchpadButtonReleaseCounter = 0;
-
-                if (_touchpadButtonPressCounter >= _settingsService.ButtonDebounceThreshold && !_isTouchpadButtonPressed)
+                if ((DateTime.UtcNow - _lastTouchpadButtonActionTime) > _debounceTime)
                 {
-                    _isTouchpadButtonPressed = true;
-                    _inputSimulator.SimulateMouseButtonEx(true, (int)MouseButtons.Right);
-                    _logger.LogInfo("Right mouse button pressed");
+                    _isTouchpadButtonPressed = isCurrentlyTouchpadPressed;
+                    _lastTouchpadButtonActionTime = DateTime.UtcNow;
+
+                    if (_isTouchpadButtonPressed)
+                    {
+                        _inputSimulator.SimulateMouseButtonEx(true, (int)MouseButtons.Right);
+                        _logger.LogInfo("Right mouse button pressed");
+                    }
+                    else
+                    {
+                        _inputSimulator.SimulateMouseButtonEx(false, (int)MouseButtons.Right);
+                        _logger.LogInfo("Right mouse button released");
+                    }
                 }
             }
-            else
-            {
-                _touchpadButtonReleaseCounter++;
-                _touchpadButtonPressCounter = 0;
+        }
 
-                if (_touchpadButtonReleaseCounter >= _settingsService.ButtonDebounceThreshold && _isTouchpadButtonPressed)
-                {
-                    _isTouchpadButtonPressed = false;
-                    _inputSimulator.SimulateMouseButtonEx(false, (int)MouseButtons.Right);
-                    _logger.LogInfo("Right mouse button released");
-                }
-            }
-
-            // Inform InputStateMonitorService about activity only if control is enabled
-            if (_settingsService.IsControlEnabled)
-            {
-                _inputStateMonitorService.NotifyInputActivity();
-            }
+        public void Dispose()
+        {
+            _dataSubscription?.Dispose();
         }
     }
 }

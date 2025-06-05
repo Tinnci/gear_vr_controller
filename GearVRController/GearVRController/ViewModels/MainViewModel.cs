@@ -40,19 +40,6 @@ namespace GearVRController.ViewModels
         /// </summary>
         private TouchpadCalibrationData? _calibrationData;
 
-        // 用户可配置的控制设置
-        private bool _isControlEnabled = true;
-        private double _mouseSensitivity = 1.0;
-        private bool _isMouseEnabled = true;
-        private bool _isKeyboardEnabled = true;
-        private bool _useNaturalScrolling = false;
-        private bool _invertYAxis = false;
-        private bool _enableSmoothing = true;
-        private int _smoothingLevel = 3;
-        private bool _enableNonLinearCurve = true;
-        private double _nonLinearCurvePower = 1.5;
-        private double _deadZone = 8.0;
-
         /// <summary>
         /// 指示触摸板校准过程是否正在进行中。
         /// </summary>
@@ -107,115 +94,12 @@ namespace GearVRController.ViewModels
         /// 用于管理校准完成事件订阅的 Disposable 对象，确保在 ViewModel 销毁时取消订阅。
         /// </summary>
         private IDisposable? _calibrationCompletedSubscription;
+        private IDisposable? _settingsChangedSubscription;
 
         /// <summary>
         /// 当 ViewModel 的属性发生变化时触发的事件。
         /// </summary>
         public event PropertyChangedEventHandler? PropertyChanged;
-
-        /// <summary>
-        /// 获取或设置是否启用对控制器输入的整体控制（鼠标、键盘等）。
-        /// 如果禁用，控制器数据将仅用于可视化，而不会模拟任何输入。
-        /// </summary>
-        public bool IsControlEnabled
-        {
-            get => _isControlEnabled;
-            set
-            {
-                if (_isControlEnabled != value)
-                {
-                    _isControlEnabled = value;
-                    _settingsService.IsControlEnabled = _isControlEnabled;
-                    OnPropertyChanged();
-                }
-            }
-        }
-
-        /// <summary>
-        /// 获取或设置鼠标灵敏度。
-        /// 值越大，鼠标移动越快。范围限制在0.1到2.0之间。
-        /// </summary>
-        public double MouseSensitivity
-        {
-            get => _mouseSensitivity;
-            set
-            {
-                if (_mouseSensitivity != value)
-                {
-                    _mouseSensitivity = Math.Max(0.1, Math.Min(value, 2.0)); // 限制灵敏度范围在0.1到2.0之间
-                    _settingsService.MouseSensitivity = _mouseSensitivity;
-                    OnPropertyChanged();
-                }
-            }
-        }
-
-        /// <summary>
-        /// 获取或设置是否启用鼠标输入模拟。
-        /// </summary>
-        public bool IsMouseEnabled
-        {
-            get => _isMouseEnabled;
-            set
-            {
-                if (_isMouseEnabled != value)
-                {
-                    _isMouseEnabled = value;
-                    _settingsService.IsMouseEnabled = _isMouseEnabled;
-                    OnPropertyChanged();
-                }
-            }
-        }
-
-        /// <summary>
-        /// 获取或设置是否启用键盘输入模拟。
-        /// </summary>
-        public bool IsKeyboardEnabled
-        {
-            get => _isKeyboardEnabled;
-            set
-            {
-                if (_isKeyboardEnabled != value)
-                {
-                    _isKeyboardEnabled = value;
-                    _settingsService.IsKeyboardEnabled = _isKeyboardEnabled;
-                    OnPropertyChanged();
-                }
-            }
-        }
-
-        /// <summary>
-        /// 获取或设置是否使用自然滚动（即向上滑动触摸板向下滚动页面）。
-        /// </summary>
-        public bool UseNaturalScrolling
-        {
-            get => _useNaturalScrolling;
-            set
-            {
-                if (_useNaturalScrolling != value)
-                {
-                    _useNaturalScrolling = value;
-                    _settingsService.UseNaturalScrolling = _useNaturalScrolling;
-                    OnPropertyChanged();
-                }
-            }
-        }
-
-        /// <summary>
-        /// 获取或设置是否反转触摸板 Y 轴的移动方向。
-        /// </summary>
-        public bool InvertYAxis
-        {
-            get => _invertYAxis;
-            set
-            {
-                if (_invertYAxis != value)
-                {
-                    _invertYAxis = value;
-                    _settingsService.InvertYAxis = _invertYAxis;
-                    OnPropertyChanged();
-                }
-            }
-        }
 
         /// <summary>
         /// 获取当前蓝牙连接状态。
@@ -326,116 +210,6 @@ namespace GearVRController.ViewModels
         /// 获取当前应用的触摸板校准数据。
         /// </summary>
         public TouchpadCalibrationData? CalibrationData => _calibrationData;
-
-        /// <summary>
-        /// 获取或设置是否启用鼠标移动平滑处理。
-        /// </summary>
-        public bool EnableSmoothing
-        {
-            get => _enableSmoothing;
-            set
-            {
-                if (_enableSmoothing != value)
-                {
-                    _enableSmoothing = value;
-                    _settingsService.EnableSmoothing = _enableSmoothing;
-                    OnPropertyChanged();
-                    if (!value)
-                    {
-                        // 清空缓冲区以适应新的平滑等级
-                    }
-                }
-            }
-        }
-
-        /// <summary>
-        /// 获取或设置鼠标移动平滑的等级。值越大，平滑效果越明显。
-        /// 范围限制在1到10之间。
-        /// </summary>
-        public int SmoothingLevel
-        {
-            get => _smoothingLevel;
-            set
-            {
-                if (_smoothingLevel != value)
-                {
-                    _smoothingLevel = Math.Max(1, Math.Min(value, 10));
-                    _settingsService.SmoothingLevel = _smoothingLevel;
-                    OnPropertyChanged();
-                    // 清空缓冲区以适应新的平滑等级
-                }
-            }
-        }
-
-        /// <summary>
-        /// 获取或设置是否启用非线性曲线来调整鼠标移动。
-        /// 非线性曲线可以使小范围移动更精确，大范围移动更迅速。
-        /// </summary>
-        public bool EnableNonLinearCurve
-        {
-            get => _enableNonLinearCurve;
-            set
-            {
-                if (_enableNonLinearCurve != value)
-                {
-                    _enableNonLinearCurve = value;
-                    _settingsService.EnableNonLinearCurve = _enableNonLinearCurve;
-                    OnPropertyChanged();
-                }
-            }
-        }
-
-        /// <summary>
-        /// 获取或设置非线性曲线的幂次。值越大，曲线的非线性程度越高。
-        /// 范围限制在1.0到3.0之间。
-        /// </summary>
-        public double NonLinearCurvePower
-        {
-            get => _nonLinearCurvePower;
-            set
-            {
-                if (_nonLinearCurvePower != value)
-                {
-                    _nonLinearCurvePower = Math.Max(1.0, Math.Min(value, 3.0));
-                    _settingsService.NonLinearCurvePower = _nonLinearCurvePower;
-                    OnPropertyChanged();
-                }
-            }
-        }
-
-        /// <summary>
-        /// 获取或设置触摸板的死区大小。在死区内的移动将被忽略。
-        /// 范围限制在0.0到20.0之间。
-        /// </summary>
-        public double DeadZone
-        {
-            get => _deadZone;
-            set
-            {
-                if (_deadZone != value)
-                {
-                    _deadZone = Math.Max(0.0, Math.Min(value, 20.0));
-                    _settingsService.DeadZone = _deadZone;
-                    OnPropertyChanged();
-                }
-            }
-        }
-
-        /// <summary>
-        /// 获取或设置按钮去抖动阈值。
-        /// </summary>
-        public int ButtonDebounceThreshold
-        {
-            get => _settingsService.ButtonDebounceThreshold;
-            set
-            {
-                if (_settingsService.ButtonDebounceThreshold != value)
-                {
-                    _settingsService.ButtonDebounceThreshold = value;
-                    OnPropertyChanged();
-                }
-            }
-        }
 
         /// <summary>
         /// 获取或设置当前是否处于手势模式。
@@ -560,39 +334,6 @@ namespace GearVRController.ViewModels
         public IEnumerable<GestureAction> AvailableGestureActions => Enum.GetValues<GestureAction>();
 
         /// <summary>
-        /// 鼠标灵敏度的最小允许值。
-        /// </summary>
-        private const double MOUSE_SENSITIVITY_MIN = 0.1;
-        /// <summary>
-        /// 鼠标灵敏度的最大允许值。
-        /// </summary>
-        private const double MOUSE_SENSITIVITY_MAX = 2.0;
-        /// <summary>
-        /// 平滑等级的最小允许值。
-        /// </summary>
-        private const int SMOOTHING_LEVEL_MIN = 1;
-        /// <summary>
-        /// 平滑等级的最大允许值。
-        /// </summary>
-        private const int SMOOTHING_LEVEL_MAX = 10;
-        /// <summary>
-        /// 非线性曲线幂次的最小允许值。
-        /// </summary>
-        private const double NON_LINEAR_CURVE_POWER_MIN = 1.0;
-        /// <summary>
-        /// 非线性曲线幂次的最大允许值。
-        /// </summary>
-        private const double NON_LINEAR_CURVE_POWER_MAX = 3.0;
-        /// <summary>
-        /// 死区的最小允许值。
-        /// </summary>
-        private const double DEAD_ZONE_MIN = 0.0;
-        /// <summary>
-        /// 死区的最大允许值。
-        /// </summary>
-        private const double DEAD_ZONE_MAX = 20.0;
-
-        /// <summary>
         /// MainViewModel 的构造函数。
         /// 通过依赖注入接收所有必要的服务。
         /// </summary>
@@ -632,9 +373,10 @@ namespace GearVRController.ViewModels
             _bluetoothService.DataReceived += BluetoothService_DataReceived;
             _bluetoothService.ConnectionStatusChanged += BluetoothService_ConnectionStatusChanged;
             _calibrationCompletedSubscription = _eventAggregator.Subscribe<CalibrationCompletedEvent>(OnCalibrationCompleted);
+            _settingsChangedSubscription = _eventAggregator.Subscribe<SettingsChangedEvent>(OnSettingsChanged);
             _gestureRecognizer = new GestureRecognizer(_settingsService, _dispatcherQueue);
             _gestureRecognizer.GestureDetected += OnGestureDetected;
-            LoadSettings();
+            LoadCalibrationFromSettings();
             RegisterHotKeys();
             _logger.LogInfo("MainViewModel initialized.", nameof(MainViewModel));
         }
@@ -651,47 +393,31 @@ namespace GearVRController.ViewModels
             IsCalibrating = false;
         }
 
-        private void LoadSettings()
+        private void LoadCalibrationFromSettings()
         {
-            _logger.LogInfo("加载应用程序设置.", nameof(MainViewModel));
-            try
+            _logger.LogInfo("尝试从设置加载校准数据.", nameof(MainViewModel));
+            var loadedCalibrationData = _settingsService.LoadCalibrationData();
+            if (loadedCalibrationData != null)
             {
-                IsControlEnabled = _settingsService.IsControlEnabled;
-                MouseSensitivity = _settingsService.MouseSensitivity;
-                IsMouseEnabled = _settingsService.IsMouseEnabled;
-                IsKeyboardEnabled = _settingsService.IsKeyboardEnabled;
-                IsControlEnabled = _settingsService.IsControlEnabled;
-                UseNaturalScrolling = _settingsService.UseNaturalScrolling;
-                InvertYAxis = _settingsService.InvertYAxis;
-                EnableSmoothing = _settingsService.EnableSmoothing;
-                SmoothingLevel = _settingsService.SmoothingLevel;
-                EnableNonLinearCurve = _settingsService.EnableNonLinearCurve;
-                NonLinearCurvePower = _settingsService.NonLinearCurvePower;
-                DeadZone = _settingsService.DeadZone;
-                IsGestureMode = _settingsService.IsGestureMode;
-                GestureSensitivity = _settingsService.GestureSensitivity;
-                ShowGestureHints = _settingsService.ShowGestureHints;
-                SwipeUpAction = _settingsService.SwipeUpAction;
-                SwipeDownAction = _settingsService.SwipeDownAction;
-                SwipeLeftAction = _settingsService.SwipeLeftAction;
-                SwipeRightAction = _settingsService.SwipeRightAction;
+                ApplyCalibrationData(loadedCalibrationData);
+                _logger.LogInfo("已加载并应用保存的校准数据.", nameof(MainViewModel));
+            }
+            else
+            {
+                _logger.LogInfo("未找到保存的校准数据，使用默认设置.", nameof(MainViewModel));
+            }
+        }
 
-                var loadedCalibrationData = _settingsService.LoadCalibrationData();
-                if (loadedCalibrationData != null)
-                {
-                    ApplyCalibrationData(loadedCalibrationData);
-                    _logger.LogInfo("已加载并应用保存的校准数据.", nameof(MainViewModel));
-                }
-                else
-                {
-                    _logger.LogInfo("未找到保存的校准数据，使用默认设置.", nameof(MainViewModel));
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError("加载设置时发生错误.", nameof(MainViewModel), ex);
-                StatusMessage = "加载设置失败：" + ex.Message;
-            }
+        private void OnSettingsChanged(SettingsChangedEvent e)
+        {
+            _logger.LogInfo("接收到设置更改事件，更新相关属性.", nameof(MainViewModel));
+            // Update UI-bound properties that reflect settings
+            OnPropertyChanged(nameof(IsGestureMode));
+            // Add other properties that are directly bound to UI and reflect settings here
+            // For example, if you have a property for ShowTouchpadVisualizer in MainViewModel
+            // OnPropertyChanged(nameof(ShowTouchpadVisualizer)); 
+            // And update GestureRecognizer config based on updated settings
+            _gestureRecognizer.UpdateGestureConfig(_settingsService.GestureConfig);
         }
 
         private void RegisterHotKeys()
@@ -756,27 +482,25 @@ namespace GearVRController.ViewModels
 
         private void BluetoothService_DataReceived(object? sender, ControllerData data)
         {
-            if (!IsConnected || IsConnecting)
-            {
-                return;
-            }
-
-            // Process button inputs (Trigger, Volume Up/Down, Back, Touchpad Click)
-            _inputHandlerService.ProcessInput(data);
-
-            // Process touchpad data for mouse movement or gestures
-            if (IsGestureMode)
-            {
-                _gestureRecognizer.ProcessTouchpadPoint(new TouchpadPoint(data.TouchpadX, data.TouchpadY, data.TouchpadTouched));
-            }
-
             _dispatcherQueue.TryEnqueue(() =>
             {
                 LastControllerData = data;
-                ProcessedTouchpadX = data.ProcessedTouchpadX;
-                ProcessedTouchpadY = data.ProcessedTouchpadY;
 
-                RecordTouchpadHistory(data.ProcessedTouchpadX, data.ProcessedTouchpadY, data.TouchpadTouched);
+                // 更新触摸板轨迹历史
+                if (_settingsService.ShowTouchpadVisualizer)
+                {
+                    RecordTouchpadHistory(data.AxisX, data.AxisY, data.TouchpadTouched);
+                }
+
+                // 这部分逻辑将保持在 MainViewModel 中，用于更新 UI 状态或处理其他非输入模拟相关逻辑
+                if (_calibrationData != null)
+                {
+                    ProcessedTouchpadX = _touchpadProcessor.ProcessRawData(data.AxisX, data.AxisY).Item1;
+                    ProcessedTouchpadY = _touchpadProcessor.ProcessRawData(data.AxisX, data.AxisY).Item2;
+                }
+
+                // 在手势模式下，GestureRecognizer 会处理原始数据并触发手势事件
+                // 在相对模式下，ControllerService 会处理原始数据并模拟鼠标移动
             });
         }
 
@@ -795,16 +519,14 @@ namespace GearVRController.ViewModels
 
         public void ToggleControl()
         {
-            _isControlEnabled = !_isControlEnabled;
-            _settingsService.IsControlEnabled = _isControlEnabled;
+            _settingsService.IsControlEnabled = !_settingsService.IsControlEnabled;
             UpdateControlState();
-            StatusMessage = _isControlEnabled ? "控制已启用" : "控制已禁用";
+            StatusMessage = _settingsService.IsControlEnabled ? "控制已启用" : "控制已禁用";
         }
 
         public void ResetSettings()
         {
             _settingsService.ResetToDefaults();
-            ApplyLoadedSettings(); // Apply default settings after resetting
         }
 
         public void ApplyCalibrationData(TouchpadCalibrationData calibrationData)
@@ -816,7 +538,7 @@ namespace GearVRController.ViewModels
 
         private void UpdateControlState()
         {
-            System.Diagnostics.Debug.WriteLine($"[MainViewModel] UpdateControlState 已调用. IsCalibrating: {IsCalibrating}, IsConnecting: {IsConnecting}, IsConnected: {IsConnected}, IsControlEnabled: {IsControlEnabled}");
+            System.Diagnostics.Debug.WriteLine($"[MainViewModel] UpdateControlState 已调用. IsCalibrating: {IsCalibrating}, IsConnecting: {IsConnecting}, IsConnected: {IsConnected}, IsControlEnabled: {_settingsService.IsControlEnabled}");
         }
 
         private void RecordTouchpadHistory(double x, double y, bool isPressed)
@@ -844,9 +566,9 @@ namespace GearVRController.ViewModels
         {
             // 只有控制启用、非校准状态下处理手势
             // 在手势模式下，IsKeyboardEnabled 不影响鼠标移动手势的识别和处理。
-            if (!IsControlEnabled || _isCalibrating) return;
+            if (!_settingsService.IsControlEnabled || _isCalibrating) return;
 
-            if (IsGestureMode)
+            if (_settingsService.IsGestureMode)
             {
                 // 手势模式：根据识别到的方向执行预定义动作
                 GestureAction action = GestureAction.None;
@@ -911,42 +633,16 @@ namespace GearVRController.ViewModels
             {
                 _calibrationCompletedSubscription.Dispose();
             }
+            if (_settingsChangedSubscription != null)
+            {
+                _settingsChangedSubscription.Dispose();
+            }
             _gestureRecognizer.GestureDetected -= OnGestureDetected;
 
             // Ensure all simulated keys are released in case the app exits unexpectedly when disconnected.
             // Removed _inputStateMonitorService.ForceReleaseAllButtons();
             // Removed _inputStateMonitorService.StopMonitoring(); // Stop input state monitor
             // Removed InputStateMonitorService_InputTimeoutDetected method
-        }
-
-        private void ApplyLoadedSettings()
-        {
-            MouseSensitivity = _settingsService.MouseSensitivity;
-            IsMouseEnabled = _settingsService.IsMouseEnabled;
-            IsKeyboardEnabled = _settingsService.IsKeyboardEnabled;
-            IsControlEnabled = _settingsService.IsControlEnabled;
-            UseNaturalScrolling = _settingsService.UseNaturalScrolling;
-            InvertYAxis = _settingsService.InvertYAxis;
-            EnableSmoothing = _settingsService.EnableSmoothing;
-            SmoothingLevel = _settingsService.SmoothingLevel;
-            EnableNonLinearCurve = _settingsService.EnableNonLinearCurve;
-            NonLinearCurvePower = _settingsService.NonLinearCurvePower;
-            DeadZone = _settingsService.DeadZone;
-            IsGestureMode = _settingsService.IsGestureMode;
-            // IsRelativeMode is derived from IsGestureMode, no direct setting needed
-            GestureSensitivity = _settingsService.GestureSensitivity;
-            ShowGestureHints = _settingsService.ShowGestureHints;
-            SwipeUpAction = _settingsService.SwipeUpAction;
-            SwipeDownAction = _settingsService.SwipeDownAction;
-            SwipeLeftAction = _settingsService.SwipeLeftAction;
-            SwipeRightAction = _settingsService.SwipeRightAction;
-
-            // 尝试加载校准数据
-            var calibration = _settingsService.LoadCalibrationData();
-            if (calibration != null)
-            {
-                ApplyCalibrationData(calibration);
-            }
         }
 
         private void BluetoothService_ConnectionStatusChanged(object? sender, Windows.Devices.Bluetooth.BluetoothConnectionStatus status)
