@@ -96,8 +96,7 @@ namespace GearVRController.Views
             TouchpadCanvas.Children.Add(_touchPoint);
             TouchpadCanvas.Children.Add(_coordsText);
 
-            // 初始化网格
-            InitializeGrid();
+            // InitializeGrid() will be called from UpdateVisualizationLayout()
 
             Debug.WriteLine("触摸板可视化窗口已初始化");
 
@@ -109,6 +108,9 @@ namespace GearVRController.Views
 
             // Subscribe to ViewModel's PropertyChanged event for visualization updates
             _viewModel.PropertyChanged += ViewModel_PropertyChanged;
+
+            // Ensure layout is initialized after all setup
+            UpdateVisualizationLayout();
         }
 
         private void ViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -134,7 +136,7 @@ namespace GearVRController.Views
 
         private void TouchpadVisualizerWindow_Activated(object sender, WindowActivatedEventArgs args)
         {
-            InitializeVisualization();
+            InitializeVisualization(); // This method is now redundant, UpdateVisualizationLayout already handles init
         }
 
         private void AppWindow_Changed(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowChangedEventArgs args)
@@ -148,14 +150,10 @@ namespace GearVRController.Views
             }
         }
 
-        // 保留此方法以兼容其他调用
-        private void TouchpadVisualizerWindow_SizeChanged(object sender, SizeChangedEventArgs e)
-        {
-            UpdateVisualizationLayout();
-        }
-
         private void InitializeVisualization()
         {
+            // This method is now redundant as UpdateVisualizationLayout already handles initial setup.
+            // Keeping it for now to avoid breaking existing calls, but its body can be emptied or removed.
             UpdateVisualizationLayout();
         }
 
@@ -168,32 +166,38 @@ namespace GearVRController.Views
                 return; // 画布尺寸太小，不进行更新
             }
 
+            // Update internal canvas dimensions and center for grid/object positioning
+            _canvasWidth = TouchpadCanvas.ActualWidth;
+            _canvasHeight = TouchpadCanvas.ActualHeight;
+            _center = new Point(_canvasWidth / 2, _canvasHeight / 2);
+
             // 计算触摸板显示区域的尺寸（取宽度和高度的较小值）
             // 考虑到实际触摸板范围是0~315，我们设置一个合理的尺寸
-            _touchpadSize = Math.Min(TouchpadCanvas.ActualWidth, TouchpadCanvas.ActualHeight) - 20;
+            _touchpadSize = Math.Min(_canvasWidth, _canvasHeight) - 20;
 
             // 确保尺寸是正数且合理
             _touchpadSize = Math.Max(100, Math.Min(500, _touchpadSize));
+            _radius = _touchpadSize / 2; // Update radius based on calculated touchpadSize
 
-            // 更新坐标轴
+            // Update coordinate axes
             HorizontalLine.X1 = 0;
-            HorizontalLine.Y1 = TouchpadCanvas.ActualHeight / 2;
-            HorizontalLine.X2 = TouchpadCanvas.ActualWidth;
-            HorizontalLine.Y2 = TouchpadCanvas.ActualHeight / 2;
+            HorizontalLine.Y1 = _canvasHeight / 2;
+            HorizontalLine.X2 = _canvasWidth;
+            HorizontalLine.Y2 = _canvasHeight / 2;
 
-            VerticalLine.X1 = TouchpadCanvas.ActualWidth / 2;
+            VerticalLine.X1 = _canvasWidth / 2;
             VerticalLine.Y1 = 0;
-            VerticalLine.X2 = TouchpadCanvas.ActualWidth / 2;
-            VerticalLine.Y2 = TouchpadCanvas.ActualHeight;
+            VerticalLine.X2 = _canvasWidth / 2;
+            VerticalLine.Y2 = _canvasHeight;
 
             try
             {
-                // 更新触摸板边界圆圈
+                // Update touchpad boundary circle
                 TouchpadBoundary.Width = _touchpadSize;
                 TouchpadBoundary.Height = _touchpadSize;
                 TouchpadBoundary.Margin = new Thickness(
-                    (TouchpadCanvas.ActualWidth - _touchpadSize) / 2,
-                    (TouchpadCanvas.ActualHeight - _touchpadSize) / 2,
+                    (_canvasWidth - _touchpadSize) / 2,
+                    (_canvasHeight - _touchpadSize) / 2,
                     0, 0);
             }
             catch (Exception ex)
@@ -203,12 +207,15 @@ namespace GearVRController.Views
                 TouchpadBoundary.Width = 300;
                 TouchpadBoundary.Height = 300;
                 TouchpadBoundary.Margin = new Thickness(
-                    Math.Max(0, (TouchpadCanvas.ActualWidth - 300) / 2),
-                    Math.Max(0, (TouchpadCanvas.ActualHeight - 300) / 2),
+                    Math.Max(0, (_canvasWidth - 300) / 2),
+                    Math.Max(0, (_canvasHeight - 300) / 2),
                     0, 0);
             }
 
-            // 清除历史轨迹
+            // Re-initialize grid as its size depends on _radius and _center
+            InitializeGrid();
+
+            // Clear history after layout updates, if desired. Otherwise, history points might be misplaced.
             ClearHistory();
         }
 
@@ -224,7 +231,8 @@ namespace GearVRController.Views
             }
             _gridElements.Clear();
 
-            if (_canvasWidth <= 0 || _canvasHeight <= 0)
+            // Check if canvas dimensions are valid BEFORE drawing grid elements
+            if (_canvasWidth <= 0 || _canvasHeight <= 0 || _radius <= 0)
                 return;
 
             // 创建同心圆
@@ -232,7 +240,7 @@ namespace GearVRController.Views
             {
                 var circle = new Ellipse
                 {
-                    Width = _radius * 2 * i / 3,
+                    Width = _radius * 2 * i / 3, // Scale circles relative to _radius
                     Height = _radius * 2 * i / 3,
                     Stroke = new SolidColorBrush(Colors.Gray),
                     StrokeThickness = 1,
@@ -302,223 +310,216 @@ namespace GearVRController.Views
         /// </summary>
         public void UpdateTouchpadVisualization(double normalizedX, double normalizedY, bool isPressed, EnumsNS.TouchpadGesture gesture)
         {
-            // This method will now be called by the ViewModel's PropertyChanged event
-            // It should directly read from ViewModel's properties
-            _currentX = normalizedX; // _viewModel.ProcessedTouchpadX;
-            _currentY = normalizedY; // _viewModel.ProcessedTouchpadY;
-            _isTouching = isPressed; // _viewModel.LastControllerData.TouchpadButton;
+            _currentX = normalizedX; // Store normalized X
+            _currentY = normalizedY; // Store normalized Y
+            _isTouching = isPressed;
 
-            // Update visibility of touch point and line
-            _touchPoint.Visibility = _isTouching ? Visibility.Visible : Visibility.Collapsed;
-            _touchLine.Visibility = _isTouching ? Visibility.Visible : Visibility.Collapsed;
-            _coordsText.Visibility = Visibility.Visible;
-
-            // Scale raw data (0-1023) to canvas size (200x200)
-            double canvasWidth = TouchpadCanvas.ActualWidth;
-            double canvasHeight = TouchpadCanvas.ActualHeight;
-            const double rawRange = 1023.0; // Assuming 0-1023 as the full raw range
-
-            double scaleX = canvasWidth / rawRange;
-            double scaleY = canvasHeight / rawRange;
+            // 将归一化坐标 (-1 到 1) 映射到画布坐标
+            // (normalizedX + 1) / 2 将范围从 [-1, 1] 变为 [0, 1]
+            // 然后乘以 _touchpadSize 得到在触摸板区域内的坐标
+            // 最后加上偏移量将坐标放置在画布中心
+            double displayX = (_currentX + 1) / 2 * _touchpadSize + (TouchpadCanvas.ActualWidth - _touchpadSize) / 2;
+            // Y 轴通常在UI中是反向的（正Y向下），所以 (1 - normalizedY) / 2
+            double displayY = (1 - _currentY) / 2 * _touchpadSize + (TouchpadCanvas.ActualHeight - _touchpadSize) / 2;
 
             // Update touch point position
-            double displayX = _currentX * scaleX;
-            double displayY = _currentY * scaleY;
-
-            // Adjust for center of the ellipse
             Canvas.SetLeft(_touchPoint, displayX - _touchPoint.Width / 2);
             Canvas.SetTop(_touchPoint, displayY - _touchPoint.Height / 2);
 
             // Update line from center to touch point
-            _touchLine.X1 = canvasWidth / 2;
-            _touchLine.Y1 = canvasHeight / 2;
+            _touchLine.X1 = TouchpadCanvas.ActualWidth / 2;
+            _touchLine.Y1 = TouchpadCanvas.ActualHeight / 2;
             _touchLine.X2 = displayX;
             _touchLine.Y2 = displayY;
 
-            // Update coordinate text
-            _coordsText.Text = $"X: {normalizedX:F0}, Y: {normalizedY:F0}";
-            Canvas.SetLeft(_coordsText, displayX + 15);
-            Canvas.SetTop(_coordsText, displayY - 15);
+            // Update coordinates text
+            Canvas.SetLeft(_coordsText, displayX + _touchPoint.Width / 2 + 5);
+            Canvas.SetTop(_coordsText, displayY - _coordsText.Height / 2);
+            _coordsText.Text = $"({_currentX:F2}, {_currentY:F2})";
 
-            // Draw the trail using data from ViewModel's history
-            DrawTrail();
+            // Set visibility based on whether the touchpad is touched
+            _touchPoint.Visibility = isPressed ? Visibility.Visible : Visibility.Collapsed;
+            _touchLine.Visibility = isPressed ? Visibility.Visible : Visibility.Collapsed;
+            _coordsText.Visibility = isPressed ? Visibility.Visible : Visibility.Collapsed;
+
+            // Draw trail if enabled
+            if (_showTrail)
+            {
+                DrawTrail();
+            }
+            else
+            {
+                ClearHistory(); // Clear trail if it's disabled now
+            }
 
             // Update gesture indicator
-            UpdateGestureIndicator(gesture); // Use gesture from ViewModel
-
-            UpdateGestureInfo(gesture);
+            UpdateGestureIndicator(gesture);
         }
 
-        /// <summary>
-        /// 绘制轨迹
-        /// </summary>
         private void DrawTrail()
         {
-            // Remove old trail elements
-            foreach (var element in _trailElements)
+            // 移除旧的轨迹点
+            foreach (var point in _trailElements)
             {
-                TouchpadCanvas.Children.Remove(element);
+                TouchpadCanvas.Children.Remove(point);
             }
             _trailElements.Clear();
 
-            // Get history from ViewModel
-            var history = _viewModel.TouchpadHistory;
-
-            if (!_showTrail || history.Count == 0) return;
-
-            double canvasWidth = TouchpadCanvas.ActualWidth;
-            double canvasHeight = TouchpadCanvas.ActualHeight;
-            const double rawRange = 1023.0;
-            double scaleX = canvasWidth / rawRange;
-            double scaleY = canvasHeight / rawRange;
-
-            // Draw new trail elements
-            for (int i = 0; i < history.Count; i++)
+            // 绘制新轨迹点
+            int historyCount = _viewModel.TouchpadHistory.Count;
+            for (int i = 0; i < historyCount; i++)
             {
-                var point = history[i];
+                var point = _viewModel.TouchpadHistory[i];
+                // Apply the same coordinate transformation as for the current touch point
+                double displayX = (point.X + 1) / 2 * _touchpadSize + (TouchpadCanvas.ActualWidth - _touchpadSize) / 2;
+                double displayY = (1 - point.Y) / 2 * _touchpadSize + (TouchpadCanvas.ActualHeight - _touchpadSize) / 2;
+
+                // Calculate opacity based on age (older points are more transparent)
+                double opacity = (double)(i + 1) / historyCount * 0.8; // Max opacity 0.8
+
+                // Color based on touch state (if available in history point)
+                Color color = point.IsTouched ? Colors.DodgerBlue : Colors.LightGray; // Example colors
+
                 var ellipse = new Ellipse
                 {
                     Width = 6,
                     Height = 6,
-                    Fill = new SolidColorBrush(Color.FromArgb(128, 0, 0, 255)), // 半透明蓝色
-                    IsHitTestVisible = false // 不参与点击测试
+                    Fill = new SolidColorBrush(color),
+                    Opacity = opacity
                 };
 
-                // 根据点在历史中的位置调整透明度
-                double opacity = (double)(i + 1) / history.Count; // 越新的点越不透明
-                ellipse.Opacity = opacity;
-
-                Canvas.SetLeft(ellipse, point.X * scaleX - ellipse.Width / 2);
-                Canvas.SetTop(ellipse, point.Y * scaleY - ellipse.Height / 2);
+                Canvas.SetLeft(ellipse, displayX - ellipse.Width / 2);
+                Canvas.SetTop(ellipse, displayY - ellipse.Height / 2);
 
                 TouchpadCanvas.Children.Add(ellipse);
                 _trailElements.Add(ellipse);
             }
         }
 
-        /// <summary>
-        /// 更新手势指示器
-        /// </summary>
         private void UpdateGestureIndicator(EnumsNS.TouchpadGesture gesture)
         {
-            // 移除旧的手势指示器
-            if (_gestureIndicator != null)
+            // Remove previous gesture indicator if it exists and a new one is needed or old one is not None
+            if (_gestureIndicator != null && (_gestureIndicator.Visibility == Visibility.Visible || gesture != EnumsNS.TouchpadGesture.None))
             {
                 TouchpadCanvas.Children.Remove(_gestureIndicator);
                 _gestureIndicator = null;
             }
 
-            if (gesture == EnumsNS.TouchpadGesture.None)
-                return;
-
-            // 根据手势类型创建指示器
-            _gestureIndicator = CreateGestureIndicator(gesture);
-            if (_gestureIndicator != null)
+            if (gesture != EnumsNS.TouchpadGesture.None)
             {
+                _gestureIndicator = CreateGestureIndicator(gesture);
                 TouchpadCanvas.Children.Add(_gestureIndicator);
+
+                // Position the gesture indicator at the center of the canvas
+                if (_gestureIndicator != null) // Add null check here
+                {
+                    double indicatorWidth = _gestureIndicator.DesiredSize.Width == 0 ? ((FrameworkElement)_gestureIndicator).ActualWidth : _gestureIndicator.DesiredSize.Width; // Handle initial size
+                    double indicatorHeight = _gestureIndicator.DesiredSize.Height == 0 ? ((FrameworkElement)_gestureIndicator).ActualHeight : _gestureIndicator.DesiredSize.Height;
+
+                    Canvas.SetLeft(_gestureIndicator, _center.X - indicatorWidth / 2);
+                    Canvas.SetTop(_gestureIndicator, _center.Y - indicatorHeight / 2);
+                    _gestureIndicator.Visibility = Visibility.Visible;
+                }
             }
+            else
+            {
+                if (_gestureIndicator != null)
+                {
+                    _gestureIndicator.Visibility = Visibility.Collapsed;
+                }
+            }
+            UpdateGestureInfo(gesture);
         }
 
-        /// <summary>
-        /// 创建手势指示器
-        /// </summary>
         private UIElement? CreateGestureIndicator(EnumsNS.TouchpadGesture gesture)
         {
+            // Create a Grid to hold the text and arrow/shape
+            var indicatorGrid = new Grid();
+            indicatorGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            indicatorGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            var gestureText = new TextBlock
+            {
+                Text = GetGestureText(gesture),
+                FontSize = 18,
+                FontWeight = Microsoft.UI.Text.FontWeights.Bold,
+                Foreground = new SolidColorBrush(Colors.DarkBlue),
+                HorizontalAlignment = HorizontalAlignment.Center
+            };
+            Grid.SetRow(gestureText, 0);
+            indicatorGrid.Children.Add(gestureText);
+
+            // Create a Path for the arrow/shape based on gesture direction
+            Path arrowPath = new Path
+            {
+                Fill = new SolidColorBrush(Colors.DarkBlue),
+                Stroke = new SolidColorBrush(Colors.DarkBlue),
+                StrokeThickness = 1
+            };
+
+            TransformGroup transformGroup = new TransformGroup();
+            RotateTransform rotateTransform = new RotateTransform();
+            transformGroup.Children.Add(rotateTransform);
+            arrowPath.RenderTransform = transformGroup;
+            arrowPath.RenderTransformOrigin = new Point(0.5, 0.5); // Rotate around center
+
+            // Define arrow geometry and rotation based on gesture
+            PathGeometry? arrowGeometry = null; // Initialize as null and set type to PathGeometry
             double angle = 0;
-            Windows.UI.Color color = Colors.Gray;
 
             switch (gesture)
             {
-                case EnumsNS.TouchpadGesture.SwipeRight:
+                case EnumsNS.TouchpadGesture.SwipeUp:
+                    arrowGeometry = new PathGeometry();
+                    PathFigure figureUp = new PathFigure { StartPoint = new Point(0, 10) };
+                    figureUp.Segments.Add(new LineSegment { Point = new Point(5, 0) });
+                    figureUp.Segments.Add(new LineSegment { Point = new Point(10, 10) });
+                    figureUp.IsClosed = true;
+                    arrowGeometry.Figures.Add(figureUp);
                     angle = 0;
-                    color = Colors.Indigo;
                     break;
                 case EnumsNS.TouchpadGesture.SwipeDown:
-                    angle = 90;
-                    color = Colors.Orange;
+                    arrowGeometry = new PathGeometry();
+                    PathFigure figureDown = new PathFigure { StartPoint = new Point(0, 0) };
+                    figureDown.Segments.Add(new LineSegment { Point = new Point(5, 10) });
+                    figureDown.Segments.Add(new LineSegment { Point = new Point(10, 0) });
+                    figureDown.IsClosed = true;
+                    arrowGeometry.Figures.Add(figureDown);
+                    angle = 0;
                     break;
                 case EnumsNS.TouchpadGesture.SwipeLeft:
-                    angle = 180;
-                    color = Colors.Teal;
+                    arrowGeometry = new PathGeometry();
+                    PathFigure figureLeft = new PathFigure { StartPoint = new Point(10, 0) };
+                    figureLeft.Segments.Add(new LineSegment { Point = new Point(0, 5) });
+                    figureLeft.Segments.Add(new LineSegment { Point = new Point(10, 10) });
+                    figureLeft.IsClosed = true;
+                    arrowGeometry.Figures.Add(figureLeft);
+                    angle = 0; // Handled by geometry
                     break;
-                case EnumsNS.TouchpadGesture.SwipeUp:
-                    angle = 270;
-                    color = Colors.Green;
+                case EnumsNS.TouchpadGesture.SwipeRight:
+                    arrowGeometry = new PathGeometry();
+                    PathFigure figureRight = new PathFigure { StartPoint = new Point(0, 0) };
+                    figureRight.Segments.Add(new LineSegment { Point = new Point(10, 5) });
+                    figureRight.Segments.Add(new LineSegment { Point = new Point(0, 10) });
+                    figureRight.IsClosed = true;
+                    arrowGeometry.Figures.Add(figureRight);
+                    angle = 0; // Handled by geometry
                     break;
+                // For other gestures, you might use different shapes or hide the arrow
                 default:
-                    // 为None手势创建一个空指示器而不是返回null
-                    var emptyShape = new Ellipse
-                    {
-                        Width = 10,
-                        Height = 10,
-                        Fill = new SolidColorBrush(Colors.Transparent)
-                    };
-                    return emptyShape;
+                    arrowPath.Visibility = Visibility.Collapsed; // Hide arrow for None or other gestures
+                    break;
             }
 
-            // 转换为弧度
-            double radians = angle * Math.PI / 180;
+            arrowPath.Data = arrowGeometry ?? Geometry.Empty;
+            rotateTransform.Angle = angle;
 
-            // 创建扇形背景
-            var path = new Path
-            {
-                Fill = new SolidColorBrush(color) { Opacity = 0.3 }
-            };
+            Grid.SetRow(arrowPath, 1);
+            indicatorGrid.Children.Add(arrowPath);
 
-            var geometry = new PathGeometry();
-            var figure = new PathFigure();
-
-            figure.StartPoint = _center;
-
-            // 添加弧线
-            figure.Segments.Add(new ArcSegment
-            {
-                Point = new Point(
-                    _center.X + Math.Cos(radians + Math.PI / 4) * _radius,
-                    _center.Y + Math.Sin(radians + Math.PI / 4) * _radius),
-                Size = new Size(_radius, _radius),
-                SweepDirection = SweepDirection.Clockwise,
-                IsLargeArc = false
-            });
-
-            // 添加弧线
-            figure.Segments.Add(new ArcSegment
-            {
-                Point = new Point(
-                    _center.X + Math.Cos(radians - Math.PI / 4) * _radius,
-                    _center.Y + Math.Sin(radians - Math.PI / 4) * _radius),
-                Size = new Size(_radius, _radius),
-                SweepDirection = SweepDirection.Counterclockwise,
-                IsLargeArc = false
-            });
-
-            figure.IsClosed = true;
-            geometry.Figures.Add(figure);
-            path.Data = geometry;
-
-            // 创建箭头
-            var arrowLine = new Line
-            {
-                X1 = _center.X,
-                Y1 = _center.Y,
-                X2 = _center.X + Math.Cos(radians) * _radius * 0.7,
-                Y2 = _center.Y + Math.Sin(radians) * _radius * 0.7,
-                Stroke = new SolidColorBrush(color),
-                StrokeThickness = 3,
-                StrokeEndLineCap = PenLineCap.Triangle
-            };
-
-            // 创建容器
-            var container = new Canvas();
-            container.Children.Add(path);
-            container.Children.Add(arrowLine);
-
-            return container;
+            return indicatorGrid;
         }
 
-        /// <summary>
-        /// 获取手势文本
-        /// </summary>
         private string GetGestureText(EnumsNS.TouchpadGesture gesture)
         {
             return gesture switch
@@ -571,25 +572,6 @@ namespace GearVRController.Views
                     _trailElements.Clear();
                 }
             });
-        }
-
-        private void TouchpadCanvas_SizeChanged(object sender, SizeChangedEventArgs e)
-        {
-            _canvasWidth = e.NewSize.Width;
-            _canvasHeight = e.NewSize.Height;
-            _radius = Math.Min(_canvasWidth, _canvasHeight) / 2 - 20;
-            _center = new Point(_canvasWidth / 2, _canvasHeight / 2);
-
-            // 重新初始化网格
-            InitializeGrid();
-
-            // 重新绘制轨迹
-            if (_showTrail)
-            {
-                DrawTrail();
-            }
-
-            Debug.WriteLine($"画布大小变化: 宽={_canvasWidth}, 高={_canvasHeight}, 半径={_radius}");
         }
 
         private void ShowTrailToggle_Checked(object sender, RoutedEventArgs e)

@@ -250,97 +250,92 @@ namespace GearVRController.ViewModels
                 newProgress = 100;
             }
 
-            var dispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
-            if (dispatcher != null)
+            // Always update progress value
+            TouchEndProgressValue = newProgress;
+
+            if (newProgress >= 100 && CurrentStep != CalibrationStep.NotStarted && CurrentStep != CalibrationStep.Completed && !isTouching)
             {
-                dispatcher.TryEnqueue(() =>
+                // 如果校准停止且持续一段时间没有触摸，则尝试自动进行下一步
+                _dispatcher?.TryEnqueue(() =>
                 {
-                    TouchEndProgressValue = newProgress;
-                    if (newProgress >= 100 && !isTouching && !CanProceedToNextStep)
-                    {
-                        ValidateAndProceed();
-                    }
+                    ValidateAndProceed();
                 });
             }
         }
 
         private void ValidateAndProceed()
         {
-            switch (CurrentStep)
+            if (CurrentStep == CalibrationStep.CircularMotion)
             {
-                case CalibrationStep.CircularMotion:
-                    if (_circlePointCount >= MIN_POINTS_REQUIRED)
-                    {
-                        CanProceedToNextStep = true;
-                        StatusMessage = "边界校准完成！3秒后自动进入下一步...\n（或点击\"下一步\"立即继续）";
-                        _inactivityTimer.Stop();
-
-                        StartCountdown(() =>
-                        {
-                            if (CanProceedToNextStep && CurrentStep == CalibrationStep.CircularMotion)
-                            {
-                                ProceedToNextStep();
-                            }
-                        });
-                    }
-                    break;
-                case CalibrationStep.Up:
-                case CalibrationStep.Down:
-                case CalibrationStep.Left:
-                case CalibrationStep.Right:
-                    var currentDirection = GetCurrentDirectionData();
-                    if (currentDirection != null && currentDirection.SampleCount >= MIN_POINTS_REQUIRED)
-                    {
-                        if (ValidateDirectionalCalibration(currentDirection))
-                        {
-                            CanProceedToNextStep = true;
-                            StatusMessage = "方向校准完成！3秒后自动进入下一步...\n（或点击\"下一步\"立即继续）";
-                            _inactivityTimer.Stop();
-
-                            StartCountdown(() =>
-                            {
-                                if (CanProceedToNextStep && (CurrentStep == CalibrationStep.Up ||
-                                    CurrentStep == CalibrationStep.Down ||
-                                    CurrentStep == CalibrationStep.Left ||
-                                    CurrentStep == CalibrationStep.Right))
-                                {
-                                    ProceedToNextStep();
-                                }
-                            });
-                        }
-                    }
-                    break;
+                if (_circlePointCount >= MIN_CIRCLE_POINTS &&
+                    (_maxX - _minX) >= MIN_RANGE_THRESHOLD &&
+                    (_maxY - _minY) >= MIN_RANGE_THRESHOLD)
+                {
+                    StatusMessage = "圆形运动校准完成。";
+                    CanProceedToNextStep = true;
+                    // 自动开始倒计时进入下一步
+                    StartCountdown(() => ProceedToNextStep());
+                }
+                else
+                {
+                    StatusMessage = "圆形运动数据不足或范围太小。请继续在触摸板边缘划圈。";
+                    CanProceedToNextStep = false;
+                    _inactivityTimer.Start(); // Continue monitoring
+                }
+            }
+            else if (CurrentStep == CalibrationStep.Center)
+            {
+                if (_calibrationData.CenterX != 0 && _calibrationData.CenterY != 0)
+                {
+                    StatusMessage = "中心点校准完成。";
+                    CanProceedToNextStep = true;
+                    StartCountdown(() => ProceedToNextStep());
+                }
+                else
+                {
+                    StatusMessage = "中心点数据不足。请触摸并按住触摸板中心。";
+                    CanProceedToNextStep = false;
+                    _inactivityTimer.Start();
+                }
+            }
+            else if (CurrentStep >= CalibrationStep.Up && CurrentStep <= CalibrationStep.Right)
+            {
+                DirectionalCalibrationData? currentDirection = GetCurrentDirectionData();
+                if (currentDirection != null && ValidateDirectionalCalibration(currentDirection))
+                {
+                    StatusMessage = $"{CurrentStep} 方向校准完成。";
+                    CanProceedToNextStep = true;
+                    StartCountdown(() => MoveToNextDirectionalStep());
+                }
+                else
+                {
+                    StatusMessage = $"{CurrentStep} 方向数据不足。请沿指定方向滑动。";
+                    CanProceedToNextStep = false;
+                    _inactivityTimer.Start();
+                }
             }
         }
 
         public void StartCalibration()
         {
+            ResetCalibrationData();
             IsCalibrating = true;
             CurrentStep = CalibrationStep.CircularMotion;
-            StatusMessage = "第1步：请在触摸板边缘顺时针划一个完整的圆...";
-            ResetCalibrationData();
-            CanProceedToNextStep = false;
-            _circlePointCount = 0;
-            TouchEndProgressValue = 0;
-            AutoProceedCountdownValue = 100;
-            _lastActivityTime = DateTime.Now;
-            _inactivityTimer.Start();
-            UpdateCurrentStepGuidanceMessage();
+            StatusMessage = "请在触摸板边缘划圈以校准边界。";
+            _inactivityTimer.Start(); // Start monitoring inactivity
         }
 
         public void ProcessTouchpadData(ControllerData data)
         {
-            if (!IsCalibrating) return;
-
-            bool isTouching = data.TouchpadButton || (data.AxisX != 0 || data.AxisY != 0);
-            if (isTouching != _isCurrentlyTouching)
+            // Reset inactivity timer on any touch activity
+            _lastActivityTime = DateTime.Now;
+            _isCurrentlyTouching = data.TouchpadTouched;
+            if (!_isCurrentlyTouching) // If finger just lifted, record end time
             {
-                _isCurrentlyTouching = isTouching;
-                if (!isTouching)
-                {
-                    _lastTouchEndTime = DateTime.Now;
-                }
+                _lastTouchEndTime = DateTime.Now;
             }
+
+            if (!IsCalibrating) return;
 
             switch (CurrentStep)
             {
@@ -361,387 +356,289 @@ namespace GearVRController.ViewModels
 
         private void ProcessCircularMotion(ControllerData data)
         {
-            if (!_isCurrentlyTouching)
-            {
-                StatusMessage = "请触摸并沿着触摸板边缘划圈以校准边界。";
-                return;
-            }
+            if (!data.TouchpadTouched) return;
 
-            _lastActivityTime = DateTime.Now;
-            TouchEndProgressValue = 0;
-
-            _calibrationData.MinX = Math.Min(_calibrationData.MinX, data.AxisX);
-            _calibrationData.MaxX = Math.Max(_calibrationData.MaxX, data.AxisX);
-            _calibrationData.MinY = Math.Min(_calibrationData.MinY, data.AxisY);
-            _calibrationData.MaxY = Math.Max(_calibrationData.MaxY, data.AxisY);
-
-            MinX = _calibrationData.MinX;
-            MaxX = _calibrationData.MaxX;
-            MinY = _calibrationData.MinY;
-            MaxY = _calibrationData.MaxY;
+            // Update min/max raw coordinates
+            MinX = Math.Min(MinX, data.AxisX);
+            MaxX = Math.Max(MaxX, data.AxisX);
+            MinY = Math.Min(MinY, data.AxisY);
+            MaxY = Math.Max(MaxY, data.AxisY);
 
             if (IsValidCirclePoint(data))
             {
                 _circlePointCount++;
-                ValidateAndProceed();
-            }
-
-            double rangeX = MaxX - MinX;
-            double rangeY = MaxY - MinY;
-            bool hasValidRange = rangeX >= MIN_RANGE_THRESHOLD && rangeY >= MIN_RANGE_THRESHOLD;
-
-            if (!hasValidRange)
-            {
-                StatusMessage = $"当前范围：X [{MinX}-{MaxX}], Y [{MinY}-{MaxY}]。请继续在触摸板边缘划圈，扩大校准范围。已收集点数: {_circlePointCount}";
-            }
-            else if (_circlePointCount < MIN_CIRCLE_POINTS)
-            {
-                StatusMessage = $"已检测到有效边界。请继续划圈，确保轨迹平滑。已收集点数: {_circlePointCount}/{MIN_CIRCLE_POINTS}";
+                StatusMessage = $"正在收集圆形运动数据... ({_circlePointCount}/{MIN_CIRCLE_POINTS})";
             }
             else
             {
-                StatusMessage = $"边界校准完成。已收集点数: {_circlePointCount}/{MIN_CIRCLE_POINTS}。请抬起手指。";
+                StatusMessage = "请确保在触摸板边缘划圈。";
             }
+
+            // 动态调整CanProceedToNextStep
+            CanProceedToNextStep = _circlePointCount >= MIN_CIRCLE_POINTS &&
+                                   (_maxX - _minX) >= MIN_RANGE_THRESHOLD &&
+                                   (_maxY - _minY) >= MIN_RANGE_THRESHOLD;
         }
 
         private bool IsValidCirclePoint(ControllerData data)
         {
-            double centerX = (MaxX + MinX) / 2.0;
-            double centerY = (MaxY + MinY) / 2.0;
-            double radiusX = (MaxX - MinX) / 2.0;
-            double radiusY = (MaxY - MinY) / 2.0;
+            // 判断点是否在接近边界的区域
+            // 这里可以定义一个环形区域，例如距离中心一定距离且在某个宽度范围内
+            // 简单示例：判断点是否接近四个边界
+            bool nearLeft = Math.Abs(data.AxisX - _minX) < MOVEMENT_THRESHOLD;
+            bool nearRight = Math.Abs(data.AxisX - _maxX) < MOVEMENT_THRESHOLD;
+            bool nearTop = Math.Abs(data.AxisY - _minY) < MOVEMENT_THRESHOLD;
+            bool nearBottom = Math.Abs(data.AxisY - _maxY) < MOVEMENT_THRESHOLD;
 
-            if (radiusX == 0 || radiusY == 0) return false;
-
-            double dx = (data.AxisX - centerX) / radiusX;
-            double dy = (data.AxisY - centerY) / radiusY;
-            double distance = Math.Sqrt(dx * dx + dy * dy);
-
-            return distance > 0.8;
+            // 如果点在某个边界附近，则认为是有效的圆周运动点
+            return nearLeft || nearRight || nearTop || nearBottom;
         }
 
         public void ProceedToNextStep()
         {
-            if (!CanProceedToNextStep) return;
-
-            if (_countdownTimer != null)
-            {
-                _countdownTimer.Stop();
-                _countdownTimer.Dispose();
-                _countdownTimer = null;
-            }
+            _inactivityTimer.Stop(); // Stop inactivity timer when manually proceeding
+            StopCountdown();
 
             switch (CurrentStep)
             {
                 case CalibrationStep.CircularMotion:
-                    _currentStep = CalibrationStep.Center;
-                    StatusMessage = "第2步：请点击触摸板中心点";
+                    CurrentStep = CalibrationStep.Center;
+                    StatusMessage = "请触摸并按住触摸板中心。";
                     CanProceedToNextStep = false;
+                    _inactivityTimer.Start(); // Restart for next step
                     break;
                 case CalibrationStep.Center:
-                    _currentStep = CalibrationStep.Up;
-                    StatusMessage = "第3步：请在触摸板上从中心向上滑动多次";
+                    CurrentStep = CalibrationStep.Up;
+                    StatusMessage = "请向上滑动触摸板。";
                     CanProceedToNextStep = false;
+                    _inactivityTimer.Start();
                     break;
                 case CalibrationStep.Up:
+                    CurrentStep = CalibrationStep.Down;
+                    StatusMessage = "请向下滑动触摸板。";
+                    CanProceedToNextStep = false;
+                    _inactivityTimer.Start();
+                    break;
                 case CalibrationStep.Down:
+                    CurrentStep = CalibrationStep.Left;
+                    StatusMessage = "请向左滑动触摸板。";
+                    CanProceedToNextStep = false;
+                    _inactivityTimer.Start();
+                    break;
                 case CalibrationStep.Left:
+                    CurrentStep = CalibrationStep.Right;
+                    StatusMessage = "请向右滑动触摸板。";
+                    CanProceedToNextStep = false;
+                    _inactivityTimer.Start();
+                    break;
                 case CalibrationStep.Right:
-                    MoveToNextDirectionalStep();
+                    FinishCalibration();
                     break;
             }
         }
 
         private void ProcessCenterCalibration(ControllerData data)
         {
-            if (data.TouchpadButton)
-            {
-                double centerX = (_calibrationData.MaxX + _calibrationData.MinX) / 2.0;
-                double centerY = (_calibrationData.MaxY + _calibrationData.MinY) / 2.0;
-                double maxDistance = Math.Min(_calibrationData.MaxX - _calibrationData.MinX, _calibrationData.MaxY - _calibrationData.MinY) * 0.3;
+            if (!data.TouchpadTouched) return;
 
-                if (Math.Abs(data.AxisX - centerX) <= maxDistance &&
-                    Math.Abs(data.AxisY - centerY) <= maxDistance)
-                {
-                    _calibrationData.CenterX = data.AxisX;
-                    _calibrationData.CenterY = data.AxisY;
-                    CenterX = _calibrationData.CenterX;
-                    CenterY = _calibrationData.CenterY;
-                    CanProceedToNextStep = true;
-                    StatusMessage = $"中心点 ({CenterX}, {CenterY}) 已记录成功！请点击\"下一步\"继续。";
-                }
-                else
-                {
-                    StatusMessage = $"中心点({data.AxisX}, {data.AxisY}) 偏离预期太远。请尝试更精确地点击触摸板中心区域。";
-                }
+            // 收集中心点数据（假设触摸板中心是所有触摸点的平均值）
+            // 可以根据需要收集多个样本并取平均值
+            if (_calibrationData.SampleCount < SAMPLES_REQUIRED)
+            {
+                _calibrationData.AddSample(data.AxisX, data.AxisY);
+                _centerX = (int)_calibrationData.AverageX;
+                _centerY = (int)_calibrationData.AverageY;
+                StatusMessage = $"正在收集中心点数据... ({_calibrationData.SampleCount}/{SAMPLES_REQUIRED})";
             }
             else
             {
-                StatusMessage = "请点击触摸板中心以记录中心点。";
+                // 完成中心点校准
+                StatusMessage = "中心点数据收集完成。";
+                CanProceedToNextStep = true;
             }
         }
 
         private void ProcessDirectionalCalibration(ControllerData data)
         {
-            if (!_isCurrentlyTouching)
-            {
-                StatusMessage = $"请触摸并从中心点向 {GetDirectionalGuidance()} 滑动。";
-                return;
-            }
-
-            _lastActivityTime = DateTime.Now;
-            TouchEndProgressValue = 0;
-
-            double deltaX = data.AxisX - _calibrationData.CenterX;
-            double deltaY = data.AxisY - _calibrationData.CenterY;
-            double magnitude = Math.Sqrt(deltaX * deltaX + deltaY * deltaY);
-
-            if (magnitude < MOVEMENT_THRESHOLD)
-            {
-                StatusMessage = $"移动距离太小，请确保您的滑动动作幅度足够大。已收集样本: {GetCurrentDirectionData()?.SampleCount ?? 0}/{SAMPLES_REQUIRED}";
-                return;
-            }
+            if (!data.TouchpadTouched) return;
 
             DirectionalCalibrationData? currentDirection = GetCurrentDirectionData();
-            if (currentDirection != null)
-            {
-                if (IsValidDirectionalMovement(deltaX, deltaY))
-                {
-                    currentDirection.AddSample(deltaX / magnitude, deltaY / magnitude);
-                    ValidateAndProceed();
+            if (currentDirection == null) return;
 
-                    if (currentDirection.SampleCount < SAMPLES_REQUIRED)
-                    {
-                        StatusMessage = $"继续向 {GetDirectionalGuidance()} 滑动。已收集样本: {currentDirection.SampleCount}/{SAMPLES_REQUIRED}";
-                    }
-                    else
-                    {
-                        StatusMessage = $"向 {GetDirectionalGuidance()} 校准完成。已收集样本: {currentDirection.SampleCount}/{SAMPLES_REQUIRED}。请抬起手指。";
-                    }
-                }
-                else
-                {
-                    StatusMessage = $"滑动方向不正确。请从中心点向 {GetDirectionalGuidance()} 笔直滑动。已收集样本: {currentDirection.SampleCount}/{SAMPLES_REQUIRED}";
-                }
+            // 在这里添加收集方向性校准数据的逻辑
+            // 示例：收集每次触摸的起点和终点，计算平均向量
+            // 假设我们只需要收集SAMPLES_REQUIRED个有效滑动样本
+            if (currentDirection.SampleCount < SAMPLES_REQUIRED)
+            {
+                // 这里需要更复杂的逻辑来判断是否为"有效滑动"
+                // 暂时只收集所有触摸点，这可能不准确，需要后续改进
+                currentDirection.AddSample(data.AxisX, data.AxisY);
+                StatusMessage = $"正在收集 {CurrentStep} 方向数据... ({currentDirection.SampleCount}/{SAMPLES_REQUIRED})";
+            }
+            else
+            {
+                StatusMessage = $"{CurrentStep} 方向数据收集完成。";
+                CanProceedToNextStep = true;
             }
         }
 
         private DirectionalCalibrationData? GetCurrentDirectionData()
         {
-            return _currentStep switch
+            return CurrentStep switch
             {
                 CalibrationStep.Up => _calibrationData.UpDirection,
                 CalibrationStep.Down => _calibrationData.DownDirection,
                 CalibrationStep.Left => _calibrationData.LeftDirection,
                 CalibrationStep.Right => _calibrationData.RightDirection,
-                _ => null
+                _ => null,
             };
         }
 
         private bool IsValidDirectionalMovement(double deltaX, double deltaY)
         {
-            double angle = Math.Atan2(deltaY, deltaX);
-            const double tolerance = Math.PI / 4;
-
-            return _currentStep switch
-            {
-                CalibrationStep.Up => Math.Abs(angle + Math.PI / 2) < tolerance,
-                CalibrationStep.Down => Math.Abs(angle - Math.PI / 2) < tolerance,
-                CalibrationStep.Left => Math.Abs(angle + Math.PI) < tolerance || Math.Abs(angle - Math.PI) < tolerance,
-                CalibrationStep.Right => Math.Abs(angle) < tolerance,
-                _ => false
-            };
+            // 判断是否是有效方向性移动的逻辑
+            // 例如：检查移动的幅度是否超过阈值，以及方向是否与当前校准方向一致
+            return Math.Sqrt(deltaX * deltaX + deltaY * deltaY) > MOVEMENT_THRESHOLD;
         }
 
         private bool ValidateDirectionalCalibration(DirectionalCalibrationData direction)
         {
-            const double consistencyThreshold = 0.2;
-
-            double expectedMagnitude = 1.0;
-            double actualMagnitude = Math.Sqrt(direction.AverageX * direction.AverageX +
-                                             direction.AverageY * direction.AverageY);
-
-            return Math.Abs(actualMagnitude - expectedMagnitude) < consistencyThreshold;
+            // 验证方向性校准数据是否有效
+            // 例如：检查样本数是否足够，或者平均幅度是否达到要求
+            return direction.SampleCount >= SAMPLES_REQUIRED && direction.Magnitude > MIN_RANGE_THRESHOLD; // 示例检查
         }
 
         private string GetDirectionalGuidance()
         {
             return CurrentStep switch
             {
-                CalibrationStep.Up => "上",
-                CalibrationStep.Down => "下",
-                CalibrationStep.Left => "左",
-                CalibrationStep.Right => "右",
-                _ => string.Empty
+                CalibrationStep.Up => "请向上滑动触摸板，确保从中心向顶部滑动。",
+                CalibrationStep.Down => "请向下滑动触摸板，确保从中心向底部滑动。",
+                CalibrationStep.Left => "请向左滑动触摸板，确保从中心向左侧滑动。",
+                CalibrationStep.Right => "请向右滑动触摸板，确保从中心向右侧滑动。",
+                _ => "",
             };
         }
 
         private void MoveToNextDirectionalStep()
         {
-            switch (CurrentStep)
-            {
-                case CalibrationStep.Up:
-                    CurrentStep = CalibrationStep.Down;
-                    StatusMessage = "第4步：请在触摸板上从中心向下滑动多次";
-                    break;
-                case CalibrationStep.Down:
-                    CurrentStep = CalibrationStep.Left;
-                    StatusMessage = "第5步：请在触摸板上从中心向左滑动多次";
-                    break;
-                case CalibrationStep.Left:
-                    CurrentStep = CalibrationStep.Right;
-                    StatusMessage = "第6步：请在触摸板上从中心向右滑动多次";
-                    break;
-                case CalibrationStep.Right:
-                    CurrentStep = CalibrationStep.Completed;
-                    StatusMessage = "校准完成！";
-                    FinishCalibration();
-                    break;
-            }
-            CanProceedToNextStep = false;
-            UpdateCurrentStepGuidanceMessage();
+            ProceedToNextStep(); // Reuse existing logic
         }
 
         public void FinishCalibration()
         {
-            if (!IsCalibrating) return;
+            _inactivityTimer.Stop();
+            StopCountdown(); // Ensure countdown is stopped
 
             IsCalibrating = false;
-            StatusMessage = "校准完成";
-            UpdateCurrentStepGuidanceMessage();
-
+            CurrentStep = CalibrationStep.Completed;
+            StatusMessage = "校准完成！数据已保存。";
+            // 在这里触发校准完成事件，并传递校准数据
             _eventAggregator.Publish(new CalibrationCompletedEvent(_calibrationData));
         }
 
         public void CancelCalibration()
         {
-            IsCalibrating = false;
             _inactivityTimer.Stop();
-            _countdownTimer?.Stop();
-            ResetCalibrationData();
+            StopCountdown(); // Ensure countdown is stopped
+
+            IsCalibrating = false;
+            CurrentStep = CalibrationStep.NotStarted;
             StatusMessage = "校准已取消。";
-            UpdateCurrentStepGuidanceMessage();
+            ResetCalibrationData();
         }
 
         public void ResetCalibration()
         {
-            IsCalibrating = false;
             _inactivityTimer.Stop();
-            _countdownTimer?.Stop();
+            StopCountdown(); // Ensure countdown is stopped
             ResetCalibrationData();
-            StatusMessage = "校准已重置。请点击 '开始校准' 重新开始。";
-            UpdateCurrentStepGuidanceMessage();
+            IsCalibrating = false;
+            CurrentStep = CalibrationStep.NotStarted;
+            StatusMessage = "校准数据已重置。";
+            UpdateCurrentStepGuidanceMessage(); // Reset guidance message as well
         }
 
         private void ResetCalibrationData()
         {
-            _calibrationData = new TouchpadCalibrationData
-            {
-                MinX = int.MaxValue,
-                MaxX = int.MinValue,
-                MinY = int.MaxValue,
-                MaxY = int.MinValue,
-                CenterX = 0,
-                CenterY = 0
-            };
-
-            MinX = _calibrationData.MinX;
-            MaxX = _calibrationData.MaxX;
-            MinY = _calibrationData.MinY;
-            MaxY = _calibrationData.MaxY;
-            CenterX = _calibrationData.CenterX;
-            CenterY = _calibrationData.CenterY;
+            _minX = int.MaxValue;
+            _maxX = int.MinValue;
+            _minY = int.MaxValue;
+            _maxY = int.MinValue;
+            _centerX = 0;
+            _centerY = 0;
+            _circlePointCount = 0;
+            _isCurrentlyTouching = false;
+            _lastTouchEndTime = DateTime.MinValue;
+            _calibrationData.Reset(); // Use the Reset method of TouchpadCalibrationData
+            TouchEndProgressValue = 0;
+            AutoProceedCountdownValue = 0;
         }
 
         public void Dispose()
         {
+            _inactivityTimer?.Stop();
             _inactivityTimer?.Dispose();
-            _countdownTimer?.Dispose();
+            _countdownTimer?.Stop(); // Null check before stopping
+            _countdownTimer?.Dispose(); // Null check before disposing
         }
 
         protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
         {
-            if (_dispatcher != null)
-            {
-                _dispatcher.TryEnqueue(() =>
-                {
-                    PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-                });
-            }
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
 
         private void StartCountdown(Action onComplete)
         {
-            if (_countdownTimer != null)
-            {
-                _countdownTimer.Stop();
-                _countdownTimer.Dispose();
-            }
+            StopCountdown(); // Stop any existing countdown
+            AutoProceedCountdownValue = COUNTDOWN_DURATION_MS / 1000; // Display initial seconds
 
-            DateTime startTime = DateTime.Now;
             _countdownTimer = new System.Timers.Timer(COUNTDOWN_INTERVAL_MS);
-            _countdownTimer.AutoReset = true;
+            double remainingTime = COUNTDOWN_DURATION_MS;
 
-            _countdownTimer.Elapsed += (s, e) =>
+            _countdownTimer.Elapsed += (sender, e) =>
             {
-                if (_dispatcher == null)
+                remainingTime -= COUNTDOWN_INTERVAL_MS;
+                _dispatcher?.TryEnqueue(() =>
                 {
-                    _dispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
-                }
-
-                if (_dispatcher != null)
-                {
-                    var elapsed = (DateTime.Now - startTime).TotalMilliseconds;
-                    var remainingProgress = Math.Max(0, 100 - (int)((elapsed / COUNTDOWN_DURATION_MS) * 100));
-
-                    _dispatcher.TryEnqueue(() =>
+                    if (remainingTime <= 0)
                     {
-                        AutoProceedCountdownValue = remainingProgress;
-
-                        if (elapsed >= COUNTDOWN_DURATION_MS)
-                        {
-                            _countdownTimer?.Stop();
-                            _countdownTimer?.Dispose();
-                            _countdownTimer = null;
-                            onComplete();
-                        }
-                    });
-                }
+                        StopCountdown();
+                        onComplete?.Invoke();
+                    }
+                    else
+                    {
+                        // 更新倒计时显示，精确到秒
+                        AutoProceedCountdownValue = (int)Math.Ceiling(remainingTime / 1000);
+                    }
+                });
             };
-
-            AutoProceedCountdownValue = 100;
             _countdownTimer.Start();
+        }
+
+        private void StopCountdown()
+        {
+            _countdownTimer?.Stop();
+            _countdownTimer?.Dispose();
+            _countdownTimer = null; // Clear the timer reference
+            AutoProceedCountdownValue = 0; // Reset display
         }
 
         private void UpdateCurrentStepGuidanceMessage()
         {
-            switch (CurrentStep)
+            CurrentStepGuidanceMessage = CurrentStep switch
             {
-                case CalibrationStep.NotStarted:
-                    CurrentStepGuidanceMessage = "点击 \'开始校准\' 按钮开始校准过程。";
-                    break;
-                case CalibrationStep.CircularMotion:
-                    CurrentStepGuidanceMessage = "请在触摸板边缘顺时针匀速划一个完整的圆，确保手指紧贴边缘，不要离开触摸板。";
-                    break;
-                case CalibrationStep.Center:
-                    CurrentStepGuidanceMessage = "请用一根手指点击触摸板的中心点，直到它被记录。";
-                    break;
-                case CalibrationStep.Up:
-                    CurrentStepGuidanceMessage = "请从中心点开始，向上笔直滑动多次，确保每次滑动都经过中心点。";
-                    break;
-                case CalibrationStep.Down:
-                    CurrentStepGuidanceMessage = "请从中心点开始，向下笔直滑动多次，确保每次滑动都经过中心点。";
-                    break;
-                case CalibrationStep.Left:
-                    CurrentStepGuidanceMessage = "请从中心点开始，向左笔直滑动多次，确保每次滑动都经过中心点。";
-                    break;
-                case CalibrationStep.Right:
-                    CurrentStepGuidanceMessage = "请从中心点开始，向右笔直滑动多次，确保每次滑动都经过中心点。";
-                    break;
-                case CalibrationStep.Completed:
-                    CurrentStepGuidanceMessage = "校准过程已成功完成！您可以保存校准数据或重新校准。";
-                    break;
-            }
+                CalibrationStep.NotStarted => "点击 '开始校准' 按钮开始。",
+                CalibrationStep.CircularMotion => "请在触摸板边缘划圈，以便系统学习您的触摸边界。",
+                CalibrationStep.Center => "请用一根手指触摸并按住触摸板中心，直到倒计时结束。",
+                CalibrationStep.Up => "请将手指从触摸板中心向上滑动。",
+                CalibrationStep.Down => "请将手指从触摸板中心向下滑动。",
+                CalibrationStep.Left => "请将手指从触摸板中心向左滑动。",
+                CalibrationStep.Right => "请将手指从触摸板中心向右滑动。",
+                CalibrationStep.Completed => "校准已完成。",
+                _ => "",
+            };
+            StatusMessage = CurrentStepGuidanceMessage; // Also set status message
         }
     }
 
@@ -753,6 +650,36 @@ namespace GearVRController.ViewModels
         public int MaxY { get; set; }
         public int CenterX { get; set; }
         public int CenterY { get; set; }
+
+        // Properties for center calibration
+        public double AverageX { get; private set; }
+        public double AverageY { get; private set; }
+        public int SampleCount { get; private set; }
+
+        public void AddSample(int x, int y)
+        {
+            double newCount = SampleCount + 1;
+            AverageX = (AverageX * SampleCount + x) / newCount;
+            AverageY = (AverageY * SampleCount + y) / newCount;
+            SampleCount = (int)newCount;
+        }
+
+        public void Reset()
+        {
+            MinX = int.MaxValue;
+            MaxX = int.MinValue;
+            MinY = int.MaxValue;
+            MaxY = int.MinValue;
+            CenterX = 0;
+            CenterY = 0;
+            AverageX = 0;
+            AverageY = 0;
+            SampleCount = 0;
+            UpDirection.Reset();
+            DownDirection.Reset();
+            LeftDirection.Reset();
+            RightDirection.Reset();
+        }
 
         public DirectionalCalibrationData UpDirection { get; set; } = new DirectionalCalibrationData();
         public DirectionalCalibrationData DownDirection { get; set; } = new DirectionalCalibrationData();
