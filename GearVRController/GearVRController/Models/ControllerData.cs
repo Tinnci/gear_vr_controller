@@ -34,11 +34,15 @@ namespace GearVRController.Models
         public bool VolumeDownButton { get; set; }
         public bool NoButton { get; set; }
 
+        // 原始触摸板坐标
+        public ushort TouchpadX { get; set; }
+        public ushort TouchpadY { get; set; }
+
         // 处理后的触摸板坐标 (归一化到 [-1, 1])
         public double ProcessedTouchpadX { get; set; }
         public double ProcessedTouchpadY { get; set; }
 
-        // 时间戳
-        public DateTime Timestamp { get; set; } = DateTime.Now;
+        // 时间戳 (Unix 毫秒)
+        public long Timestamp { get; set; }
     }
 }

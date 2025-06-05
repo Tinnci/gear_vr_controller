@@ -74,19 +74,8 @@ namespace GearVRController
                 double processedY = ViewModel.ProcessedTouchpadY;
 
                 // 发送数据到可视化窗口
-                try
-                {
-                    // Pass processed coordinates to the visualizer
-                    _touchpadVisualizerWindow.UpdateTouchpadVisualization(processedX, processedY, data.TouchpadButton, ViewModel.LastGesture);
-                }
-                catch (Exception ex)
-                {
-                    // If ProcessTouchpadData method doesn't exist or errors, try to use UpdateTouchpadData method
-                    System.Diagnostics.Debug.WriteLine($"触摸板可视化数据发送错误: {ex.Message}");
-                    // The redundant UpdateTouchpadData method has been removed, so this catch block can be simplified or removed if not needed for other errors.
-                    // For now, I'll remove the problematic line.
-                    // _touchpadVisualizerWindow.UpdateTouchpadData(processedX, processedY, data.TouchpadButton, ViewModel.LastGesture);
-                }
+                // Pass processed coordinates to the visualizer
+                _touchpadVisualizerWindow.UpdateTouchpadVisualization(processedX, processedY, data.TouchpadButton, ViewModel.LastGesture);
             }
         }
 

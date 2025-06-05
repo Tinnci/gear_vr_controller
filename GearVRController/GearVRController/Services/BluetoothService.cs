@@ -20,12 +20,13 @@ namespace GearVRController.Services
         private static readonly Guid CONTROLLER_SETUP_CHARACTERISTIC_UUID = new Guid("c8c51726-81bc-483b-a052-f7a14ea3d282");
         private static readonly Guid CONTROLLER_DATA_CHARACTERISTIC_UUID = new Guid("c8c51726-81bc-483b-a052-f7a14ea3d281");
 
-        // Controller Initialization Commands as Constants
-        private static readonly byte[] CMD_INIT_1 = new byte[] { 0x01, 0x00 };
-        private static readonly byte[] CMD_INIT_2 = new byte[] { 0x06, 0x00 };
-        private static readonly byte[] CMD_INIT_3 = new byte[] { 0x07, 0x00 };
-        private static readonly byte[] CMD_INIT_4 = new byte[] { 0x08, 0x00 };
-        private static readonly byte[] CMD_OPTIMIZE_CONNECTION = new byte[] { 0x0A, 0x02 };
+        // 控制器初始化命令常量
+        // 这些命令通常用于设置控制器模式、报告频率或启用/禁用特定传感器。
+        private static readonly byte[] CMD_INIT_1 = new byte[] { 0x01, 0x00 }; // 可能是初始化序列的第一步
+        private static readonly byte[] CMD_INIT_2 = new byte[] { 0x06, 0x00 }; // 可能是初始化序列的第二步
+        private static readonly byte[] CMD_INIT_3 = new byte[] { 0x07, 0x00 }; // 可能是初始化序列的第三步
+        private static readonly byte[] CMD_INIT_4 = new byte[] { 0x08, 0x00 }; // 可能是初始化序列的第四步
+        private static readonly byte[] CMD_OPTIMIZE_CONNECTION = new byte[] { 0x0A, 0x02 }; // 用于优化BLE连接参数，例如间隔时间
 
         // Define constants for data packet structure
         private const int EXPECTED_PACKET_LENGTH = 60;
@@ -251,78 +252,128 @@ namespace GearVRController.Services
             }
             else
             {
-                Debug.WriteLine($"[BluetoothService] 订阅通知失败: {status}");
-                throw new Exception("无法订阅通知");
+                System.Diagnostics.Debug.WriteLine($"[BluetoothService] 订阅数据通知失败: {status}");
+                throw new Exception($"订阅数据通知失败: {status}");
             }
-            Debug.WriteLine("[BluetoothService] SubscribeToNotificationsAsync 完成.");
         }
 
         private async Task InitializeControllerAsync()
         {
-            // 发送初始化命令
-            await SendCommandAsync(CMD_INIT_1, repeat: 3);
-            await SendCommandAsync(CMD_INIT_2, repeat: 1);
-            await SendCommandAsync(CMD_INIT_3, repeat: 1);
-            await SendCommandAsync(CMD_INIT_4, repeat: 3);
+            System.Diagnostics.Debug.WriteLine("[BluetoothService] 开始 InitializeControllerAsync.");
+            if (_setupCharacteristic == null)
+            {
+                Debug.WriteLine("[BluetoothService] InitializeControllerAsync: 设置特征值未初始化.");
+                throw new Exception("设置特征值未初始化");
+            }
 
-            // 优化连接参数以降低延迟
+            // 发送初始化命令
+            await SendDataAsync(CMD_INIT_1, 5); // 发送第一个初始化命令，重复5次以确保送达
+            await Task.Delay(100); // 短暂延迟
+            await SendDataAsync(CMD_INIT_2); // 发送第二个初始化命令
+            await SendDataAsync(CMD_INIT_3); // 发送第三个初始化命令
+            await SendDataAsync(CMD_INIT_4); // 发送第四个初始化命令
+
+            System.Diagnostics.Debug.WriteLine("[BluetoothService] 控制器初始化命令已发送.");
+
+            // 优化连接参数 (可选)
             await OptimizeConnectionParametersAsync();
+
+            System.Diagnostics.Debug.WriteLine("[BluetoothService] 控制器初始化完成.");
         }
 
         private async Task OptimizeConnectionParametersAsync()
         {
-            try
+            System.Diagnostics.Debug.WriteLine("[BluetoothService] 尝试优化连接参数.");
+            if (_setupCharacteristic == null)
             {
-                // 尝试设置最小连接间隔参数，降低延迟
-                await SendCommandAsync(CMD_OPTIMIZE_CONNECTION, repeat: 1);
-                System.Diagnostics.Debug.WriteLine("已设置最小连接间隔，降低延迟");
+                Debug.WriteLine("[BluetoothService] OptimizeConnectionParametersAsync: 设置特征值未初始化.");
+                return; // 或者抛出异常，取决于错误处理策略
             }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"优化连接参数失败: {ex.Message}");
-            }
+
+            // 发送优化连接参数命令
+            await SendDataAsync(CMD_OPTIMIZE_CONNECTION);
+            System.Diagnostics.Debug.WriteLine("[BluetoothService] 优化连接参数命令已发送.");
         }
 
-        private async Task SendCommandAsync(byte[] command, int repeat = 1)
+        public async Task SendDataAsync(byte[] data, int repeat = 1)
         {
             if (_setupCharacteristic == null)
             {
-                throw new Exception("设置特征值未初始化");
+                System.Diagnostics.Debug.WriteLine("[BluetoothService] SendDataAsync: 设置特征值未初始化，无法发送数据.");
+                return; // 或者抛出异常
             }
 
             for (int i = 0; i < repeat; i++)
             {
-                var buffer = command.AsBuffer();
-                await _setupCharacteristic.WriteValueAsync(buffer);
+                try
+                {
+                    var writer = new DataWriter();
+                    writer.WriteBytes(data);
+                    var status = await _setupCharacteristic.WriteValueAsync(writer.DetachBuffer());
+
+                    if (status != GattCommunicationStatus.Success)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[BluetoothService] 发送数据失败: {status}");
+                        // 可以选择在这里抛出异常或进行其他错误处理
+                    }
+                    else
+                    {
+                        // System.Diagnostics.Debug.WriteLine("数据发送成功"); // 简化日志
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[BluetoothService] 发送数据异常: {ex.Message}");
+                }
             }
+        }
+
+        // 添加 SendCommandAsync 方法以供内部调用
+        private async Task SendCommandAsync(byte[] command, int repeat = 1)
+        {
+            await SendDataAsync(command, repeat);
+        }
+
+        public void Disconnect()
+        {
+            _connectionCts?.Cancel(); // 取消任何正在进行的连接或重连尝试
+            _connectionCts?.Dispose();
+            _connectionCts = null;
+
+            if (_dataCharacteristic != null)
+            {
+                _dataCharacteristic.ValueChanged -= DataCharacteristic_ValueChanged;
+                _dataCharacteristic = null;
+            }
+
+            if (_device != null)
+            {
+                _device.ConnectionStatusChanged -= Device_ConnectionStatusChanged;
+                _device.Dispose();
+                _device = null;
+            }
+            Debug.WriteLine("[BluetoothService] 设备已断开连接并清理资源.");
+            ConnectionStatusChanged?.Invoke(this, BluetoothConnectionStatus.Disconnected);
         }
 
         private void DataCharacteristic_ValueChanged(GattCharacteristic sender, GattValueChangedEventArgs args)
         {
+            // System.Diagnostics.Debug.WriteLine("[BluetoothService] 收到数据通知."); // 简化日志
+
             var reader = DataReader.FromBuffer(args.CharacteristicValue);
             var byteArray = new byte[args.CharacteristicValue.Length];
             reader.ReadBytes(byteArray);
 
-            System.Diagnostics.Debug.WriteLine($"[BluetoothService] 收到数据, 长度: {byteArray.Length} 字节.");
-
-            // 增强日志：如果数据包长度不足，记录其十六进制内容
-            if (byteArray.Length < 57) // 假设 57 字节是预期的最小完整数据包长度
-            {
-                System.Diagnostics.Debug.WriteLine($"[BluetoothService] 警告：收到的数据长度不足，预期至少 57 字节. 实际: {byteArray.Length} 字节. 内容: {BitConverter.ToString(byteArray)}");
-            }
-            // 将耗时处理移到后台线程
+            // 为了避免阻塞BLE回调线程，将数据处理卸载到Task.Run
             Task.Run(() => ProcessDataAsync(byteArray));
         }
 
         private void ProcessDataAsync(byte[] byteArray)
         {
-            if (DataReceived == null) return;
-
-            // Strengthen data packet length validation
-            if (byteArray.Length != EXPECTED_PACKET_LENGTH)
+            if (byteArray.Length < EXPECTED_PACKET_LENGTH)
             {
-                System.Diagnostics.Debug.WriteLine($"[BluetoothService] 收到非标准数据包，长度: {byteArray.Length}，预期长度: {EXPECTED_PACKET_LENGTH}");
-                return;
+                System.Diagnostics.Debug.WriteLine($"[BluetoothService] 接收到的数据包长度不足. 预期: {EXPECTED_PACKET_LENGTH}, 实际: {byteArray.Length}");
+                return; // 或者根据需要抛出异常
             }
 
             try
@@ -330,69 +381,52 @@ namespace GearVRController.Services
                 using (var stream = new MemoryStream(byteArray))
                 using (var reader = new BinaryReader(stream))
                 {
-                    // Move to the offset where actual data begins if there's a header
-                    // For now, assuming data starts from beginning, adjust if needed.
-
-                    // Example: Read button states
-                    reader.BaseStream.Seek(BUTTON_STATE_OFFSET, SeekOrigin.Begin);
-                    byte buttonStates = reader.ReadByte();
-
-                    bool touchpadButton = (buttonStates & TOUCHPAD_BUTTON_MASK) != 0;
-                    bool homeButton = (buttonStates & HOME_BUTTON_MASK) != 0;
-                    bool triggerButton = (buttonStates & TRIGGER_BUTTON_MASK) != 0;
-                    bool backButton = (buttonStates & BACK_BUTTON_MASK) != 0;
-                    bool volumeUpButton = (buttonStates & VOLUME_UP_BUTTON_MASK) != 0;
-                    bool volumeDownButton = (buttonStates & VOLUME_DOWN_BUTTON_MASK) != 0;
-
-                    // Read accelerometer data (assuming Int16)
-                    reader.BaseStream.Seek(ACCEL_X_OFFSET, SeekOrigin.Begin);
-                    short accelX = reader.ReadInt16();
-                    reader.BaseStream.Seek(ACCEL_Y_OFFSET, SeekOrigin.Begin);
-                    short accelY = reader.ReadInt16();
-                    reader.BaseStream.Seek(ACCEL_Z_OFFSET, SeekOrigin.Begin);
-                    short accelZ = reader.ReadInt16();
-
-                    // Read gyroscope data (assuming Int16)
-                    reader.BaseStream.Seek(GYRO_X_OFFSET, SeekOrigin.Begin);
-                    short gyroX = reader.ReadInt16();
-                    reader.BaseStream.Seek(GYRO_Y_OFFSET, SeekOrigin.Begin);
-                    short gyroY = reader.ReadInt16();
-                    reader.BaseStream.Seek(GYRO_Z_OFFSET, SeekOrigin.Begin);
-                    short gyroZ = reader.ReadInt16();
-
-                    // Read touchpad raw axis data (assuming Int16)
-                    reader.BaseStream.Seek(TOUCHPAD_X_OFFSET, SeekOrigin.Begin);
-                    short axisX = reader.ReadInt16();
-                    reader.BaseStream.Seek(TOUCHPAD_Y_OFFSET, SeekOrigin.Begin);
-                    short axisY = reader.ReadInt16();
-
-                    // Create ControllerData object
                     var data = new ControllerData
                     {
-                        TouchpadButton = touchpadButton,
-                        HomeButton = homeButton,
-                        TriggerButton = triggerButton,
-                        BackButton = backButton,
-                        VolumeUpButton = volumeUpButton,
-                        VolumeDownButton = volumeDownButton,
-                        AccelX = accelX,
-                        AccelY = accelY,
-                        AccelZ = accelZ,
-                        GyroX = gyroX,
-                        GyroY = gyroY,
-                        GyroZ = gyroZ,
-                        AxisX = axisX,
-                        AxisY = axisY
+                        Timestamp = DateTimeOffset.Now.ToUnixTimeMilliseconds(),
+                        // PacketLength = byteArray.Length // PacketLength 不存在于 ControllerData 中
                     };
 
-                    // Example: Read battery level
+                    // 解析加速度计和陀螺仪数据 (Signed 16-bit integers)
+                    // 假设数据在特定偏移量，并且是小端字节序
+                    reader.BaseStream.Seek(ACCEL_X_OFFSET, SeekOrigin.Begin);
+                    data.AccelX = reader.ReadInt16();
+                    reader.BaseStream.Seek(ACCEL_Y_OFFSET, SeekOrigin.Begin);
+                    data.AccelY = reader.ReadInt16();
+                    reader.BaseStream.Seek(ACCEL_Z_OFFSET, SeekOrigin.Begin);
+                    data.AccelZ = reader.ReadInt16();
+
+                    reader.BaseStream.Seek(GYRO_X_OFFSET, SeekOrigin.Begin);
+                    data.GyroX = reader.ReadInt16();
+                    reader.BaseStream.Seek(GYRO_Y_OFFSET, SeekOrigin.Begin);
+                    data.GyroY = reader.ReadInt16();
+                    reader.BaseStream.Seek(GYRO_Z_OFFSET, SeekOrigin.Begin);
+                    data.GyroZ = reader.ReadInt16();
+
+                    // 解析触摸板数据 (Unsigned 16-bit integers)
+                    // 注意：Gear VR Controller 的触摸板数据通常在 [0, 1023] 范围内
+                    // 这里读取为 int，后续在 TouchpadProcessor 中会进行归一化和校准
+                    reader.BaseStream.Seek(TOUCHPAD_X_OFFSET, SeekOrigin.Begin);
+                    data.TouchpadX = reader.ReadUInt16();
+                    reader.BaseStream.Seek(TOUCHPAD_Y_OFFSET, SeekOrigin.Begin);
+                    data.TouchpadY = reader.ReadUInt16();
+
+                    // 解析按钮状态
+                    // 假设按钮状态在一个字节中，每个位代表一个按钮
+                    reader.BaseStream.Seek(BUTTON_STATE_OFFSET, SeekOrigin.Begin);
+                    byte buttonStates = reader.ReadByte();
+                    data.TouchpadButton = (buttonStates & TOUCHPAD_BUTTON_MASK) != 0;
+                    data.HomeButton = (buttonStates & HOME_BUTTON_MASK) != 0;
+                    data.TriggerButton = (buttonStates & TRIGGER_BUTTON_MASK) != 0;
+                    data.BackButton = (buttonStates & BACK_BUTTON_MASK) != 0;
+                    data.VolumeUpButton = (buttonStates & VOLUME_UP_BUTTON_MASK) != 0;
+                    data.VolumeDownButton = (buttonStates & VOLUME_DOWN_BUTTON_MASK) != 0;
+
+                    // 清除注释掉的电池电量读取代码
                     // reader.BaseStream.Seek(BATTERY_LEVEL_OFFSET, SeekOrigin.Begin);
                     // byte batteryLevel = reader.ReadByte();
-                    // data.BatteryLevel = batteryLevel; // Assign to ControllerData
+                    // data.BatteryLevel = batteryLevel;
 
-                    // data.BatteryLevel = batteryLevel; // Assign to ControllerData
-
-                    // Update LastControllerData
                     DataReceived?.Invoke(this, data);
                 }
             }
@@ -406,51 +440,9 @@ namespace GearVRController.Services
             }
         }
 
-        public void Disconnect()
-        {
-            _connectionCts?.Cancel();
-            _device?.Dispose();
-            _device = null;
-            _setupCharacteristic = null;
-            _dataCharacteristic = null;
-        }
-
-        public async Task SendDataAsync(byte[] data, int repeat = 1)
-        {
-            if (!IsConnected || _setupCharacteristic == null)
-                throw new InvalidOperationException("设备未连接");
-
-            try
-            {
-                // 创建数据缓冲区
-                using var writer = new DataWriter();
-                writer.WriteBytes(data);
-
-                // 重复发送指定次数
-                for (int i = 0; i < repeat; i++)
-                {
-                    await _setupCharacteristic.WriteValueAsync(writer.DetachBuffer());
-                    if (repeat > 1 && i < repeat - 1)
-                    {
-                        await Task.Delay(50); // 在重复发送之间添加小延迟
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                throw new Exception($"发送数据失败: {ex.Message}", ex);
-            }
-        }
-
-        ~BluetoothService()
-        {
-            Disconnect();
-            _reconnectionSemaphore.Dispose();
-        }
-
-        // 用于测试的模拟数据方法
         public void SimulateData(ControllerData data)
         {
+            // This method is for testing/simulation purposes
             DataReceived?.Invoke(this, data);
         }
     }

@@ -2,9 +2,10 @@ using System;
 using Microsoft.UI.Dispatching;
 using GearVRController.Services.Interfaces;
 using System.Diagnostics;
-using WindowsInput.Native; // Assuming this is needed for VirtualKeys
+using GearVRController.Enums; // 添加对 MouseButtons 的引用
+// using WindowsInput.Native; // Not needed if VirtualKeys are merged
 using Microsoft.UI.Xaml; // Add this for DispatcherTimer
-using WindowsInput; // Add this for WindowsInputSimulator
+// using WindowsInput; // Not needed if direct WindowsInputSimulator reference is removed
 
 namespace GearVRController.Services
 {
@@ -75,17 +76,17 @@ namespace GearVRController.Services
             try
             {
                 // Check if _inputSimulator is of type WindowsInputSimulator before casting
-                if (_inputSimulator is WindowsInputSimulator inputSimulator)
-                {
-                    inputSimulator.SimulateMouseButtonEx(false, WindowsInputSimulator.MouseButtons.Left);
-                    inputSimulator.SimulateMouseButtonEx(false, WindowsInputSimulator.MouseButtons.Right);
-                    inputSimulator.SimulateMouseButtonEx(false, WindowsInputSimulator.MouseButtons.Middle);
-                    System.Diagnostics.Debug.WriteLine("已强制释放所有按键");
-                }
-                else
-                {
-                    System.Diagnostics.Debug.WriteLine("InputSimulator is not a WindowsInputSimulator instance, cannot force release specific mouse buttons.");
-                }
+                // if (_inputSimulator is WindowsInputSimulator inputSimulator) // 不再需要强制转换
+                // {
+                _inputSimulator.SimulateMouseButtonEx(false, (int)MouseButtons.Left);
+                _inputSimulator.SimulateMouseButtonEx(false, (int)MouseButtons.Right);
+                _inputSimulator.SimulateMouseButtonEx(false, (int)MouseButtons.Middle);
+                System.Diagnostics.Debug.WriteLine("已强制释放所有按键");
+                // }
+                // else
+                // {
+                //     System.Diagnostics.Debug.WriteLine("InputSimulator is not a WindowsInputSimulator instance, cannot force release specific mouse buttons.");
+                // }
             }
             catch (Exception ex)
             {
@@ -105,17 +106,17 @@ namespace GearVRController.Services
             if (!isControlEnabled || isCalibrating) return; // Only process if control is enabled and not calibrating
 
             // Cast _inputSimulator to WindowsInputSimulator
-            if (_inputSimulator is not WindowsInputSimulator inputSimulator)
-            {
-                Debug.WriteLine("InputSimulator is not a WindowsInputSimulator instance. Cannot simulate mouse events.");
-                return;
-            }
+            // if (_inputSimulator is not WindowsInputSimulator inputSimulator) // 不再需要强制转换
+            // {
+            //     Debug.WriteLine("InputSimulator is not a WindowsInputSimulator instance. Cannot simulate mouse events.");
+            //     return;
+            // }
 
             // Update right button state
             if (_rightButtonPressed != triggerButton)
             {
                 _rightButtonPressed = triggerButton;
-                inputSimulator.SimulateMouseButtonEx(triggerButton, WindowsInputSimulator.MouseButtons.Right);
+                _inputSimulator.SimulateMouseButtonEx(triggerButton, (int)MouseButtons.Right);
                 _lastInputTime = DateTime.Now;
                 Debug.WriteLine($"[InputStateMonitorService] Right button state changed to: {triggerButton}");
             }
@@ -124,7 +125,7 @@ namespace GearVRController.Services
             if (_leftButtonPressed != touchpadButton)
             {
                 _leftButtonPressed = touchpadButton;
-                inputSimulator.SimulateMouseButtonEx(touchpadButton, WindowsInputSimulator.MouseButtons.Left);
+                _inputSimulator.SimulateMouseButtonEx(touchpadButton, (int)MouseButtons.Left);
                 _lastInputTime = DateTime.Now;
                 Debug.WriteLine($"[InputStateMonitorService] Left button state changed to: {touchpadButton}");
             }

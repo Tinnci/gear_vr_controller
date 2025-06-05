@@ -63,6 +63,8 @@ namespace GearVRController.Services
         private const uint MOUSEEVENTF_RIGHTUP = 0x0010;
         private const uint MOUSEEVENTF_MIDDLEDOWN = 0x0020;
         private const uint MOUSEEVENTF_MIDDLEUP = 0x0040;
+        private const uint MOUSEEVENTF_XBUTTONDOWN = 0x0080; // For XButton1/XButton2
+        private const uint MOUSEEVENTF_XBUTTONUP = 0x0100;   // For XButton1/XButton2
         private const uint MOUSEEVENTF_WHEEL = 0x0800;
         private const uint MOUSEEVENTF_ABSOLUTE = 0x8000;
 
@@ -71,13 +73,6 @@ namespace GearVRController.Services
         private const uint KEYEVENTF_UNICODE = 0x0004;
         private const uint KEYEVENTF_SCANCODE = 0x0008;
         #endregion
-
-        // 添加鼠标按键状态常量
-        public static class MouseButtonStates
-        {
-            public const bool Pressed = true;
-            public const bool Released = false;
-        }
 
         #region Win32 API Methods
         [DllImport("user32.dll", SetLastError = true)]
@@ -165,13 +160,32 @@ namespace GearVRController.Services
         {
             try
             {
-                uint flags = button switch
+                uint flags;
+                uint mouseData = 0; // For XBUTTON1/XBUTTON2
+
+                switch ((MouseButtons)button) // 强制转换为新的 MouseButtons 枚举
                 {
-                    MouseButtons.Left => isPressed ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP,
-                    MouseButtons.Right => isPressed ? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_RIGHTUP,
-                    MouseButtons.Middle => isPressed ? MOUSEEVENTF_MIDDLEDOWN : MOUSEEVENTF_MIDDLEUP,
-                    _ => MOUSEEVENTF_LEFTDOWN
-                };
+                    case MouseButtons.Left:
+                        flags = isPressed ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP;
+                        break;
+                    case MouseButtons.Right:
+                        flags = isPressed ? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_RIGHTUP;
+                        break;
+                    case MouseButtons.Middle:
+                        flags = isPressed ? MOUSEEVENTF_MIDDLEDOWN : MOUSEEVENTF_MIDDLEUP;
+                        break;
+                    case MouseButtons.XButton1:
+                        flags = isPressed ? MOUSEEVENTF_XBUTTONDOWN : MOUSEEVENTF_XBUTTONUP;
+                        mouseData = 0x0001; // XBUTTON1
+                        break;
+                    case MouseButtons.XButton2:
+                        flags = isPressed ? MOUSEEVENTF_XBUTTONDOWN : MOUSEEVENTF_XBUTTONUP;
+                        mouseData = 0x0002; // XBUTTON2
+                        break;
+                    default:
+                        flags = isPressed ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP;
+                        break;
+                }
 
                 var input = new INPUT
                 {
@@ -182,7 +196,7 @@ namespace GearVRController.Services
                         {
                             dwFlags = flags,
                             time = 0,
-                            mouseData = 0,
+                            mouseData = mouseData, // 使用 mouseData 来传递 XBUTTON 值
                             dwExtraInfo = IntPtr.Zero
                         }
                     }
@@ -287,28 +301,6 @@ namespace GearVRController.Services
             {
                 System.Diagnostics.Debug.WriteLine($"按键抬起模拟异常: {ex}");
             }
-        }
-
-        // 公开常用的虚拟键码
-        public static class VirtualKeys
-        {
-            public const byte VK_VOLUME_MUTE = 0xAD;
-            public const byte VK_VOLUME_DOWN = 0xAE;
-            public const byte VK_VOLUME_UP = 0xAF;
-            public const byte VK_LEFT = 0x25;
-            public const byte VK_UP = 0x26;
-            public const byte VK_RIGHT = 0x27;
-            public const byte VK_DOWN = 0x28;
-            public const byte VK_BACK = 0xA6;
-            public const byte VK_HOME = 0xAC;
-        }
-
-        // 公开鼠标按钮常量
-        public static class MouseButtons
-        {
-            public const int Left = 1;
-            public const int Right = 2;
-            public const int Middle = 3;
         }
 
         public void SimulateModifiedKeyStroke(VirtualKeyCode modifier, VirtualKeyCode key)

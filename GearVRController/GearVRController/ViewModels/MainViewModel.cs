@@ -13,6 +13,7 @@ using System.Linq;
 using GearVRController.Enums;
 using EnumsNS = GearVRController.Enums; // 添加命名空间别名
 using System.Diagnostics; // 添加 Debug 命名空间
+// using static GearVRController.Enums.WindowsInputConstants; // 已删除，因为 VirtualKeys 已合并到 VirtualKeyCode
 
 namespace GearVRController.ViewModels
 {
@@ -629,8 +630,6 @@ namespace GearVRController.ViewModels
             {
                 if (!IsControlEnabled || _isCalibrating) return;
 
-                var inputSimulator = (WindowsInputSimulator)_inputSimulator;
-
                 if (IsMouseEnabled)
                 {
                     // 检测按键状态变化并更新状态
@@ -641,22 +640,22 @@ namespace GearVRController.ViewModels
                 {
                     if (data.HomeButton)
                     {
-                        inputSimulator.SimulateKeyPress(WindowsInputSimulator.VirtualKeys.VK_HOME);
+                        _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.VK_HOME);
                     }
 
                     if (data.BackButton)
                     {
-                        inputSimulator.SimulateKeyPress(WindowsInputSimulator.VirtualKeys.VK_BACK);
+                        _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.VK_BACK);
                     }
 
                     if (data.VolumeUpButton)
                     {
-                        inputSimulator.SimulateKeyPress(WindowsInputSimulator.VirtualKeys.VK_VOLUME_UP);
+                        _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.VOLUME_UP);
                     }
 
                     if (data.VolumeDownButton)
                     {
-                        inputSimulator.SimulateKeyPress(WindowsInputSimulator.VirtualKeys.VK_VOLUME_DOWN);
+                        _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.VOLUME_DOWN);
                     }
                 }
             }

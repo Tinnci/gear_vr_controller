@@ -196,7 +196,7 @@ namespace GearVRController.Services
         private void PreprocessControllerData(ControllerData data)
         {
             // 更新时间戳
-            data.Timestamp = DateTime.Now;
+            data.Timestamp = DateTimeOffset.Now.ToUnixTimeMilliseconds();
 
             // 应用Y轴翻转（如果启用）
             if (_settingsService.InvertYAxis)
