@@ -17,32 +17,9 @@ namespace GearVRController.Services
         private readonly IBluetoothService _bluetoothService;
         private readonly ISettingsService _settingsService;
         private readonly TouchpadProcessor _touchpadProcessor;
-        private readonly IInputSimulator _inputSimulator;
-        private readonly GestureRecognizer _gestureRecognizer;
         private readonly ILogger _logger;
         private readonly IEventAggregator _eventAggregator;
         private IDisposable _dataSubscription;
-
-        private bool _isTouchpadCurrentlyTouched = false;
-        private double _lastTouchpadProcessedX = 0;
-        private double _lastTouchpadProcessedY = 0;
-
-        /// <summary>
-        /// 用于平滑处理鼠标移动的X轴缓冲区。
-        /// </summary>
-        private double _smoothedDeltaX = 0;
-        /// <summary>
-        /// 用于平滑处理鼠标移动的Y轴缓冲区。
-        /// </summary>
-        private double _smoothedDeltaY = 0;
-        /// <summary>
-        /// 存储X轴位移历史，用于平滑计算。
-        /// </summary>
-        private List<double> _smoothingBufferX;
-        /// <summary>
-        /// 存储Y轴位移历史，用于平滑计算。
-        /// </summary>
-        private List<double> _smoothingBufferY;
 
         /// <summary>
         /// 当控制器数据被处理完成后触发的事件。
@@ -56,22 +33,15 @@ namespace GearVRController.Services
         /// <param name="bluetoothService">蓝牙服务，用于发送命令到控制器。</param>
         /// <param name="settingsService">设置服务，用于获取应用程序的各项配置。</param>
         /// <param name="touchpadProcessor">触摸板处理器，用于处理原始触摸板坐标。</param>
-        /// <param name="inputSimulator">输入模拟器，用于模拟鼠标和键盘输入。</param>
-        /// <param name="gestureRecognizer">手势识别器，用于识别触摸板手势。</param>
         /// <param name="logger">日志服务，用于记录日志。</param>
         /// <param name="eventAggregator">事件聚合器，用于订阅控制器数据事件。</param>
-        public ControllerService(IBluetoothService bluetoothService, ISettingsService settingsService, TouchpadProcessor touchpadProcessor, IInputSimulator inputSimulator, GestureRecognizer gestureRecognizer, ILogger logger, IEventAggregator eventAggregator)
+        public ControllerService(IBluetoothService bluetoothService, ISettingsService settingsService, TouchpadProcessor touchpadProcessor, ILogger logger, IEventAggregator eventAggregator)
         {
-            _bluetoothService = bluetoothService;
-            _settingsService = settingsService;
-            _touchpadProcessor = touchpadProcessor;
-            _inputSimulator = inputSimulator;
-            _gestureRecognizer = gestureRecognizer;
-            _logger = logger;
-            _eventAggregator = eventAggregator;
-
-            _smoothingBufferX = new List<double>();
-            _smoothingBufferY = new List<double>();
+            _bluetoothService = bluetoothService ?? throw new ArgumentNullException(nameof(bluetoothService));
+            _settingsService = settingsService ?? throw new ArgumentNullException(nameof(settingsService));
+            _touchpadProcessor = touchpadProcessor ?? throw new ArgumentNullException(nameof(touchpadProcessor));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _eventAggregator = eventAggregator ?? throw new ArgumentNullException(nameof(eventAggregator));
 
             // Subscribe to ControllerDataReceivedEvent
             _dataSubscription = _eventAggregator.Subscribe<ControllerDataReceivedEvent>(e => ProcessControllerData(e.Data));
@@ -105,145 +75,40 @@ namespace GearVRController.Services
             if (data == null)
                 return;
 
-            // 验证数据有效性
+            // Validate data validity
             if (!ValidateControllerData(data))
                 return;
 
-            // 预处理数据（例如Y轴翻转，计算触摸状态）
+            // Preprocess data (e.g., Y-axis inversion, calculate touch status)
             PreprocessControllerData(data);
 
-            // 处理触摸板数据，区分手势模式和非手势模式 (相对模式)
-            if (_settingsService.IsGestureMode)
-            {
-                // 手势模式：只将处理后的触摸板数据传递给手势识别器
-                // 不进行鼠标移动，手势识别结果由 MainViewModel 处理离散动作
-                var (processedX, processedY) = _touchpadProcessor.ProcessRawData(data.AxisX, data.AxisY);
-                data.ProcessedTouchpadX = processedX;
-                data.ProcessedTouchpadY = processedY;
-                _gestureRecognizer.ProcessTouchpadPoint(new Models.TouchpadPoint { X = (float)processedX, Y = (float)processedY, IsTouched = data.TouchpadTouched });
+            // ControllerService now only preprocesses data and publishes it.
+            // MainViewModel (or InputHandlerService) will handle gesture/relative mode logic.
 
-                if (!data.TouchpadTouched && _isTouchpadCurrentlyTouched) // 触摸结束
-                {
-                    _isTouchpadCurrentlyTouched = false;
-                    _logger.LogInfo("触摸结束 (手势模式).", nameof(ControllerService));
-                }
-                else if (data.TouchpadTouched && !_isTouchpadCurrentlyTouched) // 触摸开始
-                {
-                    _isTouchpadCurrentlyTouched = true;
-                    _logger.LogInfo("触摸开始 (手势模式).", nameof(ControllerService));
-                }
-            }
-            else // 非手势模式 (相对模式)：处理连续鼠标移动
-            {
-                ProcessRelativeModeTouchpad(data); // 调用重命名后的方法
-            }
-
-            // 触发数据处理完成事件 (无论模式如何，数据都传递出去)
+            // Trigger data processing completed event (data is always passed out)
             OnControllerDataProcessed(data);
         }
 
         /// <summary>
-        /// 在相对模式下处理触摸板数据，模拟连续鼠标移动。
-        /// 此方法包括死区、平滑和非线性曲线等鼠标移动增强功能。
+        /// Validate the validity of controller data.
         /// </summary>
-        /// <param name="data">接收到的控制器数据，包含原始触摸板坐标。</param>
-        private void ProcessRelativeModeTouchpad(ControllerData data)
-        {
-            // 使用 TouchpadProcessor 处理原始触摸板数据到归一化坐标 (-1 to 1)
-            var (processedX, processedY) = _touchpadProcessor.ProcessRawData(data.AxisX, data.AxisY);
-            data.ProcessedTouchpadX = processedX;
-            data.ProcessedTouchpadY = processedY;
-
-            // 将处理后的点传递给手势识别器（无论触摸状态如何，让它跟踪点），以便在触摸结束时能够识别离散手势
-            _gestureRecognizer.ProcessTouchpadPoint(new Models.TouchpadPoint { X = (float)processedX, Y = (float)processedY, IsTouched = data.TouchpadTouched });
-
-            if (data.TouchpadTouched)
-            {
-                if (!_isTouchpadCurrentlyTouched) // 触摸开始
-                {
-                    // 记录起始点，不立即移动鼠标，等待后续增量计算
-                    _lastTouchpadProcessedX = processedX;
-                    _lastTouchpadProcessedY = processedY;
-                    _isTouchpadCurrentlyTouched = true;
-                    _logger.LogInfo($"触摸开始: ({processedX:F2}, {processedY:F2}), _lastTouchpadProcessedX={_lastTouchpadProcessedX:F2}, _lastTouchpadProcessedY={_lastTouchpadProcessedY:F2}", nameof(ControllerService));
-                }
-                else // 触摸持续
-                {
-                    // 计算与上一个点的增量
-                    double deltaX = processedX - _lastTouchpadProcessedX;
-                    double deltaY = processedY - _lastTouchpadProcessedY;
-
-                    // 应用死区：忽略小于死区阈值的微小移动
-                    (deltaX, deltaY) = ApplyDeadZone(deltaX, deltaY);
-
-                    // 应用平滑：减少鼠标抖动，使移动更流畅
-                    if (_settingsService.EnableSmoothing)
-                    {
-                        _smoothedDeltaX = ApplySmoothing(deltaX, _smoothingBufferX, _settingsService.SmoothingLevel);
-                        _smoothedDeltaY = ApplySmoothing(deltaY, _smoothingBufferY, _settingsService.SmoothingLevel);
-                    }
-                    else
-                    {
-                        _smoothedDeltaX = deltaX;
-                        _smoothedDeltaY = deltaY;
-                        _smoothingBufferX.Clear(); // 清空缓冲区以立即响应，不进行平滑
-                        _smoothingBufferY.Clear();
-                    }
-
-                    // 更新上一个点，用于下一次增量计算
-                    _lastTouchpadProcessedX = processedX;
-                    _lastTouchpadProcessedY = processedY;
-
-                    // 应用非线性曲线：调整鼠标加速行为，使小移动更精确，大移动更迅速
-                    double finalDeltaX = ApplyNonLinearCurve(_smoothedDeltaX, _settingsService.NonLinearCurvePower, _settingsService.EnableNonLinearCurve);
-                    double finalDeltaY = ApplyNonLinearCurve(_smoothedDeltaY, _settingsService.NonLinearCurvePower, _settingsService.EnableNonLinearCurve);
-
-                    // 根据增量、灵敏度和缩放因子计算鼠标移动量
-                    double mouseDeltaX = finalDeltaX * _settingsService.MouseSensitivity * _settingsService.MouseSensitivityScalingFactor;
-                    double mouseDeltaY = finalDeltaY * _settingsService.MouseSensitivity * _settingsService.MouseSensitivityScalingFactor;
-
-                    // System.Diagnostics.Debug.WriteLine($"[ControllerService] 触摸持续: rawX={{data.AxisX}}, rawY={{data.AxisY}}, processedX={{processedX:F2}}, processedY={{processedY:F2}}, deltaX={{deltaX:F2}}, deltaY={{deltaY:F2}}, smoothedX={{_smoothedDeltaX:F2}}, smoothedY={{_smoothedDeltaY:F2}}, finalX={{finalDeltaX:F2}}, finalY={{finalDeltaY:F2}}, mouseDeltaX={{mouseDeltaX:F2}}, mouseDeltaY={{mouseDeltaY:F2}}");
-
-                    // 模拟鼠标移动，增加一个小的阈值，避免微小移动导致的抖动
-                    if (Math.Abs(mouseDeltaX) > _settingsService.MoveThreshold || Math.Abs(mouseDeltaY) > _settingsService.MoveThreshold)
-                    {
-                        _inputSimulator.SimulateMouseMovement(mouseDeltaX, mouseDeltaY);
-                        // System.Diagnostics.Debug.WriteLine($"[ControllerService] 模拟鼠标移动: DeltaX={{mouseDeltaX:F2}}, DeltaY={{mouseDeltaY:F2}}");
-                    }
-                }
-            }
-            else // 触摸结束
-            {
-                if (_isTouchpadCurrentlyTouched) // 刚抬起
-                {
-                    _isTouchpadCurrentlyTouched = false;
-                    // 触摸结束时，GestureRecognizer 会根据接收到的点序列尝试识别离散手势
-                    _logger.LogInfo("触摸结束 (相对模式).", nameof(ControllerService));
-                }
-                // 如果本来就没有触摸，则不做任何事
-            }
-        }
-
-        /// <summary>
-        /// 验证控制器数据的有效性。
-        /// </summary>
-        /// <param name="data">要验证的控制器数据。</param>
-        /// <returns>如果数据有效则返回 true，否则返回 false。</returns>
+        /// <param name="data">The controller data to validate.</param>
+        /// <returns>True if the data is valid, otherwise false.</returns>
         private bool ValidateControllerData(ControllerData data)
         {
-            // 检查触摸板数据范围（使用原始值范围0-1023）
+            // Check touchpad data range (using raw value range 0-1023)
             if (data.AxisX < 0 || data.AxisX > 1023 || data.AxisY < 0 || data.AxisY > 1023)
             {
                 _logger.LogWarning($"触摸板数据超出预期范围: X={data.AxisX}, Y={data.AxisY}", nameof(ControllerService));
-                // 不返回false，继续处理，因为有时数据可能暂时超出范围，但仍需处理
-                // 如果需要严格的过滤，这里可以返回false
+                // Don't return false, continue processing, as data may sometimes be temporarily out of range but still needs to be processed
+                // If strict filtering is required, false can be returned here
             }
 
-            // 检查加速度计数据 (目前未用于核心逻辑)
+            // Check accelerometer data (currently not used for core logic)
             // if (float.IsNaN(data.AccelX) || float.IsNaN(data.AccelY) || float.IsNaN(data.AccelZ))
             //     return false;
 
-            // 检查陀螺仪数据 (目前未用于核心逻辑)
+            // Check gyroscope data (currently not used for core logic)
             // if (float.IsNaN(data.GyroX) || float.IsNaN(data.GyroY) || float.IsNaN(data.GyroZ))
             //     return false;
 
@@ -251,47 +116,48 @@ namespace GearVRController.Services
         }
 
         /// <summary>
-        /// 预处理控制器数据，包括更新时间戳、应用Y轴翻转和计算触摸状态。
+        /// Preprocesses raw controller data before further processing.
+        /// This includes applying Y-axis inversion and determining touchpad touch status.
         /// </summary>
-        /// <param name="data">要预处理的控制器数据。</param>
+        /// <param name="data">The ControllerData object to preprocess.</param>
         private void PreprocessControllerData(ControllerData data)
         {
             data.Timestamp = DateTimeOffset.Now.ToUnixTimeMilliseconds();
 
-            // 应用Y轴翻转（如果启用）
+            // Apply Y-axis inversion (if enabled)
             if (_settingsService.InvertYAxis)
             {
-                // 在0-1023范围内翻转Y轴，使其行为符合用户的偏好
+                // Invert Y-axis in the 0-1023 range to match user preference
                 data.AxisY = 1023 - data.AxisY;
             }
 
-            // 获取处理后的触摸板坐标，用于更精确的触摸检测
+            // Get processed touchpad coordinates for more precise touch detection
             var (processedX, processedY) = _touchpadProcessor.ProcessRawData(data.AxisX, data.AxisY);
             data.ProcessedTouchpadX = processedX;
             data.ProcessedTouchpadY = processedY;
 
-            // 处理触摸状态 - 更新判断逻辑，避免误判
-            // 认为触摸板被触摸的条件：触摸板按钮被按下，或者处理后的触摸板X/Y坐标的绝对值超过了预设的归一化触摸阈值
+            // Handle touch status - update judgment logic to avoid misjudgment
+            // Condition for touchpad being touched: touchpad button is pressed, or absolute values of processed touchpad X/Y coordinates exceed preset normalized touch threshold
             System.Diagnostics.Debug.WriteLine($"[ControllerService] PreprocessControllerData: Raw AxisX={{data.AxisX}}, AxisY={{data.AxisY}}, TouchpadButton={{data.TouchpadButton}}");
             data.TouchpadTouched = data.TouchpadButton ||
                                   (Math.Abs(processedX) > _settingsService.ProcessedTouchThreshold ||
                                    Math.Abs(processedY) > _settingsService.ProcessedTouchThreshold);
             System.Diagnostics.Debug.WriteLine($"[ControllerService] PreprocessControllerData: Processed TouchpadX={{processedX:F2}}, Processed TouchpadY={{processedY:F2}}, Calculated TouchpadTouched={{data.TouchpadTouched}}");
 
-            // 处理按钮状态，判断是否有任何按钮被按下
+            // Handle button states, determine if any button is pressed
             data.NoButton = !data.TriggerButton && !data.HomeButton &&
                            !data.BackButton && !data.TouchpadButton &&
                            !data.VolumeUpButton && !data.VolumeDownButton;
         }
 
         /// <summary>
-        /// 处理滚轮移动，并根据"自然滚动"设置调整方向。
+        /// Handles wheel movement and adjusts direction based on "natural scrolling" settings.
         /// </summary>
-        /// <param name="delta">原始滚轮滚动量。</param>
-        /// <returns>调整后的滚轮滚动量。</returns>
+        /// <param name="delta">The raw wheel scroll amount.</param>
+        /// <returns>The adjusted wheel scroll amount.</returns>
         public int ProcessWheelMovement(int delta)
         {
-            // 如果启用了自然滚动，则反转滚动方向
+            // If natural scrolling is enabled, reverse the scroll direction
             if (_settingsService.UseNaturalScrolling)
             {
                 return -delta;
@@ -300,62 +166,9 @@ namespace GearVRController.Services
         }
 
         /// <summary>
-        /// 对鼠标移动增量应用死区。小于死区阈值的移动将被忽略。
+        /// Triggers the ControllerDataProcessed event.
         /// </summary>
-        /// <param name="deltaX">X轴方向的原始位移增量。</param>
-        /// <param name="deltaY">Y轴方向的原始位移增量。</param>
-        /// <returns>应用死区后的位移增量。</returns>
-        private (double, double) ApplyDeadZone(double deltaX, double deltaY)
-        {
-            double deadZoneThreshold = _settingsService.DeadZone / 100.0; // 将百分比转换为 [-1, 1] 范围的比例
-            double magnitude = Math.Sqrt(deltaX * deltaX + deltaY * deltaY);
-
-            if (magnitude <= deadZoneThreshold)
-            {
-                return (0.0, 0.0);
-            }
-            return (deltaX, deltaY);
-        }
-
-        /// <summary>
-        /// 对鼠标移动增量应用平滑处理，以减少抖动并使移动更流畅。
-        /// </summary>
-        /// <param name="newValue">当前的位移增量。</param>
-        /// <param name="buffer">用于平滑计算的缓冲区。</param>
-        /// <param name="smoothingLevel">平滑等级，决定缓冲区的长度。</param>
-        /// <returns>平滑处理后的位移增量。</returns>
-        private double ApplySmoothing(double newValue, List<double> buffer, int smoothingLevel)
-        {
-            buffer.Add(newValue);
-            while (buffer.Count > smoothingLevel)
-            {
-                buffer.RemoveAt(0);
-            }
-            return buffer.Average();
-        }
-
-        /// <summary>
-        /// 对鼠标移动增量应用非线性曲线，以实现加速或减速效果。
-        /// </summary>
-        /// <param name="value">原始位移增量。</param>
-        /// <param name="power">非线性曲线的幂次。</param>
-        /// <param name="enableNonLinearCurve">是否启用非线性曲线。</param>
-        /// <returns>应用非线性曲线后的位移增量。</returns>
-        private double ApplyNonLinearCurve(double value, double power, bool enableNonLinearCurve)
-        {
-            if (!enableNonLinearCurve || power == 1.0)
-            {
-                return value;
-            }
-
-            // 应用非线性曲线： sign(value) * abs(value)^power
-            return Math.Sign(value) * Math.Pow(Math.Abs(value), power);
-        }
-
-        /// <summary>
-        /// 触发 ControllerDataProcessed 事件。
-        /// </summary>
-        /// <param name="data">已处理的控制器数据。</param>
+        /// <param name="data">The ControllerData object that was processed.</param>
         protected virtual void OnControllerDataProcessed(ControllerData data)
         {
             ControllerDataProcessed?.Invoke(this, data);
@@ -364,7 +177,7 @@ namespace GearVRController.Services
         public void Dispose()
         {
             _dataSubscription?.Dispose();
-            // Optionally, dispose other disposable resources here if any
+            // Removed disposal logic for _inputSimulator and _gestureRecognizer
         }
     }
 }

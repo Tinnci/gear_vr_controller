@@ -3,6 +3,8 @@ using GearVRController.Models;
 using GearVRController.Services.Interfaces;
 using GearVRController.Events;
 using System;
+using System.Collections.Generic;
+using System.Linq;
 // using System.Diagnostics; // Added for Debug.WriteLine, will be replaced by logger
 
 namespace GearVRController.Services
@@ -14,7 +16,6 @@ namespace GearVRController.Services
         private readonly ISettingsService _settingsService;
         private readonly ILogger _logger;
         private readonly IEventAggregator _eventAggregator;
-        private IDisposable _dataSubscription;
 
         // Debounce and state variables
         private bool _isTriggerButtonPressed = false;
@@ -34,16 +35,29 @@ namespace GearVRController.Services
 
         private readonly TimeSpan _debounceTime = TimeSpan.FromMilliseconds(50);
 
+        // Touchpad movement simulation fields
+        private bool _isTouchpadCurrentlyTouched = false;
+        private double _lastTouchpadProcessedX = 0;
+        private double _lastTouchpadProcessedY = 0;
+        private double _smoothedDeltaX = 0;
+        private double _smoothedDeltaY = 0;
+        private List<double> _smoothingBufferX;
+        private List<double> _smoothingBufferY;
+
         public InputHandlerService(IInputSimulator inputSimulator, IInputStateMonitorService inputStateMonitorService, ISettingsService settingsService, ILogger logger, IEventAggregator eventAggregator)
         {
-            _inputSimulator = inputSimulator;
-            _inputStateMonitorService = inputStateMonitorService;
-            _settingsService = settingsService;
-            _logger = logger;
-            _eventAggregator = eventAggregator;
+            _inputSimulator = inputSimulator ?? throw new ArgumentNullException(nameof(inputSimulator));
+            _inputStateMonitorService = inputStateMonitorService ?? throw new ArgumentNullException(nameof(inputStateMonitorService));
+            _settingsService = settingsService ?? throw new ArgumentNullException(nameof(settingsService));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _eventAggregator = eventAggregator ?? throw new ArgumentNullException(nameof(eventAggregator));
 
-            // Subscribe to the event
-            _dataSubscription = _eventAggregator.Subscribe<ControllerDataReceivedEvent>(e => ProcessInput(e.Data));
+            // Initialize smoothing buffers
+            _smoothingBufferX = new List<double>();
+            _smoothingBufferY = new List<double>();
+
+            // Removed direct subscription, MainViewModel will now call ProcessInput
+            // _dataSubscription = _eventAggregator.Subscribe<ControllerDataReceivedEvent>(e => ProcessInput(e.Data));
         }
 
         public void ProcessInput(ControllerData data)
@@ -157,11 +171,133 @@ namespace GearVRController.Services
                     }
                 }
             }
+
+            // Handle touchpad movement for mouse simulation (relative mode)
+            if (data.TouchpadTouched) // If touchpad is touched
+            {
+                if (!_isTouchpadCurrentlyTouched) // Touch started
+                {
+                    _lastTouchpadProcessedX = data.ProcessedTouchpadX;
+                    _lastTouchpadProcessedY = data.ProcessedTouchpadY;
+                    _isTouchpadCurrentlyTouched = true;
+                    _logger.LogInfo($"触摸开始 (InputHandlerService): ({data.ProcessedTouchpadX:F2}, {data.ProcessedTouchpadY:F2})");
+                }
+                else // Touch continued
+                {
+                    double deltaX = data.ProcessedTouchpadX - _lastTouchpadProcessedX;
+                    double deltaY = data.ProcessedTouchpadY - _lastTouchpadProcessedY;
+
+                    // Apply dead zone
+                    (deltaX, deltaY) = ApplyDeadZone(deltaX, deltaY);
+
+                    // Apply smoothing
+                    if (_settingsService.EnableSmoothing)
+                    {
+                        _smoothedDeltaX = ApplySmoothing(deltaX, _smoothingBufferX, _settingsService.SmoothingLevel);
+                        _smoothedDeltaY = ApplySmoothing(deltaY, _smoothingBufferY, _settingsService.SmoothingLevel);
+                    }
+                    else
+                    {
+                        _smoothedDeltaX = deltaX;
+                        _smoothedDeltaY = deltaY;
+                        _smoothingBufferX.Clear();
+                        _smoothingBufferY.Clear();
+                    }
+
+                    // Update last processed point
+                    _lastTouchpadProcessedX = data.ProcessedTouchpadX;
+                    _lastTouchpadProcessedY = data.ProcessedTouchpadY;
+
+                    // Apply non-linear curve
+                    double finalDeltaX = ApplyNonLinearCurve(_smoothedDeltaX, _settingsService.NonLinearCurvePower, _settingsService.EnableNonLinearCurve);
+                    double finalDeltaY = ApplyNonLinearCurve(_smoothedDeltaY, _settingsService.NonLinearCurvePower, _settingsService.EnableNonLinearCurve);
+
+                    // Calculate mouse movement
+                    double mouseDeltaX = finalDeltaX * _settingsService.MouseSensitivity * _settingsService.MouseSensitivityScalingFactor;
+                    double mouseDeltaY = finalDeltaY * _settingsService.MouseSensitivity * _settingsService.MouseSensitivityScalingFactor;
+
+                    // Simulate mouse movement
+                    if (Math.Abs(mouseDeltaX) > _settingsService.MoveThreshold || Math.Abs(mouseDeltaY) > _settingsService.MoveThreshold)
+                    {
+                        _inputSimulator.SimulateMouseMovement(mouseDeltaX, mouseDeltaY);
+                    }
+                }
+            }
+            else // Touch ended
+            {
+                if (_isTouchpadCurrentlyTouched) // Just lifted
+                {
+                    _isTouchpadCurrentlyTouched = false;
+                    _logger.LogInfo("触摸结束 (InputHandlerService).", nameof(InputHandlerService));
+                }
+            }
+        }
+
+        /// <summary>
+        /// 对鼠标移动增量应用死区。小于死区阈值的移动将被忽略。
+        /// </summary>
+        private (double, double) ApplyDeadZone(double deltaX, double deltaY)
+        {
+            double deadZoneThreshold = _settingsService.DeadZone / 100.0; // 将百分比转换为 [-1, 1] 范围的比例
+            double magnitude = Math.Sqrt(deltaX * deltaX + deltaY * deltaY);
+
+            if (magnitude <= deadZoneThreshold)
+            {
+                return (0.0, 0.0);
+            }
+            return (deltaX, deltaY);
+        }
+
+        /// <summary>
+        /// 对鼠标移动增量应用平滑处理，以减少抖动并使移动更流畅。
+        /// </summary>
+        private double ApplySmoothing(double newValue, List<double> buffer, int smoothingLevel)
+        {
+            buffer.Add(newValue);
+            while (buffer.Count > smoothingLevel)
+            {
+                buffer.RemoveAt(0);
+            }
+            return buffer.Average();
+        }
+
+        /// <summary>
+        /// 对鼠标移动增量应用非线性曲线，以调整鼠标加速行为。
+        /// </summary>
+        private double ApplyNonLinearCurve(double value, double power, bool enable)
+        {
+            if (!enable || power <= 0) return value;
+
+            // Preserve sign
+            int sign = Math.Sign(value);
+            double absValue = Math.Abs(value);
+
+            // Apply power curve
+            double result = Math.Pow(absValue, power);
+
+            // Scale back to original range if needed, or simply apply sign
+            return result * sign;
+        }
+
+        /// <summary>
+        /// 处理滚轮移动，并根据"自然滚动"设置调整方向。
+        /// </summary>
+        public int ProcessWheelMovement(int delta)
+        {
+            // 如果启用了自然滚动，则反转滚动方向
+            if (_settingsService.UseNaturalScrolling)
+            {
+                return -delta;
+            }
+            return delta;
         }
 
         public void Dispose()
         {
-            _dataSubscription?.Dispose();
+            // Removed direct subscription
+            // _dataSubscription?.Dispose();
+            _inputStateMonitorService.ForceReleaseAllButtons();
+            _inputStateMonitorService.StopMonitoring();
         }
     }
 }

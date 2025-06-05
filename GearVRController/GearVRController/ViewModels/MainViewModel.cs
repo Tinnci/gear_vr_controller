@@ -30,8 +30,8 @@ namespace GearVRController.ViewModels
         private readonly IActionExecutionService _actionExecutionService;
         private readonly ILogger _logger;
         private readonly IInputHandlerService _inputHandlerService;
-        private bool _isConnected;
-        private string _statusMessage = string.Empty;
+        private readonly ConnectionViewModel _connectionViewModel;
+        private string _statusMessage = string.Empty; // Re-introduce settable status message
         private ControllerData _lastControllerData = new ControllerData();
         private const int NumberOfWheelPositions = 64;
 
@@ -44,10 +44,6 @@ namespace GearVRController.ViewModels
         /// 指示触摸板校准过程是否正在进行中。
         /// </summary>
         private bool _isCalibrating = false;
-        /// <summary>
-        /// 指示蓝牙连接过程是否正在进行中。
-        /// </summary>
-        private bool _isConnecting = false;
 
         /// <summary>
         /// 上次识别到的触摸板手势，用于 UI 可视化。
@@ -95,6 +91,8 @@ namespace GearVRController.ViewModels
         /// </summary>
         private IDisposable? _calibrationCompletedSubscription;
         private IDisposable? _settingsChangedSubscription;
+        private IDisposable? _controllerDataReceivedSubscription;
+        private IDisposable? _connectionStatusChangedSubscription;
 
         /// <summary>
         /// 当 ViewModel 的属性发生变化时触发的事件。
@@ -104,18 +102,7 @@ namespace GearVRController.ViewModels
         /// <summary>
         /// 获取当前蓝牙连接状态。
         /// </summary>
-        public bool IsConnected
-        {
-            get => _isConnected;
-            private set
-            {
-                if (_isConnected != value)
-                {
-                    _isConnected = value;
-                    OnPropertyChanged();
-                }
-            }
-        }
+        public bool IsConnected => _connectionViewModel.IsConnected;
 
         /// <summary>
         /// 获取或设置应用程序当前的状态消息，用于 UI 显示。
@@ -123,15 +110,13 @@ namespace GearVRController.ViewModels
         public string StatusMessage
         {
             get => _statusMessage;
-            set
-            {
-                if (_statusMessage != value)
-                {
-                    _statusMessage = value;
-                    OnPropertyChanged();
-                }
-            }
+            set => SetProperty(ref _statusMessage, value);
         }
+
+        /// <summary>
+        /// 获取或设置是否正在尝试连接蓝牙设备。
+        /// </summary>
+        public bool IsConnecting => _connectionViewModel.IsConnecting;
 
         /// <summary>
         /// 获取最后一次接收到的控制器数据。
@@ -162,24 +147,6 @@ namespace GearVRController.ViewModels
                     _isCalibrating = value;
                     OnPropertyChanged();
                     // 当校准状态改变时，更新控制状态
-                    UpdateControlState();
-                }
-            }
-        }
-
-        /// <summary>
-        /// 获取或设置是否正在尝试连接蓝牙设备。
-        /// </summary>
-        public bool IsConnecting
-        {
-            get => _isConnecting;
-            private set
-            {
-                if (_isConnecting != value)
-                {
-                    _isConnecting = value;
-                    OnPropertyChanged();
-                    // 当连接状态改变时，更新控制状态
                     UpdateControlState();
                 }
             }
@@ -347,6 +314,7 @@ namespace GearVRController.ViewModels
         /// <param name="actionExecutionService">动作执行服务，用于根据手势执行预定义的操作。</param>
         /// <param name="logger">日志服务，用于记录日志信息。</param>
         /// <param name="inputHandlerService">输入处理服务，用于处理控制器输入。</param>
+        /// <param name="connectionViewModel">连接视图模型，用于管理连接相关的逻辑。</param>
         public MainViewModel(
             IBluetoothService bluetoothService,
             IControllerService controllerService,
@@ -357,28 +325,39 @@ namespace GearVRController.ViewModels
             IEventAggregator eventAggregator,
             IActionExecutionService actionExecutionService,
             ILogger logger,
-            IInputHandlerService inputHandlerService)
+            IInputHandlerService inputHandlerService,
+            ConnectionViewModel connectionViewModel)
         {
-            _bluetoothService = bluetoothService;
-            _controllerService = controllerService;
-            _settingsService = settingsService;
-            _dispatcherQueue = dispatcherQueue;
-            _touchpadProcessor = touchpadProcessor;
-            _windowManagerService = windowManagerService;
-            _eventAggregator = eventAggregator;
-            _actionExecutionService = actionExecutionService;
-            _logger = logger;
-            _inputHandlerService = inputHandlerService;
+            _bluetoothService = bluetoothService ?? throw new ArgumentNullException(nameof(bluetoothService));
+            _controllerService = controllerService ?? throw new ArgumentNullException(nameof(controllerService));
+            _settingsService = settingsService ?? throw new ArgumentNullException(nameof(settingsService));
+            _dispatcherQueue = dispatcherQueue ?? throw new ArgumentNullException(nameof(dispatcherQueue));
+            _touchpadProcessor = touchpadProcessor ?? throw new ArgumentNullException(nameof(touchpadProcessor));
+            _windowManagerService = windowManagerService ?? throw new ArgumentNullException(nameof(windowManagerService));
+            _eventAggregator = eventAggregator ?? throw new ArgumentNullException(nameof(eventAggregator));
+            _actionExecutionService = actionExecutionService ?? throw new ArgumentNullException(nameof(actionExecutionService));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _inputHandlerService = inputHandlerService ?? throw new ArgumentNullException(nameof(inputHandlerService));
+            _connectionViewModel = connectionViewModel ?? throw new ArgumentNullException(nameof(connectionViewModel));
 
-            _bluetoothService.DataReceived += BluetoothService_DataReceived;
-            _bluetoothService.ConnectionStatusChanged += BluetoothService_ConnectionStatusChanged;
+            // Remove direct BluetoothService subscriptions
+            // _bluetoothService.DataReceived += BluetoothService_DataReceived;
+            // _bluetoothService.ConnectionStatusChanged += BluetoothService_ConnectionStatusChanged;
+
+            // Subscribe to events from EventAggregator that ConnectionViewModel now publishes
+            _controllerDataReceivedSubscription = _eventAggregator.Subscribe<ControllerDataReceivedEvent>(OnControllerDataReceived);
+            _connectionStatusChangedSubscription = _eventAggregator.Subscribe<ConnectionStatusChangedEvent>(OnConnectionStatusChanged);
             _calibrationCompletedSubscription = _eventAggregator.Subscribe<CalibrationCompletedEvent>(OnCalibrationCompleted);
             _settingsChangedSubscription = _eventAggregator.Subscribe<SettingsChangedEvent>(OnSettingsChanged);
+
+            LoadCalibrationFromSettings();
             _gestureRecognizer = new GestureRecognizer(_settingsService, _dispatcherQueue);
             _gestureRecognizer.GestureDetected += OnGestureDetected;
-            LoadCalibrationFromSettings();
             RegisterHotKeys();
-            _logger.LogInfo("MainViewModel initialized.", nameof(MainViewModel));
+            _touchpadProcessor.SetCalibrationData(_calibrationData);
+
+            // Initial status message
+            StatusMessage = "准备就绪";
         }
 
         private void OnCalibrationCompleted(CalibrationCompletedEvent e)
@@ -436,71 +415,66 @@ namespace GearVRController.ViewModels
 
         public async Task ConnectAsync(ulong deviceAddress)
         {
-            if (IsConnecting) return; // Prevent multiple connection attempts
-            IsConnecting = true;
-            StatusMessage = "正在连接...";
-            _logger.LogInfo($"尝试连接到设备: {deviceAddress}", nameof(MainViewModel));
-
-            try
-            {
-                await _bluetoothService.ConnectAsync(deviceAddress);
-                StatusMessage = "连接成功！";
-                _logger.LogInfo($"成功连接到设备: {deviceAddress}", nameof(MainViewModel));
-            }
-            catch (TimeoutException ex)
-            {
-                StatusMessage = "连接超时。请确保控制器已开启并处于配对模式。";
-                _logger.LogError($"连接超时到设备: {deviceAddress}", nameof(MainViewModel), ex);
-            }
-            catch (Exception ex)
-            {
-                StatusMessage = $"连接失败: {ex.Message}";
-                _logger.LogError($"连接到设备 {deviceAddress} 失败.", nameof(MainViewModel), ex);
-            }
-            finally
-            {
-                IsConnecting = false;
-            }
+            // Delegate connection logic to ConnectionViewModel
+            await _connectionViewModel.ConnectAsync(deviceAddress);
+            // MainViewModel will react to connection status changes via EventAggregator subscription
         }
 
         public void Disconnect()
         {
-            if (!IsConnected && !IsConnecting) return; // Only disconnect if connected or trying to connect
-            _logger.LogInfo("断开与设备的连接.", nameof(MainViewModel));
-            try
-            {
-                _bluetoothService.Disconnect();
-                StatusMessage = "已断开连接";
-                _logger.LogInfo("设备已成功断开连接.", nameof(MainViewModel));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError("断开连接时发生错误.", nameof(MainViewModel), ex);
-                StatusMessage = $"断开连接失败: {ex.Message}";
-            }
+            // Delegate disconnection logic to ConnectionViewModel
+            _connectionViewModel.Disconnect();
+            // MainViewModel will react to connection status changes via EventAggregator subscription
         }
 
-        private void BluetoothService_DataReceived(object? sender, ControllerData data)
+        private void OnControllerDataReceived(ControllerDataReceivedEvent e)
         {
             _dispatcherQueue.TryEnqueue(() =>
             {
-                LastControllerData = data;
+                LastControllerData = e.Data;
 
-                // 更新触摸板轨迹历史
-                if (_settingsService.ShowTouchpadVisualizer)
+                if (_settingsService.IsControlEnabled && !_isCalibrating)
                 {
-                    RecordTouchpadHistory(data.AxisX, data.AxisY, data.TouchpadTouched);
+                    if (IsGestureMode)
+                    {
+                        _gestureRecognizer.ProcessTouchpadPoint(new TouchpadPoint
+                        {
+                            X = e.Data.TouchpadX,
+                            Y = e.Data.TouchpadY,
+                            IsTouched = e.Data.TouchpadTouched
+                        });
+                    }
+                    else // Relative mode (mouse simulation and button input)
+                    {
+                        _inputHandlerService.ProcessInput(e.Data);
+                    }
+
+                    if (_settingsService.ShowTouchpadVisualizer)
+                    {
+                        RecordTouchpadHistory(e.Data.TouchpadX, e.Data.TouchpadY, e.Data.TouchpadTouched);
+                    }
                 }
 
-                // 这部分逻辑将保持在 MainViewModel 中，用于更新 UI 状态或处理其他非输入模拟相关逻辑
-                if (_calibrationData != null)
-                {
-                    ProcessedTouchpadX = _touchpadProcessor.ProcessRawData(data.AxisX, data.AxisY).Item1;
-                    ProcessedTouchpadY = _touchpadProcessor.ProcessRawData(data.AxisX, data.AxisY).Item2;
-                }
+                ProcessedTouchpadX = e.Data.ProcessedTouchpadX;
+                ProcessedTouchpadY = e.Data.ProcessedTouchpadY;
 
-                // 在手势模式下，GestureRecognizer 会处理原始数据并触发手势事件
-                // 在相对模式下，ControllerService 会处理原始数据并模拟鼠标移动
+                // Button handling is now delegated to InputHandlerService.ProcessInput(e.Data)
+                // if (_settingsService.IsControlEnabled)
+                // {
+                //     _inputHandlerService.HandleButtonInput(e.Data.ButtonState);
+                // }
+            });
+        }
+
+        private void OnConnectionStatusChanged(ConnectionStatusChangedEvent e)
+        {
+            _dispatcherQueue.TryEnqueue(() =>
+            {
+                // Update MainViewModel's own properties based on ConnectionViewModel's status
+                OnPropertyChanged(nameof(IsConnected));
+                OnPropertyChanged(nameof(IsConnecting));
+                StatusMessage = e.IsConnected ? "设备已连接" : "设备已断开连接"; // Update MainViewModel's status message
+                UpdateControlState(); // Re-evaluate control state based on connection status
             });
         }
 
@@ -617,52 +591,30 @@ namespace GearVRController.ViewModels
             StatusMessage = "校准完成";
         }
 
-        public void Dispose()
+        protected virtual void Dispose(bool disposing)
         {
-            _bluetoothService.DataReceived -= BluetoothService_DataReceived;
-            _bluetoothService.ConnectionStatusChanged -= BluetoothService_ConnectionStatusChanged;
-
-            if (_controllerService != null)
+            if (disposing)
             {
-                // Removed _controllerService.Dispose(); as IControllerService does not have a Dispose method.
-            }
-            // _inputSimulator is no longer directly used here, its logic moved to InputHandlerService
-            // _inputStateMonitorService is no longer directly used here, its logic moved to InputHandlerService
+                // ... existing code ...
 
-            if (_calibrationCompletedSubscription != null)
-            {
-                _calibrationCompletedSubscription.Dispose();
-            }
-            if (_settingsChangedSubscription != null)
-            {
-                _settingsChangedSubscription.Dispose();
-            }
-            _gestureRecognizer.GestureDetected -= OnGestureDetected;
+                // Unsubscribe from EventAggregator subscriptions
+                _controllerDataReceivedSubscription?.Dispose();
+                _connectionStatusChangedSubscription?.Dispose();
+                _calibrationCompletedSubscription?.Dispose();
+                _settingsChangedSubscription?.Dispose();
 
-            // Ensure all simulated keys are released in case the app exits unexpectedly when disconnected.
-            // Removed _inputStateMonitorService.ForceReleaseAllButtons();
-            // Removed _inputStateMonitorService.StopMonitoring(); // Stop input state monitor
-            // Removed InputStateMonitorService_InputTimeoutDetected method
+                if (_gestureRecognizer != null)
+                {
+                    _gestureRecognizer.GestureDetected -= OnGestureDetected;
+                }
+                // ... existing code ...
+            }
         }
 
-        private void BluetoothService_ConnectionStatusChanged(object? sender, Windows.Devices.Bluetooth.BluetoothConnectionStatus status)
+        public void Dispose()
         {
-            // 确保在UI线程上更新属性
-            _dispatcherQueue.TryEnqueue(() =>
-            {
-                IsConnected = (status == Windows.Devices.Bluetooth.BluetoothConnectionStatus.Connected);
-
-                // 也可以在这里更新状态文本
-                if (IsConnected)
-                {
-                    // 你可以设置一个更明确的状态消息
-                    // StatusMessage = "设备已连接"; 
-                }
-                else
-                {
-                    StatusMessage = "设备已断开连接";
-                }
-            });
+            Dispose(true);
+            GC.SuppressFinalize(this);
         }
     }
 }

@@ -18,114 +18,6 @@ namespace GearVRController.Services
     public class BluetoothService : IBluetoothService, IDisposable
     {
         /// <summary>
-        /// Gear VR 控制器服务的 UUID。
-        /// </summary>
-        private static readonly Guid CONTROLLER_SERVICE_UUID = new Guid("4f63756c-7573-2054-6872-65656d6f7465");
-        /// <summary>
-        /// 用于控制器设置的特征值 UUID。
-        /// </summary>
-        private static readonly Guid CONTROLLER_SETUP_CHARACTERISTIC_UUID = new Guid("c8c51726-81bc-483b-a052-f7a14ea3d282");
-        /// <summary>
-        /// 用于控制器数据传输的特征值 UUID。
-        /// </summary>
-        private static readonly Guid CONTROLLER_DATA_CHARACTERISTIC_UUID = new Guid("c8c51726-81bc-483b-a052-f7a14ea3d281");
-
-        // 控制器初始化命令常量
-        /// <summary>
-        /// 初始化序列的第一步命令。
-        /// </summary>
-        private static readonly byte[] CMD_INIT_1 = new byte[] { 0x01, 0x00 };
-        /// <summary>
-        /// 初始化序列的第二步命令。
-        /// </summary>
-        private static readonly byte[] CMD_INIT_2 = new byte[] { 0x06, 0x00 };
-        /// <summary>
-        /// 初始化序列的第三步命令。
-        /// </summary>
-        private static readonly byte[] CMD_INIT_3 = new byte[] { 0x07, 0x00 };
-        /// <summary>
-        /// 初始化序列的第四步命令。
-        /// </summary>
-        private static readonly byte[] CMD_INIT_4 = new byte[] { 0x08, 0x00 };
-        /// <summary>
-        /// 用于优化 BLE 连接参数（例如间隔时间）的命令。
-        /// </summary>
-        private static readonly byte[] CMD_OPTIMIZE_CONNECTION = new byte[] { 0x0A, 0x02 };
-
-        // 数据包结构常量
-        /// <summary>
-        /// 期望的控制器数据包长度。
-        /// </summary>
-        private const int EXPECTED_PACKET_LENGTH = 60;
-        /// <summary>
-        /// 触摸板X坐标在数据包中的偏移量。
-        /// </summary>
-        private const int TOUCHPAD_X_OFFSET = 54;
-        /// <summary>
-        /// 触摸板Y坐标在数据包中的偏移量。
-        /// </summary>
-        private const int TOUCHPAD_Y_OFFSET = 56;
-        /// <summary>
-        /// 按钮状态在数据包中的偏移量。
-        /// </summary>
-        private const int BUTTON_STATE_OFFSET = 2;
-        /// <summary>
-        /// 加速度计X轴数据在数据包中的偏移量。
-        /// </summary>
-        private const int ACCEL_X_OFFSET = 6;
-        /// <summary>
-        /// 加速度计Y轴数据在数据包中的偏移量。
-        /// </summary>
-        private const int ACCEL_Y_OFFSET = 8;
-        /// <summary>
-        /// 加速度计Z轴数据在数据包中的偏移量。
-        /// </summary>
-        private const int ACCEL_Z_OFFSET = 10;
-        /// <summary>
-        /// 陀螺仪X轴数据在数据包中的偏移量。
-        /// </summary>
-        private const int GYRO_X_OFFSET = 12;
-        /// <summary>
-        /// 陀螺仪Y轴数据在数据包中的偏移量。
-        /// </summary>
-        private const int GYRO_Y_OFFSET = 14;
-        /// <summary>
-        /// 陀螺仪Z轴数据在数据包中的偏移量。
-        /// </summary>
-        private const int GYRO_Z_OFFSET = 16;
-
-        // 按钮位掩码
-        /// <summary>
-        /// 触摸板按钮的位掩码。
-        /// </summary>
-        private const byte TOUCHPAD_BUTTON_MASK = 0b00000001;
-        /// <summary>
-        /// Home 按钮的位掩码。
-        /// </summary>
-        private const byte HOME_BUTTON_MASK = 0b00000010;
-        /// <summary>
-        /// 扳机按钮的位掩码。
-        /// </summary>
-        private const byte TRIGGER_BUTTON_MASK = 0b00000100;
-        /// <summary>
-        /// 返回按钮的位掩码。
-        /// </summary>
-        private const byte BACK_BUTTON_MASK = 0b00001000;
-        /// <summary>
-        /// 音量上键的位掩码。
-        /// </summary>
-        private const byte VOLUME_UP_BUTTON_MASK = 0b00010000;
-        /// <summary>
-        /// 音量下键的位掩码。
-        /// </summary>
-        private const byte VOLUME_DOWN_BUTTON_MASK = 0b00100000;
-
-        /// <summary>
-        /// 初始化命令之间的延迟时间（毫秒）。
-        /// </summary>
-        private const int COMMAND_DELAY_MS = 50;
-
-        /// <summary>
         /// 当前连接的蓝牙 LE 设备实例。
         /// </summary>
         private BluetoothLEDevice? _device;
@@ -157,6 +49,7 @@ namespace GearVRController.Services
         private readonly ISettingsService _settingsService;
         private readonly ILogger _logger;
         private readonly IEventAggregator _eventAggregator;
+        private readonly IControllerProfile _controllerProfile;
 
         /// <summary>
         /// 当接收到新的控制器数据时触发的事件。
@@ -178,11 +71,13 @@ namespace GearVRController.Services
         /// <param name="settingsService">设置服务，用于获取重连参数等配置。</param>
         /// <param name="logger">日志服务，用于记录日志。</param>
         /// <param name="eventAggregator">事件聚合器服务，用于发布控制器数据事件。</param>
-        public BluetoothService(ISettingsService settingsService, ILogger logger, IEventAggregator eventAggregator)
+        /// <param name="controllerProfile">控制器配置文件，包含协议相关的常量。</param>
+        public BluetoothService(ISettingsService settingsService, ILogger logger, IEventAggregator eventAggregator, IControllerProfile controllerProfile)
         {
-            _settingsService = settingsService;
-            _logger = logger;
-            _eventAggregator = eventAggregator;
+            _settingsService = settingsService ?? throw new ArgumentNullException(nameof(settingsService));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _eventAggregator = eventAggregator ?? throw new ArgumentNullException(nameof(eventAggregator));
+            _controllerProfile = controllerProfile ?? throw new ArgumentNullException(nameof(controllerProfile));
         }
 
         /// <summary>
@@ -190,7 +85,7 @@ namespace GearVRController.Services
         /// </summary>
         /// <param name="bluetoothAddress">要连接的蓝牙设备的地址。</param>
         /// <param name="timeoutMs">连接超时时间（毫秒）。</param>
-        /// <returns>表示异步连接操作的任务。</returns>
+        /// <returns>表示异步连接操作的任务。</param>
         /// <exception cref="TimeoutException">如果连接在指定时间内超时则抛出。</exception>
         /// <exception cref="Exception">连接过程中发生其他错误时抛出。</exception>
         public async Task ConnectAsync(ulong bluetoothAddress, int timeoutMs = 10000)
@@ -202,7 +97,7 @@ namespace GearVRController.Services
                 _connectionCts?.Cancel();
                 _connectionCts = new CancellationTokenSource();
 
-                // 添加超时
+                // Add timeout
                 using var timeoutCts = new CancellationTokenSource(timeoutMs);
                 using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(timeoutCts.Token, _connectionCts.Token);
 
@@ -216,13 +111,13 @@ namespace GearVRController.Services
                 }
                 _logger.LogInfo($"成功获取到设备对象. ConnectionStatus: {_device.ConnectionStatus}", nameof(BluetoothService));
 
-                // 注册连接状态变化事件
+                // Register connection status change event
                 _device.ConnectionStatusChanged += Device_ConnectionStatusChanged;
 
                 await InitializeServicesAsync(linkedCts.Token);
 
-                // 连接成功后，再次触发 ConnectionStatusChanged 事件，确保 MainViewModel 更新状态
-                // 这可以帮助排除事件丢失或延迟的问题
+                // After successful connection, trigger ConnectionStatusChanged event again to ensure MainViewModel updates status
+                // This can help rule out event loss or delay issues
                 Device_ConnectionStatusChanged(_device, null);
 
                 _logger.LogInfo($"连接到设备 {bluetoothAddress} 成功.", nameof(BluetoothService));
@@ -336,7 +231,7 @@ namespace GearVRController.Services
 
             foreach (var service in result.Services)
             {
-                if (service.Uuid == CONTROLLER_SERVICE_UUID)
+                if (service.Uuid == _controllerProfile.ControllerServiceUuid)
                 {
                     var characteristicsResult = await service.GetCharacteristicsAsync();
                     cancellationToken.ThrowIfCancellationRequested();
@@ -345,11 +240,11 @@ namespace GearVRController.Services
                     {
                         foreach (var characteristic in characteristicsResult.Characteristics)
                         {
-                            if (characteristic.Uuid == CONTROLLER_SETUP_CHARACTERISTIC_UUID)
+                            if (characteristic.Uuid == _controllerProfile.ControllerSetupCharacteristicUuid)
                             {
                                 _setupCharacteristic = characteristic;
                             }
-                            else if (characteristic.Uuid == CONTROLLER_DATA_CHARACTERISTIC_UUID)
+                            else if (characteristic.Uuid == _controllerProfile.ControllerDataCharacteristicUuid)
                             {
                                 _dataCharacteristic = characteristic;
                                 cancellationToken.ThrowIfCancellationRequested();
@@ -359,277 +254,218 @@ namespace GearVRController.Services
                     else
                     {
                         _logger.LogError($"GetCharacteristicsAsync 失败: {characteristicsResult.Status}", nameof(BluetoothService));
+                        throw new Exception("无法获取特征值。");
                     }
+                    break; // Found the service, no need to check others
                 }
             }
 
-            if (_setupCharacteristic == null || _dataCharacteristic == null)
-            {
-                _logger.LogError("未找到必要的特征值.", nameof(BluetoothService));
-                throw new Exception("未找到必要的特征值");
-            }
-            _logger.LogInfo("已找到所有必要的特征值.", nameof(BluetoothService));
-
-            await InitializeControllerAsync();
-            await SubscribeToNotificationsAsync();
-        }
-
-        /// <summary>
-        /// 订阅数据特征值的通知。
-        /// 这使得控制器能够向应用程序发送实时数据更新。
-        /// </summary>
-        /// <returns>表示异步操作的任务。</returns>
-        /// <exception cref="Exception">如果数据特征值未初始化或订阅失败则抛出。</exception>
-        private async Task SubscribeToNotificationsAsync()
-        {
-            _logger.LogInfo("开始 SubscribeToNotificationsAsync.", nameof(BluetoothService));
-            if (_dataCharacteristic == null)
-            {
-                _logger.LogError("SubscribeToNotificationsAsync: 数据特征值未初始化.", nameof(BluetoothService));
-                throw new Exception("数据特征值未初始化");
-            }
-
-            // 启用通知
-            var status = await _dataCharacteristic.WriteClientCharacteristicConfigurationDescriptorAsync(
-                GattClientCharacteristicConfigurationDescriptorValue.Notify);
-
-            if (status == GattCommunicationStatus.Success)
-            {
-                _dataCharacteristic.ValueChanged += DataCharacteristic_ValueChanged;
-            }
-            else
-            {
-                _logger.LogError($"订阅数据特征值通知失败: {status}", nameof(BluetoothService));
-                throw new Exception($"无法订阅数据特征值通知: {status}");
-            }
-            _logger.LogInfo("订阅数据特征值通知成功.", nameof(BluetoothService));
-        }
-
-        /// <summary>
-        /// 初始化控制器，发送一系列初始化命令。
-        /// </summary>
-        /// <returns>表示异步操作的任务。</returns>
-        /// <exception cref="Exception">如果设置特征值未初始化或命令发送失败则抛出。</exception>
-        private async Task InitializeControllerAsync()
-        {
-            _logger.LogInfo("开始初始化控制器...", nameof(BluetoothService));
-
-            // 发送 CMD_INIT_1 (0x01, 0x00)，重复 3 次
-            await SendCommandAsync(CMD_INIT_1);
-            await SendCommandAsync(CMD_INIT_1);
-            await SendCommandAsync(CMD_INIT_1);
-
-            // 发送 CMD_INIT_2 (0x06, 0x00)，重复 1 次
-            await SendCommandAsync(CMD_INIT_2);
-
-            // 发送 CMD_INIT_3 (0x07, 0x00)，重复 1 次
-            await SendCommandAsync(CMD_INIT_3);
-
-            // 发送 CMD_INIT_4 (0x08, 0x00)，重复 3 次
-            await SendCommandAsync(CMD_INIT_4);
-            await SendCommandAsync(CMD_INIT_4);
-            await SendCommandAsync(CMD_INIT_4);
-
-            _logger.LogInfo("控制器初始化完成.", nameof(BluetoothService));
-        }
-
-        /// <summary>
-        /// 优化 BLE 连接参数，以提高数据传输效率。
-        /// </summary>
-        /// <returns>表示异步操作的任务。</returns>
-        /// <exception cref="Exception">如果设置特征值未初始化或命令发送失败则抛出。</exception>
-        private async Task OptimizeConnectionParametersAsync()
-        {
-            _logger.LogInfo("尝试优化连接参数.", nameof(BluetoothService));
             if (_setupCharacteristic == null)
             {
-                _logger.LogError("OptimizeConnectionParametersAsync: 设置特征值未初始化.", nameof(BluetoothService));
-                throw new Exception("设置特征值未初始化");
+                _logger.LogError("无法找到 Setup Characteristic.", nameof(BluetoothService));
+                throw new Exception("无法找到 Setup Characteristic。");
             }
 
-            await SendCommandAsync(CMD_OPTIMIZE_CONNECTION);
-            _logger.LogInfo("连接参数优化命令已发送.", nameof(BluetoothService));
+            if (_dataCharacteristic == null)
+            {
+                _logger.LogError("无法找到 Data Characteristic.", nameof(BluetoothService));
+                throw new Exception("无法找到 Data Characteristic。");
+            }
+            _logger.LogInfo("成功找到所有特征值.", nameof(BluetoothService));
+
+
+            await SubscribeToNotificationsAsync();
+            await InitializeControllerAsync();
+            await OptimizeConnectionParametersAsync();
         }
 
         /// <summary>
-        /// 异步发送数据到数据特征值。
+        /// 订阅控制器数据特征值的通知。
         /// </summary>
-        /// <param name="data">要发送的数据字节数组。</param>
-        /// <param name="repeat">重复发送数据的次数（默认为1）。</param>
         /// <returns>表示异步操作的任务。</returns>
-        /// <exception cref="Exception">如果数据特征值未初始化或数据写入失败则抛出。</exception>
-        public async Task SendDataAsync(byte[] data, int repeat = 1)
+        private async Task SubscribeToNotificationsAsync()
         {
             if (_dataCharacteristic == null)
             {
-                _logger.LogError("数据特征值未初始化，无法发送数据", nameof(BluetoothService));
-                throw new Exception("数据特征值未初始化，无法发送数据");
+                _logger.LogError("Data Characteristic 未初始化。", nameof(BluetoothService));
+                throw new InvalidOperationException("Data Characteristic 未初始化。");
             }
 
-            var writer = new DataWriter();
-            writer.WriteBytes(data);
-            var buffer = writer.DetachBuffer();
+            // 设置通知属性
+            var status = await _dataCharacteristic.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify);
+            if (status != GattCommunicationStatus.Success)
+            {
+                _logger.LogError($"无法订阅 Data Characteristic 通知: {status}", nameof(BluetoothService));
+                throw new Exception("无法订阅数据通知。");
+            }
+            _dataCharacteristic.ValueChanged += DataCharacteristic_ValueChanged;
+            _logger.LogInfo("已订阅 Data Characteristic 通知。", nameof(BluetoothService));
+        }
+
+        /// <summary>
+        /// 发送初始化命令到控制器。
+        /// </summary>
+        /// <returns>表示异步操作的任务。</returns>
+        private async Task InitializeControllerAsync()
+        {
+            _logger.LogInfo("发送控制器初始化命令...", nameof(BluetoothService));
+            await SendCommandAsync(_controllerProfile.CmdInit1);
+            await Task.Delay(_controllerProfile.CommandDelayMs); // 等待响应
+            await SendCommandAsync(_controllerProfile.CmdInit2);
+            await Task.Delay(_controllerProfile.CommandDelayMs);
+            await SendCommandAsync(_controllerProfile.CmdInit3);
+            await Task.Delay(_controllerProfile.CommandDelayMs);
+            await SendCommandAsync(_controllerProfile.CmdInit4);
+            await Task.Delay(_controllerProfile.CommandDelayMs);
+            _logger.LogInfo("控制器初始化命令发送完成。", nameof(BluetoothService));
+        }
+
+        /// <summary>
+        /// 尝试优化蓝牙连接参数。
+        /// </summary>
+        /// <returns>表示异步操作的任务。</returns>
+        private async Task OptimizeConnectionParametersAsync()
+        {
+            _logger.LogInfo("尝试优化连接参数...", nameof(BluetoothService));
+            await SendCommandAsync(_controllerProfile.CmdOptimizeConnection);
+            _logger.LogInfo("连接参数优化命令已发送。", nameof(BluetoothService));
+        }
+
+        /// <summary>
+        /// 异步发送原始字节数据到设置特征值。
+        /// </summary>
+        /// <param name="data">要发送的字节数组。</param>
+        /// <param name="repeat">发送次数。</param>
+        /// <returns>表示异步操作的任务。</returns>
+        public async Task SendDataAsync(byte[] data, int repeat = 1)
+        {
+            if (_setupCharacteristic == null)
+            {
+                _logger.LogError("Setup Characteristic 未初始化。", nameof(BluetoothService));
+                throw new InvalidOperationException("Setup Characteristic 未初始化。");
+            }
 
             for (int i = 0; i < repeat; i++)
             {
-                var status = await _dataCharacteristic.WriteValueAsync(buffer);
+                var writer = new DataWriter();
+                writer.WriteBytes(data);
+                var status = await _setupCharacteristic.WriteValueAsync(writer.DetachBuffer());
                 if (status != GattCommunicationStatus.Success)
                 {
                     _logger.LogError($"发送数据失败: {status}", nameof(BluetoothService));
                     throw new Exception($"发送数据失败: {status}");
                 }
+                _logger.LogDebug($"数据已发送: {BitConverter.ToString(data)}", nameof(BluetoothService));
             }
-            _logger.LogInfo($"数据已发送 (重复 {repeat} 次).", nameof(BluetoothService));
         }
 
         /// <summary>
-        /// 异步发送命令到设置特征值。
+        /// 异步发送控制器命令到设置特征值。
+        /// 这是 SendDataAsync 的私有包装器，用于内部命令。
         /// </summary>
         /// <param name="command">要发送的命令字节数组。</param>
-        /// <param name="repeat">重复发送命令的次数（默认为1）。</param>
+        /// <param name="repeat">发送次数。</param>
         /// <returns>表示异步操作的任务。</returns>
-        private async Task SendCommandAsync(byte[] command, int repeat = 1)
+        private Task SendCommandAsync(byte[] command, int repeat = 1)
         {
-            if (_setupCharacteristic == null)
-            {
-                _logger.LogError("设置特征值未初始化，无法发送命令", nameof(BluetoothService));
-                throw new Exception("设置特征值未初始化，无法发送命令");
-            }
-            var writer = new DataWriter();
-            writer.WriteBytes(command);
-            var buffer = writer.DetachBuffer();
-            for (int i = 0; i < repeat; i++)
-            {
-                var status = await _setupCharacteristic.WriteValueAsync(buffer);
-                if (status != GattCommunicationStatus.Success)
-                {
-                    _logger.LogError($"发送命令失败: {status}", nameof(BluetoothService));
-                    throw new Exception($"发送命令失败: {status}");
-                }
-            }
-            _logger.LogInfo($"命令已发送 (重复 {repeat} 次).", nameof(BluetoothService));
+            return SendDataAsync(command, repeat);
         }
 
         /// <summary>
-        /// 断开与当前连接的蓝牙设备的连接，并释放相关资源。
-        /// 取消事件订阅，停止重连尝试，并清理 BluetoothLEDevice 实例。
+        /// 断开与当前连接的蓝牙 LE 设备的连接。
         /// </summary>
         public void Disconnect()
         {
-            try
-            {
-                if (_device != null)
-                {
-                    // Unsubscribe from events
-                    _device.ConnectionStatusChanged -= Device_ConnectionStatusChanged;
-                    if (_dataCharacteristic != null)
-                    {
-                        _dataCharacteristic.ValueChanged -= DataCharacteristic_ValueChanged;
-                    }
+            _connectionCts?.Cancel(); // Cancel any ongoing connection attempts
+            _connectionCts?.Dispose();
+            _connectionCts = null;
 
-                    _device.Dispose();
-                    _device = null;
+            if (_device != null)
+            {
+                _device.ConnectionStatusChanged -= Device_ConnectionStatusChanged;
+
+                if (_dataCharacteristic != null)
+                {
+                    _dataCharacteristic.ValueChanged -= DataCharacteristic_ValueChanged;
+                    _dataCharacteristic = null;
                 }
 
                 _setupCharacteristic = null;
-                _dataCharacteristic = null;
-                _lastConnectedAddress = 0; // Clear last connected address
-                _isReconnecting = false;
-
-                // Dispose CancellationTokenSource
-                _connectionCts?.Cancel();
-                _connectionCts?.Dispose();
-                _connectionCts = null;
-
-                _logger.LogInfo("设备已断开连接并清理资源.", nameof(BluetoothService));
-                ConnectionStatusChanged?.Invoke(this, BluetoothConnectionStatus.Disconnected); // Explicitly notify disconnected
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError($"断开连接异常.", nameof(BluetoothService), ex);
+                _device.Dispose();
+                _device = null;
+                _logger.LogInfo("已断开蓝牙设备连接并释放资源。", nameof(BluetoothService));
             }
         }
 
         /// <summary>
-        /// 处理数据特征值的数据变化通知。
-        /// 从接收到的数据中解析控制器状态，并触发 DataReceived 事件。
+        /// 处理蓝牙 GATT 特征值的数据变化通知。
+        /// 解析接收到的字节数据并更新 ControllerData。
         /// </summary>
-        /// <param name="sender">事件发送者。</param>
+        /// <param name="sender">事件发送者（GattCharacteristic 实例）。</param>
         /// <param name="args">包含新数据值的事件参数。</param>
         private void DataCharacteristic_ValueChanged(GattCharacteristic sender, GattValueChangedEventArgs args)
         {
             var reader = DataReader.FromBuffer(args.CharacteristicValue);
-            var byteArray = new byte[reader.UnconsumedBufferLength];
+            var byteArray = new byte[args.CharacteristicValue.Length];
             reader.ReadBytes(byteArray);
 
-            // 异步处理数据以避免阻塞 UI 线程或蓝牙回调。
-            Task.Run(() => ProcessDataAsync(byteArray));
+            // Dispatch to UI thread to process the data and update UI
+            ProcessDataAsync(byteArray);
         }
 
         /// <summary>
-        /// 异步处理原始控制器数据包，解析出控制器数据模型。
+        /// 异步处理接收到的原始字节数组数据，将其解析为 ControllerData 对象，并触发 DataReceived 事件。
         /// </summary>
-        /// <param name="byteArray">包含原始控制器数据的数据包。</param>
+        /// <param name="byteArray">接收到的原始数据字节数组。</param>
         private void ProcessDataAsync(byte[] byteArray)
         {
-            if (byteArray == null || byteArray.Length < EXPECTED_PACKET_LENGTH)
+            if (byteArray.Length != _controllerProfile.ExpectedPacketLength)
             {
-                _logger.LogWarning("接收到无效数据包: 长度不正确.", nameof(BluetoothService));
-                return;
+                _logger.LogWarning($"接收到异常长度的数据包 ({byteArray.Length} bytes). 期望长度: {_controllerProfile.ExpectedPacketLength} bytes.", nameof(BluetoothService));
+                return; // Optionally handle incomplete packets or log an error
             }
 
-            try
+            // Parse data packet
+            var controllerData = new ControllerData
             {
-                var controllerData = new ControllerData
-                {
-                    // 解析触摸板坐标 (10位精度，分布在字节54-56)
-                    // X轴: [字节54的低4位] << 6 | [字节55的高6位] >> 2
-                    AxisX = (((byteArray[TOUCHPAD_X_OFFSET] & 0x0F) << 6) | ((byteArray[TOUCHPAD_X_OFFSET + 1] & 0xFC) >> 2)) & 0x3FF,
-                    // Y轴: [字节55的低2位] << 8 | [字节56的全部8位]
-                    AxisY = (((byteArray[TOUCHPAD_X_OFFSET + 1] & 0x03) << 8) | (byteArray[TOUCHPAD_Y_OFFSET])) & 0x3FF,
+                TouchpadX = BitConverter.ToUInt16(byteArray, _controllerProfile.TouchpadXOffset),
+                TouchpadY = BitConverter.ToUInt16(byteArray, _controllerProfile.TouchpadYOffset),
 
-                    // 解析按钮状态
-                    TouchpadButton = (byteArray[BUTTON_STATE_OFFSET] & TOUCHPAD_BUTTON_MASK) != 0,
-                    HomeButton = (byteArray[BUTTON_STATE_OFFSET] & HOME_BUTTON_MASK) != 0,
-                    TriggerButton = (byteArray[BUTTON_STATE_OFFSET] & TRIGGER_BUTTON_MASK) != 0,
-                    BackButton = (byteArray[BUTTON_STATE_OFFSET] & BACK_BUTTON_MASK) != 0,
-                    VolumeUpButton = (byteArray[BUTTON_STATE_OFFSET] & VOLUME_UP_BUTTON_MASK) != 0,
-                    VolumeDownButton = (byteArray[BUTTON_STATE_OFFSET] & VOLUME_DOWN_BUTTON_MASK) != 0,
+                // Parse button state
+                // Button state byte position in packet
+                TriggerButton = (byteArray[_controllerProfile.ButtonStateOffset] & _controllerProfile.TriggerButtonMask) != 0,
+                HomeButton = (byteArray[_controllerProfile.ButtonStateOffset] & _controllerProfile.HomeButtonMask) != 0,
+                BackButton = (byteArray[_controllerProfile.ButtonStateOffset] & _controllerProfile.BackButtonMask) != 0,
+                TouchpadButton = (byteArray[_controllerProfile.ButtonStateOffset] & _controllerProfile.TouchpadButtonMask) != 0,
+                VolumeUpButton = (byteArray[_controllerProfile.ButtonStateOffset] & _controllerProfile.VolumeUpButtonMask) != 0,
+                VolumeDownButton = (byteArray[_controllerProfile.ButtonStateOffset] & _controllerProfile.VolumeDownButtonMask) != 0,
 
-                    // 解析加速度计数据 (16位有符号整数)
-                    AccelX = BitConverter.ToInt16(byteArray, ACCEL_X_OFFSET),
-                    AccelY = BitConverter.ToInt16(byteArray, ACCEL_Y_OFFSET),
-                    AccelZ = BitConverter.ToInt16(byteArray, ACCEL_Z_OFFSET),
+                // Accelerometer data
+                AccelX = BitConverter.ToSingle(byteArray, _controllerProfile.AccelXOffset),
+                AccelY = BitConverter.ToSingle(byteArray, _controllerProfile.AccelYOffset),
+                AccelZ = BitConverter.ToSingle(byteArray, _controllerProfile.AccelZOffset),
 
-                    // 解析陀螺仪数据 (16位有符号整数)
-                    GyroX = BitConverter.ToInt16(byteArray, GYRO_X_OFFSET),
-                    GyroY = BitConverter.ToInt16(byteArray, GYRO_Y_OFFSET),
-                    GyroZ = BitConverter.ToInt16(byteArray, GYRO_Z_OFFSET)
-                };
+                // Gyroscope data
+                GyroX = BitConverter.ToSingle(byteArray, _controllerProfile.GyroXOffset),
+                GyroY = BitConverter.ToSingle(byteArray, _controllerProfile.GyroYOffset),
+                GyroZ = BitConverter.ToSingle(byteArray, _controllerProfile.GyroZOffset),
+            };
 
-                // 通过事件总线发布数据，解耦各服务
-                _eventAggregator.Publish(new ControllerDataReceivedEvent(controllerData));
-
-                // 触发 DataReceived 事件 (如果仍有订阅者需要原始数据)
-                DataReceived?.Invoke(this, controllerData);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError($"处理控制器数据失败: {ex.Message}", nameof(BluetoothService), ex);
-            }
+            // Trigger the DataReceived event
+            DataReceived?.Invoke(this, controllerData);
         }
 
         /// <summary>
-        /// 模拟接收控制器数据，用于测试或调试。
+        /// Simulate receiving controller data, for testing purposes.
         /// </summary>
-        /// <param name="data">要模拟的控制器数据。</param>
+        /// <param name="data">The ControllerData to simulate.</param>
         public void SimulateData(ControllerData data)
         {
             DataReceived?.Invoke(this, data);
         }
 
         /// <summary>
-        /// 释放 BluetoothService 实例所持有的所有托管和非托管资源。
+        /// Releases the resources occupied by the BluetoothService instance.
         /// </summary>
         public void Dispose()
         {
@@ -638,19 +474,16 @@ namespace GearVRController.Services
         }
 
         /// <summary>
-        /// 释放 BluetoothService 实例所持有的资源。
+        /// Releases the unmanaged resources occupied by the BluetoothService instance.
         /// </summary>
-        /// <param name="disposing">如果为 true，则释放托管资源；否则只释放非托管资源。</param>
+        /// <param name="disposing">True to release both managed and unmanaged resources; false to release only unmanaged resources.</param>
         protected virtual void Dispose(bool disposing)
         {
             if (disposing)
             {
-                // 释放托管状态 (托管对象)
-                Disconnect(); // 调用 Disconnect 来处理事件取消订阅和设备释放
-                _reconnectionSemaphore.Dispose(); // 释放 SemaphoreSlim 资源
+                Disconnect();
+                _reconnectionSemaphore.Dispose();
             }
-            // 释放非托管资源 (非托管对象) 并重写终结器
-            // 将大型字段设置为 null
         }
     }
 }
