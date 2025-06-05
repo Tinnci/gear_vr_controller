@@ -1,15 +1,11 @@
 using System;
-using System.Runtime.InteropServices.WindowsRuntime;
 using System.Threading.Tasks;
 using Windows.Devices.Bluetooth;
 using Windows.Devices.Bluetooth.GenericAttributeProfile;
-using Windows.Devices.Enumeration;
 using Windows.Storage.Streams;
 using GearVRController.Models;
 using System.Threading;
 using GearVRController.Services.Interfaces;
-using System.Diagnostics;
-using System.IO;
 
 namespace GearVRController.Services
 {

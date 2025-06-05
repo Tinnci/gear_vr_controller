@@ -1,20 +1,5 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Runtime.InteropServices.WindowsRuntime;
-using Windows.ApplicationModel;
-using Windows.ApplicationModel.Activation;
-using Windows.Foundation;
-using Windows.Foundation.Collections;
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Controls.Primitives;
-using Microsoft.UI.Xaml.Data;
-using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Navigation;
-using Microsoft.UI.Xaml.Shapes;
 using Microsoft.UI.Dispatching;
 using GearVRController.Services;
 using GearVRController.Services.Interfaces;
@@ -73,6 +58,7 @@ namespace GearVRController
             services.AddTransient<Views.SettingsPage>();
             services.AddTransient<Views.CalibrationPage>();
             services.AddTransient<Views.AboutPage>();
+            services.AddTransient<Views.TouchpadVisualizerPage>();
 
             ServiceProvider = services.BuildServiceProvider();
         }

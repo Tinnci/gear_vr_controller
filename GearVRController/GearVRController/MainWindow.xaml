@@ -45,12 +45,12 @@
             <NavigationViewItem Tag="home" Icon="Home" Content="状态与控制" />
             <NavigationViewItem Tag="settings" Icon="Setting" Content="设置" />
             <NavigationViewItem Tag="calibrate" Icon="Sync" Content="校准" />
+            <NavigationViewItem Tag="visualizer" Icon="View" Content="触摸板可视化" />
             <NavigationViewItem Tag="about" Icon="Help" Content="关于" />
         </NavigationView.MenuItems>
 
         <NavigationView.FooterMenuItems>
             <NavigationViewItem Tag="resetSettings" Icon="Refresh" Content="重置设置" />
-            <NavigationViewItem Tag="visualizer" Icon="View" Content="触摸板可视化" />
         </NavigationView.FooterMenuItems>
 
         <Frame x:Name="ContentFrame" Margin="12,0,0,0" />

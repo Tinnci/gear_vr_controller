@@ -4,8 +4,6 @@ using Microsoft.UI.Xaml.Controls;
 using GearVRController.ViewModels;
 using GearVRController.Models;
 using Microsoft.UI.Dispatching;
-using GearVRController.Services;
-using Windows.UI.Xaml;
 
 namespace GearVRController.Views
 {

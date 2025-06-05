@@ -1,5 +1,3 @@
-using GearVRController.Enums;
-
 namespace GearVRController.Models
 {
     public class GestureConfig

@@ -1,6 +1,4 @@
 using System.Threading.Tasks;
-using GearVRController.ViewModels;
-using GearVRController.Models;
 using System.Collections.Generic;
 
 namespace GearVRController.Services.Interfaces

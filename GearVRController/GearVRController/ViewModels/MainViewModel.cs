@@ -5,14 +5,10 @@ using System.Threading.Tasks;
 using GearVRController.Models;
 using GearVRController.Services;
 using GearVRController.Services.Interfaces;
-using Microsoft.UI.Xaml;
 using Microsoft.UI.Dispatching;
-using Windows.Devices.Bluetooth;
 using System.Collections.Generic;
-using System.Linq;
 using GearVRController.Enums;
 using EnumsNS = GearVRController.Enums; // 添加命名空间别名
-using System.Diagnostics; // 添加 Debug 命名空间
 using GearVRController.Events; // Add this
 
 namespace GearVRController.ViewModels

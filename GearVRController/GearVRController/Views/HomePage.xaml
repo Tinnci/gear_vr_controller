@@ -41,10 +41,7 @@
                         Content="{Binding IsControlEnabled, Converter={StaticResource BoolToControlStateConverter}}"
                         Click="ToggleControlButton_Click"
                         Margin="0,0,8,0" />
-                    <Button x:Name="TouchpadVisualizerButton"
-                        Content="触摸板可视化"
-                        Click="TouchpadVisualizerButton_Click"
-                        IsEnabled="{Binding IsConnected}" />
+                    <!-- 触摸板可视化按钮已移动到主导航菜单 -->
                 </StackPanel>
 
                 <!-- 基本设置 -->

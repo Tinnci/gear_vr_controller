@@ -13,13 +13,5 @@ namespace GearVRController.Services.Interfaces
         /// 关闭触控板校准窗口。
         /// </summary>
         void CloseTouchpadCalibrationWindow();
-        /// <summary>
-        /// 打开触控板可视化工具窗口。
-        /// </summary>
-        void OpenTouchpadVisualizerWindow();
-        /// <summary>
-        /// 关闭触控板可视化工具窗口。
-        /// </summary>
-        void CloseTouchpadVisualizerWindow();
     }
 }

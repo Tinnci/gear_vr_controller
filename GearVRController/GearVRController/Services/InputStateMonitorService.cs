@@ -1,7 +1,6 @@
 using System;
 using Microsoft.UI.Dispatching;
 using GearVRController.Services.Interfaces;
-using System.Diagnostics;
 using GearVRController.Enums; // 添加对 MouseButtons 的引用
 using Microsoft.UI.Xaml; // Add this for DispatcherTimer
 using System.Collections.Generic;

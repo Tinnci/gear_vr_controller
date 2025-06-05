@@ -1,5 +1,4 @@
 using GearVRController.Enums;
-using System.Threading.Tasks;
 
 namespace GearVRController.Services.Interfaces
 {

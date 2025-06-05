@@ -1,6 +1,5 @@
 using System;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.UI.Xaml;
 using GearVRController.ViewModels;
 using GearVRController.Views;
 using GearVRController.Services.Interfaces;
@@ -23,7 +22,7 @@ namespace GearVRController.Services
         /// <summary>
         /// 触控板可视化工具窗口实例。如果窗口未打开，则为 null。
         /// </summary>
-        private TouchpadVisualizerWindow? _visualizerWindow;
+        // private TouchpadVisualizerWindow? _visualizerWindow;
 
         /// <summary>
         /// 初始化 WindowManagerService 类的新实例。
@@ -64,28 +63,28 @@ namespace GearVRController.Services
         /// <summary>
         /// 打开触控板可视化工具窗口。如果窗口已打开，则激活现有窗口。
         /// </summary>
-        public void OpenTouchpadVisualizerWindow()
-        {
-            if (_visualizerWindow == null)
-            {
-                // Pass MainViewModel to the visualizer window as it needs direct access to processed data
-                var mainViewModel = _serviceProvider.GetRequiredService<MainViewModel>();
-                _visualizerWindow = new TouchpadVisualizerWindow(mainViewModel);
-                _visualizerWindow.Closed += (s, e) => _visualizerWindow = null;
-                _visualizerWindow.Activate();
-            }
-            else
-            {
-                _visualizerWindow.Activate();
-            }
-        }
+        // public void OpenTouchpadVisualizerWindow()
+        // {
+        //     if (_visualizerWindow == null)
+        //     {
+        //         // Pass MainViewModel to the visualizer window as it needs direct access to processed data
+        //         var mainViewModel = _serviceProvider.GetRequiredService<MainViewModel>();
+        //         _visualizerWindow = new TouchpadVisualizerWindow(mainViewModel);
+        //         _visualizerWindow.Closed += (s, e) => _visualizerWindow = null;
+        //         _visualizerWindow.Activate();
+        //     }
+        //     else
+        //     {
+        //         _visualizerWindow.Activate();
+        //     }
+        // }
 
         /// <summary>
         /// 关闭触控板可视化工具窗口。
         /// </summary>
-        public void CloseTouchpadVisualizerWindow()
-        {
-            _visualizerWindow?.Close();
-        }
+        // public void CloseTouchpadVisualizerWindow()
+        // {
+        //     _visualizerWindow?.Close();
+        // }
     }
 }

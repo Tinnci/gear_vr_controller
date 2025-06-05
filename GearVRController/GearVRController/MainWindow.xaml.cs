@@ -1,26 +1,12 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices.WindowsRuntime;
-using Windows.Foundation;
-using Windows.Foundation.Collections;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Controls.Primitives;
-using Microsoft.UI.Xaml.Data;
-using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Navigation;
 using GearVRController.ViewModels;
 using GearVRController.Views;
-using GearVRController.Models;
-using GearVRController.Services;
-using EnumsNS = GearVRController.Enums; // 添加命名空间别名
 using Microsoft.UI.Windowing;
 using Microsoft.UI;
-using Windows.Graphics;
-using Microsoft.Extensions.DependencyInjection;
 using GearVRController.Services.Interfaces;
 
 // To learn more about WinUI, the WinUI project structure,
@@ -56,9 +42,6 @@ namespace GearVRController
             IntPtr hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
             WindowId windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
             _appWindow = AppWindow.GetFromWindowId(windowId);
-
-            // 设置默认窗口大小
-            _appWindow.Resize(new SizeInt32(900, 700));
 
             // 初始导航到主页
             MainNavigationView.SelectedItem = MainNavigationView.MenuItems.OfType<NavigationViewItem>().First();
@@ -130,11 +113,11 @@ namespace GearVRController
                     case "about":
                         ContentFrame.Navigate(typeof(AboutPage), ViewModel);
                         break;
+                    case "visualizer":
+                        ContentFrame.Navigate(typeof(TouchpadVisualizerPage), ViewModel);
+                        break;
                     case "resetSettings":
                         ViewModel.ResetSettings();
-                        break;
-                    case "visualizer":
-                        _windowManagerService.OpenTouchpadVisualizerWindow();
                         break;
                 }
             }

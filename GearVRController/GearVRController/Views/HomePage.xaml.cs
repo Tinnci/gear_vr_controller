@@ -34,10 +34,5 @@ namespace GearVRController.Views
         {
             ViewModel?.ToggleControl();
         }
-
-        private void TouchpadVisualizerButton_Click(object sender, RoutedEventArgs e)
-        {
-            _windowManagerService?.OpenTouchpadVisualizerWindow();
-        }
     }
 }

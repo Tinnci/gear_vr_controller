@@ -1,5 +1,3 @@
-using System;
-
 namespace GearVRController.Models
 {
     public class ControllerData

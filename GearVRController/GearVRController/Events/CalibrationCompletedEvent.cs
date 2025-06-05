@@ -1,4 +1,3 @@
-using GearVRController.Models;
 using GearVRController.ViewModels;
 using System;
 

@@ -1,5 +1,3 @@
-using System;
-using System.Runtime.InteropServices;
 using GearVRController.Enums;
 
 namespace GearVRController.Services.Interfaces
