@@ -24,6 +24,8 @@ namespace GearVRController.ViewModels
         private readonly IInputSimulator _inputSimulator;
         private readonly ISettingsService _settingsService;
         private readonly DispatcherQueue _dispatcherQueue;
+        private readonly TouchpadProcessor _touchpadProcessor;
+        private readonly IInputStateMonitorService _inputStateMonitorService;
         private bool _isConnected;
         private string _statusMessage = string.Empty;
         private ControllerData _lastControllerData = new ControllerData();
@@ -69,32 +71,12 @@ namespace GearVRController.ViewModels
             private set => SetProperty(ref _processedTouchpadY, value);
         }
 
-        // 添加蓝牙连接相关字段
-        private const int CONNECTION_CHECK_INTERVAL_MS = 5000; // 每5秒检查一次连接状态
-        private const int MAX_RECONNECT_ATTEMPTS = 3; // 最大重连次数
-        private const int RECONNECT_DELAY_MS = 2000; // 重连延迟时间
-        private DispatcherTimer? _connectionCheckTimer;
-        private ulong _lastConnectedDeviceAddress;
-        private int _reconnectAttempts;
-        private bool _isReconnecting;
-        private DateTime _lastConnectionAttempt = DateTime.MinValue;
-
-        // 添加按键状态监控字段
-        private bool _leftButtonPressed = false;
-        private bool _rightButtonPressed = false;
-        private DateTime _lastInputTime = DateTime.MinValue;
-        private const int INPUT_TIMEOUT_MS = 5000; // 5秒超时
-        private DispatcherTimer? _stateCheckTimer;
-
         private bool _isGestureMode;
         private GestureRecognizer _gestureRecognizer;
         private GestureAction _swipeUpAction = GestureAction.PageUp;
         private GestureAction _swipeDownAction = GestureAction.PageDown;
         private GestureAction _swipeLeftAction = GestureAction.BrowserBack;
         private GestureAction _swipeRightAction = GestureAction.BrowserForward;
-
-        // Add TouchpadProcessor field
-        private readonly TouchpadProcessor _touchpadProcessor;
 
         public event PropertyChangedEventHandler? PropertyChanged;
         public event EventHandler<ControllerData>? ControllerDataReceived;
@@ -107,6 +89,7 @@ namespace GearVRController.ViewModels
                 if (_isControlEnabled != value)
                 {
                     _isControlEnabled = value;
+                    _settingsService.IsControlEnabled = _isControlEnabled;
                     OnPropertyChanged();
                 }
             }
@@ -120,6 +103,7 @@ namespace GearVRController.ViewModels
                 if (_mouseSensitivity != value)
                 {
                     _mouseSensitivity = Math.Max(0.1, Math.Min(value, 2.0)); // 限制灵敏度范围在0.1到2.0之间
+                    _settingsService.MouseSensitivity = _mouseSensitivity;
                     OnPropertyChanged();
                 }
             }
@@ -133,6 +117,7 @@ namespace GearVRController.ViewModels
                 if (_isMouseEnabled != value)
                 {
                     _isMouseEnabled = value;
+                    _settingsService.IsMouseEnabled = _isMouseEnabled;
                     OnPropertyChanged();
                 }
             }
@@ -146,6 +131,7 @@ namespace GearVRController.ViewModels
                 if (_isKeyboardEnabled != value)
                 {
                     _isKeyboardEnabled = value;
+                    _settingsService.IsKeyboardEnabled = _isKeyboardEnabled;
                     OnPropertyChanged();
                 }
             }
@@ -159,6 +145,7 @@ namespace GearVRController.ViewModels
                 if (_useNaturalScrolling != value)
                 {
                     _useNaturalScrolling = value;
+                    _settingsService.UseNaturalScrolling = _useNaturalScrolling;
                     OnPropertyChanged();
                 }
             }
@@ -172,6 +159,7 @@ namespace GearVRController.ViewModels
                 if (_invertYAxis != value)
                 {
                     _invertYAxis = value;
+                    _settingsService.InvertYAxis = _invertYAxis;
                     OnPropertyChanged();
                 }
             }
@@ -272,6 +260,7 @@ namespace GearVRController.ViewModels
                 if (_enableSmoothing != value)
                 {
                     _enableSmoothing = value;
+                    _settingsService.EnableSmoothing = _enableSmoothing;
                     OnPropertyChanged();
                     if (!value)
                     {
@@ -289,6 +278,7 @@ namespace GearVRController.ViewModels
                 if (_smoothingLevel != value)
                 {
                     _smoothingLevel = Math.Max(1, Math.Min(value, 10));
+                    _settingsService.SmoothingLevel = _smoothingLevel;
                     OnPropertyChanged();
                     // 清空缓冲区以适应新的平滑等级
                 }
@@ -303,6 +293,7 @@ namespace GearVRController.ViewModels
                 if (_enableNonLinearCurve != value)
                 {
                     _enableNonLinearCurve = value;
+                    _settingsService.EnableNonLinearCurve = _enableNonLinearCurve;
                     OnPropertyChanged();
                 }
             }
@@ -316,6 +307,7 @@ namespace GearVRController.ViewModels
                 if (_nonLinearCurvePower != value)
                 {
                     _nonLinearCurvePower = Math.Max(1.0, Math.Min(value, 3.0));
+                    _settingsService.NonLinearCurvePower = _nonLinearCurvePower;
                     OnPropertyChanged();
                 }
             }
@@ -329,6 +321,7 @@ namespace GearVRController.ViewModels
                 if (_deadZone != value)
                 {
                     _deadZone = Math.Max(0.0, Math.Min(value, 20.0));
+                    _settingsService.DeadZone = _deadZone;
                     OnPropertyChanged();
                 }
             }
@@ -341,6 +334,7 @@ namespace GearVRController.ViewModels
             {
                 if (SetProperty(ref _isGestureMode, value))
                 {
+                    _settingsService.IsGestureMode = _isGestureMode;
                     OnPropertyChanged(nameof(IsRelativeMode));
                 }
             }
@@ -388,6 +382,7 @@ namespace GearVRController.ViewModels
                 if (_swipeUpAction != value)
                 {
                     _swipeUpAction = value;
+                    _settingsService.SwipeUpAction = _swipeUpAction;
                     OnPropertyChanged();
                 }
             }
@@ -401,6 +396,7 @@ namespace GearVRController.ViewModels
                 if (_swipeDownAction != value)
                 {
                     _swipeDownAction = value;
+                    _settingsService.SwipeDownAction = _swipeDownAction;
                     OnPropertyChanged();
                 }
             }
@@ -414,6 +410,7 @@ namespace GearVRController.ViewModels
                 if (_swipeLeftAction != value)
                 {
                     _swipeLeftAction = value;
+                    _settingsService.SwipeLeftAction = _swipeLeftAction;
                     OnPropertyChanged();
                 }
             }
@@ -427,6 +424,7 @@ namespace GearVRController.ViewModels
                 if (_swipeRightAction != value)
                 {
                     _swipeRightAction = value;
+                    _settingsService.SwipeRightAction = _swipeRightAction;
                     OnPropertyChanged();
                 }
             }
@@ -440,7 +438,8 @@ namespace GearVRController.ViewModels
             IInputSimulator inputSimulator,
             ISettingsService settingsService,
             DispatcherQueue dispatcherQueue,
-            TouchpadProcessor touchpadProcessor)
+            TouchpadProcessor touchpadProcessor,
+            IInputStateMonitorService inputStateMonitorService)
         {
             _bluetoothService = bluetoothService;
             _controllerService = controllerService;
@@ -448,122 +447,18 @@ namespace GearVRController.ViewModels
             _settingsService = settingsService;
             _dispatcherQueue = dispatcherQueue;
             _touchpadProcessor = touchpadProcessor;
+            _inputStateMonitorService = inputStateMonitorService;
 
             _bluetoothService.ConnectionStatusChanged += BluetoothService_ConnectionStatusChanged;
             _bluetoothService.DataReceived += BluetoothService_DataReceived;
             _controllerService.ControllerDataProcessed += (sender, data) => LastControllerData = data;
 
-            _gestureRecognizer = new GestureRecognizer(_settingsService.GestureConfig, _dispatcherQueue);
+            _gestureRecognizer = new GestureRecognizer(_settingsService, _dispatcherQueue);
             _gestureRecognizer.GestureDetected += OnGestureDetected;
 
             LoadSettings();
-            InitializeConnectionCheck();
-            InitializeStateCheck();
+            _inputStateMonitorService.Initialize(); // Initialize the input state monitor
             RegisterHotKeys();
-        }
-
-        private void InitializeConnectionCheck()
-        {
-            _connectionCheckTimer = new DispatcherTimer();
-            _connectionCheckTimer.Interval = TimeSpan.FromMilliseconds(CONNECTION_CHECK_INTERVAL_MS);
-            _connectionCheckTimer.Tick += ConnectionCheckTimer_Tick;
-            _connectionCheckTimer.Start();
-        }
-
-        private async void ConnectionCheckTimer_Tick(object? sender, object e)
-        {
-            if (!_isConnected && !_isConnecting && !_isReconnecting && _lastConnectedDeviceAddress != 0)
-            {
-                // 检查是否需要等待重连延迟
-                if ((DateTime.Now - _lastConnectionAttempt).TotalMilliseconds < RECONNECT_DELAY_MS)
-                {
-                    return;
-                }
-
-                // 检查重连次数是否超过限制
-                if (_reconnectAttempts >= MAX_RECONNECT_ATTEMPTS)
-                {
-                    StatusMessage = "重连次数超过限制，请手动重新连接";
-                    _connectionCheckTimer?.Stop();
-                    return;
-                }
-
-                await TryReconnectAsync();
-            }
-        }
-
-        private async Task TryReconnectAsync()
-        {
-            if (_isReconnecting) return;
-
-            _isReconnecting = true;
-            _reconnectAttempts++;
-            _lastConnectionAttempt = DateTime.Now;
-
-            try
-            {
-                StatusMessage = $"正在尝试重新连接... (第 {_reconnectAttempts} 次)";
-                await ConnectAsync(_lastConnectedDeviceAddress);
-            }
-            catch (Exception ex)
-            {
-                StatusMessage = $"重连失败: {ex.Message}";
-                System.Diagnostics.Debug.WriteLine($"重连失败: {ex}");
-            }
-            finally
-            {
-                _isReconnecting = false;
-            }
-        }
-
-        private void InitializeStateCheck()
-        {
-            _stateCheckTimer = new DispatcherTimer();
-            _stateCheckTimer.Interval = TimeSpan.FromSeconds(1);
-            _stateCheckTimer.Tick += (s, e) =>
-            {
-                MonitorInputState();
-            };
-            _stateCheckTimer.Start();
-        }
-
-        private void MonitorInputState()
-        {
-            try
-            {
-                var now = DateTime.Now;
-                if (_leftButtonPressed || _rightButtonPressed)
-                {
-                    if ((now - _lastInputTime).TotalMilliseconds > INPUT_TIMEOUT_MS)
-                    {
-                        System.Diagnostics.Debug.WriteLine("检测到按键可能卡住，强制释放");
-                        ForceReleaseAllButtons();
-                        _leftButtonPressed = false;
-                        _rightButtonPressed = false;
-                    }
-                }
-                _lastInputTime = now;
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"监控输入状态异常: {ex}");
-            }
-        }
-
-        private void ForceReleaseAllButtons()
-        {
-            try
-            {
-                var inputSimulator = (WindowsInputSimulator)_inputSimulator;
-                inputSimulator.SimulateMouseButtonEx(false, WindowsInputSimulator.MouseButtons.Left);
-                inputSimulator.SimulateMouseButtonEx(false, WindowsInputSimulator.MouseButtons.Right);
-                inputSimulator.SimulateMouseButtonEx(false, WindowsInputSimulator.MouseButtons.Middle);
-                System.Diagnostics.Debug.WriteLine("已强制释放所有按键");
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"强制释放按键异常: {ex}");
-            }
         }
 
         private async void LoadSettings()
@@ -610,15 +505,11 @@ namespace GearVRController.ViewModels
 
             IsConnecting = true;
             StatusMessage = "正在连接...";
-            _lastConnectedDeviceAddress = deviceAddress;
-            _lastConnectionAttempt = DateTime.Now;
 
             try
             {
                 await _bluetoothService.ConnectAsync(deviceAddress);
                 await _controllerService.InitializeAsync();
-                _reconnectAttempts = 0; // 连接成功后重置重连计数
-                _connectionCheckTimer?.Start(); // 确保定时器在连接成功后启动
             }
             catch (Exception ex)
             {
@@ -638,15 +529,10 @@ namespace GearVRController.ViewModels
             {
                 _bluetoothService.Disconnect();
                 StatusMessage = "已断开连接";
-                _lastConnectedDeviceAddress = 0;
-                _reconnectAttempts = 0;
-                _connectionCheckTimer?.Stop();
-                _stateCheckTimer?.Stop();
+                _inputStateMonitorService.StopMonitor(); // Stop the input state monitor
 
                 // 确保释放所有按键
-                ForceReleaseAllButtons();
-                _leftButtonPressed = false;
-                _rightButtonPressed = false;
+                _inputStateMonitorService.ForceReleaseAllButtons();
             }
             catch (Exception ex)
             {
@@ -666,9 +552,7 @@ namespace GearVRController.ViewModels
                 if (!IsConnected)
                 {
                     // 断开连接时，确保释放所有按键
-                    ForceReleaseAllButtons();
-                    _leftButtonPressed = false;
-                    _rightButtonPressed = false;
+                    _inputStateMonitorService.ForceReleaseAllButtons();
                     Debug.WriteLine("[MainViewModel] 检测到断开连接，已释放按键并清空缓冲区."); // 添加日志
                 }
 
@@ -676,22 +560,12 @@ namespace GearVRController.ViewModels
                 if (IsConnected)
                 {
                     StatusMessage = "已连接";
-                    _reconnectAttempts = 0;
-                    _connectionCheckTimer?.Start();
                     Debug.WriteLine("[MainViewModel] 状态消息已更新为: 已连接"); // 添加日志
                 }
                 else
                 {
-                    if (_isReconnecting)
-                    {
-                        StatusMessage = $"连接断开，正在尝试重新连接... (第 {_reconnectAttempts} 次)";
-                        Debug.WriteLine($"[MainViewModel] 状态消息已更新为: {StatusMessage}"); // 添加日志
-                    }
-                    else
-                    {
-                        StatusMessage = "连接已断开";
-                        Debug.WriteLine("[MainViewModel] 状态消息已更新为: 连接已断开"); // 添加日志
-                    }
+                    StatusMessage = "连接已断开，正在尝试重新连接..."; // Simplified status message
+                    Debug.WriteLine($"[MainViewModel] 状态消息已更新为: {StatusMessage}"); // 添加日志
                 }
 
                 UpdateControlState();
@@ -759,19 +633,7 @@ namespace GearVRController.ViewModels
                 if (IsMouseEnabled)
                 {
                     // 检测按键状态变化并更新状态
-                    if (data.TriggerButton != _rightButtonPressed)
-                    {
-                        _rightButtonPressed = data.TriggerButton;
-                        inputSimulator.SimulateMouseButtonEx(data.TriggerButton, WindowsInputSimulator.MouseButtons.Right);
-                        _lastInputTime = DateTime.Now;
-                    }
-
-                    if (data.TouchpadButton != _leftButtonPressed)
-                    {
-                        _leftButtonPressed = data.TouchpadButton;
-                        inputSimulator.SimulateMouseButtonEx(data.TouchpadButton, WindowsInputSimulator.MouseButtons.Left);
-                        _lastInputTime = DateTime.Now;
-                    }
+                    _inputStateMonitorService.UpdateInputState(data.TriggerButton, data.TouchpadButton, IsControlEnabled, _isCalibrating);
                 }
 
                 if (IsKeyboardEnabled)
@@ -800,9 +662,7 @@ namespace GearVRController.ViewModels
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"按键处理异常: {ex}");
-                ForceReleaseAllButtons();
-                _leftButtonPressed = false;
-                _rightButtonPressed = false;
+                _inputStateMonitorService.ForceReleaseAllButtons();
             }
         }
 
@@ -829,6 +689,7 @@ namespace GearVRController.ViewModels
         public void ToggleControl()
         {
             _isControlEnabled = !_isControlEnabled;
+            _settingsService.IsControlEnabled = _isControlEnabled;
             UpdateControlState();
             StatusMessage = _isControlEnabled ? "控制已启用" : "控制已禁用";
         }

@@ -35,9 +35,15 @@ namespace GearVRController.Services
         private const string CALIBRATION_MAX_Y_KEY = "CalibrationMaxY";
         private const string CALIBRATION_CENTER_X_KEY = "CalibrationCenterX";
         private const string CALIBRATION_CENTER_Y_KEY = "CalibrationCenterY";
-        // Directional calibration keys could be added here if needed, but for simplicity,
-        // we might only save min/max/center for basic processing or save the whole object serialized.
-        // Let's just save min/max/center for now as per the interface return type (TouchpadCalibrationData).
+
+        // Add keys for reconnection settings
+        private const string MAX_RECONNECT_ATTEMPTS_KEY = "MaxReconnectAttempts";
+        private const string RECONNECT_DELAY_MS_KEY = "ReconnectDelayMs";
+
+        // Add keys for ControllerService parameters
+        private const string MOUSE_SENSITIVITY_SCALING_FACTOR_KEY = "MouseSensitivityScalingFactor";
+        private const string MOVE_THRESHOLD_KEY = "MoveThreshold";
+        private const string TOUCH_THRESHOLD_KEY = "TouchThreshold";
 
         private readonly ApplicationDataContainer _localSettings;
 
@@ -173,6 +179,33 @@ namespace GearVRController.Services
             }
         }
 
+        // Implement reconnection settings properties
+        public int MaxReconnectAttempts
+        {
+            get => GetSetting(MAX_RECONNECT_ATTEMPTS_KEY, 3);
+        }
+
+        public int ReconnectDelayMs
+        {
+            get => GetSetting(RECONNECT_DELAY_MS_KEY, 2000);
+        }
+
+        // Implement ControllerService parameters
+        public double MouseSensitivityScalingFactor
+        {
+            get => GetSetting(MOUSE_SENSITIVITY_SCALING_FACTOR_KEY, 100.0);
+        }
+
+        public double MoveThreshold
+        {
+            get => GetSetting(MOVE_THRESHOLD_KEY, 0.005);
+        }
+
+        public int TouchThreshold
+        {
+            get => GetSetting(TOUCH_THRESHOLD_KEY, 10);
+        }
+
         public Task LoadSettingsAsync()
         {
             // 设置已经在属性访问器中加载
@@ -208,6 +241,15 @@ namespace GearVRController.Services
             SwipeLeftAction = GearVRController.Enums.GestureAction.BrowserBack;
             SwipeRightAction = GearVRController.Enums.GestureAction.BrowserForward;
 
+            // Reset reconnection settings
+            _localSettings.Values.Remove(MAX_RECONNECT_ATTEMPTS_KEY);
+            _localSettings.Values.Remove(RECONNECT_DELAY_MS_KEY);
+
+            // Reset ControllerService parameters
+            _localSettings.Values.Remove(MOUSE_SENSITIVITY_SCALING_FACTOR_KEY);
+            _localSettings.Values.Remove(MOVE_THRESHOLD_KEY);
+            _localSettings.Values.Remove(TOUCH_THRESHOLD_KEY);
+
             // Reset calibration data keys by removing them
             _localSettings.Values.Remove(CALIBRATION_MIN_X_KEY);
             _localSettings.Values.Remove(CALIBRATION_MAX_X_KEY);
@@ -219,10 +261,42 @@ namespace GearVRController.Services
 
         private void LoadDefaultSettings()
         {
-            if (!_localSettings.Values.ContainsKey(MOUSE_SENSITIVITY_KEY))
-            {
-                ResetToDefaults();
-            }
+            // Ensure all settings have a default value if not present
+            // This will ensure that new settings automatically get defaults
+            // when the app is run for the first time or after an update.
+
+            // Main settings
+            GetSetting(MOUSE_SENSITIVITY_KEY, 1.0);
+            GetSetting(IS_MOUSE_ENABLED_KEY, true);
+            GetSetting(IS_KEYBOARD_ENABLED_KEY, true);
+            GetSetting(IS_CONTROL_ENABLED_KEY, true);
+            GetSetting(USE_NATURAL_SCROLLING_KEY, false);
+            GetSetting(INVERT_Y_AXIS_KEY, true);
+            GetSetting(ENABLE_SMOOTHING_KEY, true);
+            GetSetting(SMOOTHING_LEVEL_KEY, 3);
+            GetSetting(ENABLE_NON_LINEAR_CURVE_KEY, true);
+            GetSetting(NON_LINEAR_CURVE_POWER_KEY, 1.5);
+            GetSetting(DEAD_ZONE_KEY, 8.0);
+
+            // Gesture settings
+            GetSetting(IS_GESTURE_MODE_KEY, false);
+            GetSetting(GESTURE_SENSITIVITY_KEY, 0.3f);
+            GetSetting(SHOW_GESTURE_HINTS_KEY, true);
+            GetSetting(SWIPE_UP_ACTION_KEY, (int)GearVRController.Enums.GestureAction.PageUp);
+            GetSetting(SWIPE_DOWN_ACTION_KEY, (int)GearVRController.Enums.GestureAction.PageDown);
+            GetSetting(SWIPE_LEFT_ACTION_KEY, (int)GearVRController.Enums.GestureAction.BrowserBack);
+            GetSetting(SWIPE_RIGHT_ACTION_KEY, (int)GearVRController.Enums.GestureAction.BrowserForward);
+
+            // Reconnection settings
+            GetSetting(MAX_RECONNECT_ATTEMPTS_KEY, 3);
+            GetSetting(RECONNECT_DELAY_MS_KEY, 2000);
+
+            // ControllerService parameters
+            GetSetting(MOUSE_SENSITIVITY_SCALING_FACTOR_KEY, 100.0);
+            GetSetting(MOVE_THRESHOLD_KEY, 0.005);
+            GetSetting(TOUCH_THRESHOLD_KEY, 10);
+
+            // Calibration settings are loaded separately by LoadCalibrationData
         }
 
         private T GetSetting<T>(string key, T defaultValue)

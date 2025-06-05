@@ -24,7 +24,7 @@ namespace GearVRController.Services
             {
                 var settingsService = serviceProvider.GetRequiredService<ISettingsService>();
                 var dispatcherQueue = serviceProvider.GetRequiredService<DispatcherQueue>();
-                return new GestureRecognizer(settingsService.GestureConfig, dispatcherQueue);
+                return new GestureRecognizer(settingsService, dispatcherQueue);
             });
 
             // 注册 DispatcherQueue

@@ -26,6 +26,14 @@ namespace GearVRController.Services.Interfaces
         GearVRController.Enums.GestureAction SwipeLeftAction { get; set; }
         GearVRController.Enums.GestureAction SwipeRightAction { get; set; }
         GearVRController.Models.GestureConfig GestureConfig { get; }
+        int MaxReconnectAttempts { get; }
+        int ReconnectDelayMs { get; }
+
+        // New configurable parameters for ControllerService
+        double MouseSensitivityScalingFactor { get; }
+        double MoveThreshold { get; }
+        int TouchThreshold { get; }
+
         void ResetToDefaults();
         Task SaveSettingsAsync();
         Task LoadSettingsAsync();

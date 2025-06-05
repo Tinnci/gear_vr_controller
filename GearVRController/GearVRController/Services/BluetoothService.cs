@@ -9,6 +9,7 @@ using GearVRController.Models;
 using System.Threading;
 using GearVRController.Services.Interfaces;
 using System.Diagnostics;
+using System.IO;
 
 namespace GearVRController.Services
 {
@@ -19,21 +20,54 @@ namespace GearVRController.Services
         private static readonly Guid CONTROLLER_SETUP_CHARACTERISTIC_UUID = new Guid("c8c51726-81bc-483b-a052-f7a14ea3d282");
         private static readonly Guid CONTROLLER_DATA_CHARACTERISTIC_UUID = new Guid("c8c51726-81bc-483b-a052-f7a14ea3d281");
 
+        // Controller Initialization Commands as Constants
+        private static readonly byte[] CMD_INIT_1 = new byte[] { 0x01, 0x00 };
+        private static readonly byte[] CMD_INIT_2 = new byte[] { 0x06, 0x00 };
+        private static readonly byte[] CMD_INIT_3 = new byte[] { 0x07, 0x00 };
+        private static readonly byte[] CMD_INIT_4 = new byte[] { 0x08, 0x00 };
+        private static readonly byte[] CMD_OPTIMIZE_CONNECTION = new byte[] { 0x0A, 0x02 };
+
+        // Define constants for data packet structure
+        private const int EXPECTED_PACKET_LENGTH = 60;
+        private const int TOUCHPAD_X_OFFSET = 54; // Assuming from previous code
+        private const int TOUCHPAD_Y_OFFSET = 56; // Assuming from previous code
+        private const int BATTERY_LEVEL_OFFSET = 1; // Example offset, verify with actual data spec
+        private const int BUTTON_STATE_OFFSET = 2; // Example offset, verify with actual data spec
+        private const int ACCEL_X_OFFSET = 6;
+        private const int ACCEL_Y_OFFSET = 8;
+        private const int ACCEL_Z_OFFSET = 10;
+        private const int GYRO_X_OFFSET = 12;
+        private const int GYRO_Y_OFFSET = 14;
+        private const int GYRO_Z_OFFSET = 16;
+
+        // Button bitmasks (example, verify with actual data spec)
+        private const byte TOUCHPAD_BUTTON_MASK = 0b00000001; // Example
+        private const byte HOME_BUTTON_MASK = 0b00000010;     // Example
+        private const byte TRIGGER_BUTTON_MASK = 0b00000100;  // Example
+        private const byte BACK_BUTTON_MASK = 0b00001000;     // Example
+        private const byte VOLUME_UP_BUTTON_MASK = 0b00010000;    // Example
+        private const byte VOLUME_DOWN_BUTTON_MASK = 0b00100000;  // Example
+
         private BluetoothLEDevice? _device;
         private GattCharacteristic? _setupCharacteristic;
         private GattCharacteristic? _dataCharacteristic;
         private ulong _lastConnectedAddress;
         private bool _isReconnecting;
         private readonly SemaphoreSlim _reconnectionSemaphore = new SemaphoreSlim(1, 1);
-        private const int MAX_RECONNECTION_ATTEMPTS = 3;
-        private const int RECONNECTION_DELAY_MS = 2000;
         private CancellationTokenSource? _connectionCts;
+
+        private readonly ISettingsService _settingsService;
 
         // 事件处理
         public event EventHandler<ControllerData>? DataReceived;
         public event EventHandler<BluetoothConnectionStatus>? ConnectionStatusChanged;
 
         public bool IsConnected => _device?.ConnectionStatus == BluetoothConnectionStatus.Connected;
+
+        public BluetoothService(ISettingsService settingsService)
+        {
+            _settingsService = settingsService;
+        }
 
         public async Task ConnectAsync(ulong bluetoothAddress, int timeoutMs = 10000)
         {
@@ -113,7 +147,7 @@ namespace GearVRController.Services
                 await _reconnectionSemaphore.WaitAsync();
                 _isReconnecting = true;
 
-                for (int attempt = 0; attempt < MAX_RECONNECTION_ATTEMPTS; attempt++)
+                for (int attempt = 0; attempt < _settingsService.MaxReconnectAttempts; attempt++)
                 {
                     try
                     {
@@ -125,14 +159,14 @@ namespace GearVRController.Services
                     catch (Exception ex)
                     {
                         System.Diagnostics.Debug.WriteLine($"[BluetoothService] 重新连接失败: {ex.Message}");
-                        if (attempt < MAX_RECONNECTION_ATTEMPTS - 1)
+                        if (attempt < _settingsService.MaxReconnectAttempts - 1)
                         {
-                            System.Diagnostics.Debug.WriteLine($"[BluetoothService] 等待 {RECONNECTION_DELAY_MS}ms 后再次尝试.");
-                            await Task.Delay(RECONNECTION_DELAY_MS);
+                            System.Diagnostics.Debug.WriteLine($"[BluetoothService] 等待 {_settingsService.ReconnectDelayMs}ms 后再次尝试.");
+                            await Task.Delay(_settingsService.ReconnectDelayMs);
                         }
                     }
                 }
-                System.Diagnostics.Debug.WriteLine($"[BluetoothService] 达到最大重连次数 ({MAX_RECONNECTION_ATTEMPTS})，停止重连.");
+                System.Diagnostics.Debug.WriteLine($"[BluetoothService] 达到最大重连次数 ({_settingsService.MaxReconnectAttempts})，停止重连.");
             }
             finally
             {
@@ -227,10 +261,10 @@ namespace GearVRController.Services
         private async Task InitializeControllerAsync()
         {
             // 发送初始化命令
-            await SendCommandAsync(new byte[] { 0x01, 0x00 }, repeat: 3);
-            await SendCommandAsync(new byte[] { 0x06, 0x00 }, repeat: 1);
-            await SendCommandAsync(new byte[] { 0x07, 0x00 }, repeat: 1);
-            await SendCommandAsync(new byte[] { 0x08, 0x00 }, repeat: 3);
+            await SendCommandAsync(CMD_INIT_1, repeat: 3);
+            await SendCommandAsync(CMD_INIT_2, repeat: 1);
+            await SendCommandAsync(CMD_INIT_3, repeat: 1);
+            await SendCommandAsync(CMD_INIT_4, repeat: 3);
 
             // 优化连接参数以降低延迟
             await OptimizeConnectionParametersAsync();
@@ -241,7 +275,7 @@ namespace GearVRController.Services
             try
             {
                 // 尝试设置最小连接间隔参数，降低延迟
-                await SendCommandAsync(new byte[] { 0x0A, 0x02 }, repeat: 1);
+                await SendCommandAsync(CMD_OPTIMIZE_CONNECTION, repeat: 1);
                 System.Diagnostics.Debug.WriteLine("已设置最小连接间隔，降低延迟");
             }
             catch (Exception ex)
@@ -283,121 +317,90 @@ namespace GearVRController.Services
 
         private void ProcessDataAsync(byte[] byteArray)
         {
-            var data = new ControllerData();
+            if (DataReceived == null) return;
 
-            // 添加数据长度检查和日志
-            if (byteArray.Length < 57) // 至少需要57字节来解析触摸板坐标
+            // Strengthen data packet length validation
+            if (byteArray.Length != EXPECTED_PACKET_LENGTH)
             {
-                System.Diagnostics.Debug.WriteLine($"收到的数据长度不足: {byteArray.Length} 字节，跳过处理.");
-                return; // 数据长度不足时直接返回
+                System.Diagnostics.Debug.WriteLine($"[BluetoothService] 收到非标准数据包，长度: {byteArray.Length}，预期长度: {EXPECTED_PACKET_LENGTH}");
+                return;
             }
 
             try
             {
-                // 解析触摸板数据 - 增加安全检查
-                if (byteArray.Length >= 57)
+                using (var stream = new MemoryStream(byteArray))
+                using (var reader = new BinaryReader(stream))
                 {
-                    try
-                    {
-                        // 解析原始值（0-1023范围）
-                        int rawAxisX = (((byteArray[54] & 0xF) << 6) + ((byteArray[55] & 0xFC) >> 2)) & 0x3FF;
-                        int rawAxisY = (((byteArray[55] & 0x3) << 8) + ((byteArray[56] & 0xFF) >> 0)) & 0x3FF;
+                    // Move to the offset where actual data begins if there's a header
+                    // For now, assuming data starts from beginning, adjust if needed.
 
-                        // 根据实际测量范围调整映射
-                        // 先直接记录原始值，便于观察实际范围
-                        data.AxisX = rawAxisX;
-                        data.AxisY = rawAxisY;
-                    }
-                    catch (Exception ex)
+                    // Example: Read battery level
+                    // reader.BaseStream.Seek(BATTERY_LEVEL_OFFSET, SeekOrigin.Begin);
+                    // byte batteryLevel = reader.ReadByte();
+
+                    // Example: Read button states
+                    reader.BaseStream.Seek(BUTTON_STATE_OFFSET, SeekOrigin.Begin);
+                    byte buttonStates = reader.ReadByte();
+
+                    bool touchpadButton = (buttonStates & TOUCHPAD_BUTTON_MASK) != 0;
+                    bool homeButton = (buttonStates & HOME_BUTTON_MASK) != 0;
+                    bool triggerButton = (buttonStates & TRIGGER_BUTTON_MASK) != 0;
+                    bool backButton = (buttonStates & BACK_BUTTON_MASK) != 0;
+                    bool volumeUpButton = (buttonStates & VOLUME_UP_BUTTON_MASK) != 0;
+                    bool volumeDownButton = (buttonStates & VOLUME_DOWN_BUTTON_MASK) != 0;
+
+                    // Read accelerometer data (assuming Int16)
+                    reader.BaseStream.Seek(ACCEL_X_OFFSET, SeekOrigin.Begin);
+                    short accelX = reader.ReadInt16();
+                    reader.BaseStream.Seek(ACCEL_Y_OFFSET, SeekOrigin.Begin);
+                    short accelY = reader.ReadInt16();
+                    reader.BaseStream.Seek(ACCEL_Z_OFFSET, SeekOrigin.Begin);
+                    short accelZ = reader.ReadInt16();
+
+                    // Read gyroscope data (assuming Int16)
+                    reader.BaseStream.Seek(GYRO_X_OFFSET, SeekOrigin.Begin);
+                    short gyroX = reader.ReadInt16();
+                    reader.BaseStream.Seek(GYRO_Y_OFFSET, SeekOrigin.Begin);
+                    short gyroY = reader.ReadInt16();
+                    reader.BaseStream.Seek(GYRO_Z_OFFSET, SeekOrigin.Begin);
+                    short gyroZ = reader.ReadInt16();
+
+                    // Read touchpad raw axis data (assuming Int16)
+                    reader.BaseStream.Seek(TOUCHPAD_X_OFFSET, SeekOrigin.Begin);
+                    short axisX = reader.ReadInt16();
+                    reader.BaseStream.Seek(TOUCHPAD_Y_OFFSET, SeekOrigin.Begin);
+                    short axisY = reader.ReadInt16();
+
+                    // Create ControllerData object
+                    var data = new ControllerData
                     {
-                        System.Diagnostics.Debug.WriteLine($"触摸板数据解析错误: {ex.Message}");
-                        // 设置默认值
-                        data.AxisX = 0;
-                        data.AxisY = 0;
-                    }
+                        // BatteryLevel = batteryLevel,
+                        TouchpadButton = touchpadButton,
+                        HomeButton = homeButton,
+                        TriggerButton = triggerButton,
+                        BackButton = backButton,
+                        VolumeUpButton = volumeUpButton,
+                        VolumeDownButton = volumeDownButton,
+                        AccelX = accelX,
+                        AccelY = accelY,
+                        AccelZ = accelZ,
+                        GyroX = gyroX,
+                        GyroY = gyroY,
+                        GyroZ = gyroZ,
+                        AxisX = axisX,
+                        AxisY = axisY
+                    };
+
+                    DataReceived?.Invoke(this, data);
                 }
-
-                // 确保其他数据索引也在有效范围内
-                if (byteArray.Length >= 16) // 加速度计和陀螺仪数据
-                {
-                    try
-                    {
-                        // 使用short类型进行转换，避免溢出
-                        short accelXRaw = (short)((byteArray[4] << 8) | byteArray[5]);
-                        short accelYRaw = (short)((byteArray[6] << 8) | byteArray[7]);
-                        short accelZRaw = (short)((byteArray[8] << 8) | byteArray[9]);
-                        short gyroXRaw = (short)((byteArray[10] << 8) | byteArray[11]);
-                        short gyroYRaw = (short)((byteArray[12] << 8) | byteArray[13]);
-                        short gyroZRaw = (short)((byteArray[14] << 8) | byteArray[15]);
-
-                        // 转换为物理单位
-                        data.AccelX = accelXRaw * 9.80665f / 2048.0f;
-                        data.AccelY = accelYRaw * 9.80665f / 2048.0f;
-                        data.AccelZ = accelZRaw * 9.80665f / 2048.0f;
-                        data.GyroX = gyroXRaw * 0.017453292f / 14.285f;
-                        data.GyroY = gyroYRaw * 0.017453292f / 14.285f;
-                        data.GyroZ = gyroZRaw * 0.017453292f / 14.285f;
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"IMU数据解析错误: {ex.Message}");
-                    }
-                }
-
-                if (byteArray.Length >= 38) // 磁力计数据
-                {
-                    try
-                    {
-                        short magXRaw = (short)((byteArray[32] << 8) | byteArray[33]);
-                        short magYRaw = (short)((byteArray[34] << 8) | byteArray[35]);
-                        short magZRaw = (short)((byteArray[36] << 8) | byteArray[37]);
-
-                        data.MagnetX = (int)(magXRaw * 0.06);
-                        data.MagnetY = (int)(magYRaw * 0.06);
-                        data.MagnetZ = (int)(magZRaw * 0.06);
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"磁力计数据解析错误: {ex.Message}");
-                    }
-                }
-
-                // 尝试解析按钮状态，即使长度不足59，也不应阻止解析触摸状态
-                if (byteArray.Length >= 59)
-                {
-                    try
-                    {
-                        byte buttonState = byteArray[58];
-                        data.TriggerButton = (buttonState & 1) == 1;
-                        data.HomeButton = (buttonState & 2) == 2;
-                        data.BackButton = (buttonState & 4) == 4;
-                        data.TouchpadButton = (buttonState & 8) == 8;
-                        data.VolumeUpButton = (buttonState & 16) == 16;
-                        data.VolumeDownButton = (buttonState & 32) == 32;
-                        data.NoButton = (buttonState & 64) == 64;
-                        // 不在这里设置 TouchpadTouched
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"按钮状态解析错误: {ex.Message}");
-                    }
-                }
-                else
-                {
-                    System.Diagnostics.Debug.WriteLine($"数据长度不足 ({byteArray.Length})，无法解析完整按钮状态.");
-                }
-
-                // 在这里根据 AxisX 和 AxisY 的值判断逻辑上的触摸状态
-                // 这确保了即使按钮状态无法解析，触摸状态也能根据坐标反映
-                data.TouchpadTouched = data.AxisX != 0 || data.AxisY != 0;
-
-                // 只有当数据包长度足够解析至少触摸板坐标时才触发事件
-                // 频繁发送不完整数据可能会导致性能问题，但为了诊断先保留
-                DataReceived?.Invoke(this, data);
+            }
+            catch (EndOfStreamException ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BluetoothService] 数据包不完整，无法解析: {ex.Message}");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"数据解析错误: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[BluetoothService] 解析数据包时发生错误: {ex.Message}");
             }
         }
 

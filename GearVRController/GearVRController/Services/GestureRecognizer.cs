@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using GearVRController.Enums;
 using GearVRController.Models;
 using Microsoft.UI.Dispatching;
+using GearVRController.Services.Interfaces;
 
 namespace GearVRController.Services
 {
@@ -19,9 +20,9 @@ namespace GearVRController.Services
 
         public event EventHandler<GestureDirection>? GestureDetected;
 
-        public GestureRecognizer(GestureConfig gestureConfig, DispatcherQueue dispatcherQueue)
+        public GestureRecognizer(ISettingsService settingsService, DispatcherQueue dispatcherQueue)
         {
-            _gestureConfig = gestureConfig;
+            _gestureConfig = settingsService.GestureConfig;
             _dispatcherQueue = dispatcherQueue;
             _isGestureInProgress = false;
         }

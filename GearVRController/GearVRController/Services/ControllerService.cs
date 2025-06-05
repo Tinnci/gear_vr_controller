@@ -17,8 +17,6 @@ namespace GearVRController.Services
         private double _lastTouchpadProcessedX = 0;
         private double _lastTouchpadProcessedY = 0;
 
-        private const double MOUSE_SENSITIVITY_SCALING_FACTOR = 100.0;
-
         public event EventHandler<ControllerData>? ControllerDataProcessed;
 
         public ControllerService(IBluetoothService bluetoothService, ISettingsService settingsService, TouchpadProcessor touchpadProcessor, IInputSimulator inputSimulator, GestureRecognizer gestureRecognizer)
@@ -114,15 +112,14 @@ namespace GearVRController.Services
                     // 根据增量、灵敏度和缩放因子计算鼠标移动量
                     // 缩放因子需要调整以获得合适的移动速度，可能需要根据实际测试来确定。
                     // 一个小的缩放因子可能更合适，因为deltaX/Y是-2到2之间的变化。
-                    double mouseDeltaX = deltaX * _settingsService.MouseSensitivity * MOUSE_SENSITIVITY_SCALING_FACTOR;
-                    double mouseDeltaY = deltaY * _settingsService.MouseSensitivity * MOUSE_SENSITIVITY_SCALING_FACTOR;
+                    double mouseDeltaX = deltaX * _settingsService.MouseSensitivity * _settingsService.MouseSensitivityScalingFactor;
+                    double mouseDeltaY = deltaY * _settingsService.MouseSensitivity * _settingsService.MouseSensitivityScalingFactor;
 
                     System.Diagnostics.Debug.WriteLine($"[ControllerService] 触摸持续: rawX={{data.AxisX}}, rawY={{data.AxisY}}, processedX={{processedX:F2}}, processedY={{processedY:F2}}, deltaX={{deltaX:F2}}, deltaY={{deltaY:F2}}, mouseDeltaX={{mouseDeltaX:F2}}, mouseDeltaY={{mouseDeltaY:F2}}");
 
                     // 模拟鼠标移动
                     // 增加一个小的阈值，避免微小移动导致的抖动
-                    const double MOVE_THRESHOLD = 0.005; // 示例阈值
-                    if (Math.Abs(mouseDeltaX) > MOVE_THRESHOLD || Math.Abs(mouseDeltaY) > MOVE_THRESHOLD)
+                    if (Math.Abs(mouseDeltaX) > _settingsService.MoveThreshold || Math.Abs(mouseDeltaY) > _settingsService.MoveThreshold)
                     {
                         _inputSimulator.SimulateMouseMovement(mouseDeltaX, mouseDeltaY);
                         System.Diagnostics.Debug.WriteLine($"[ControllerService] 模拟鼠标移动: DeltaX={{mouseDeltaX:F2}}, DeltaY={{mouseDeltaY:F2}}");
@@ -143,12 +140,12 @@ namespace GearVRController.Services
 
         private bool ValidateControllerData(ControllerData data)
         {
-            // 临时关闭范围检查，以便观察实际的触摸板数据范围
             // 检查触摸板数据范围（使用原始值范围0-1023）
             if (data.AxisX < 0 || data.AxisX > 1023 || data.AxisY < 0 || data.AxisY > 1023)
             {
                 System.Diagnostics.Debug.WriteLine($"[警告] 触摸板数据超出预期范围: X={data.AxisX}, Y={data.AxisY}");
-                // 不返回false，继续处理
+                // 不返回false，继续处理，因为有时数据可能暂时超出范围，但仍需处理
+                // 如果需要严格的过滤，这里可以返回false
             }
 
             // 检查加速度计数据
@@ -176,10 +173,9 @@ namespace GearVRController.Services
 
             // 处理触摸状态 - 更新判断逻辑，避免误判
             // 注意：当AxisX和AxisY都很小（接近零）且TouchpadButton为false时，认为没有触摸
-            const int TOUCH_THRESHOLD = 10; // 小于这个阈值且没有按下TouchpadButton时，认为是误差，没有触摸
             System.Diagnostics.Debug.WriteLine($"[ControllerService] ProcessControllerData: Raw AxisX={{data.AxisX}}, AxisY={{data.AxisY}}, TouchpadButton={{data.TouchpadButton}}");
             data.TouchpadTouched = data.TouchpadButton ||
-                                  (Math.Abs(data.AxisX) > TOUCH_THRESHOLD || Math.Abs(data.AxisY) > TOUCH_THRESHOLD);
+                                  (Math.Abs(data.AxisX) > _settingsService.TouchThreshold || Math.Abs(data.AxisY) > _settingsService.TouchThreshold);
             System.Diagnostics.Debug.WriteLine($"[ControllerService] ProcessControllerData: Calculated TouchpadTouched={{data.TouchpadTouched}}");
 
             // 处理按钮状态

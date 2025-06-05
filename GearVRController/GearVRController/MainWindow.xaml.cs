@@ -20,6 +20,7 @@ using EnumsNS = GearVRController.Enums; // 添加命名空间别名
 using Microsoft.UI.Windowing;
 using Microsoft.UI;
 using Windows.Graphics;
+using Microsoft.Extensions.DependencyInjection;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -36,13 +37,9 @@ namespace GearVRController
         private Views.TouchpadVisualizerWindow? _touchpadVisualizerWindow;
         private AppWindow _appWindow;
 
-        public MainWindow()
+        public MainWindow(MainViewModel viewModel)
         {
-            // 初始化服务定位器
-            ServiceLocator.Initialize();
-
-            // 获取ViewModel实例
-            ViewModel = ServiceLocator.GetService<MainViewModel>();
+            ViewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
 
             this.InitializeComponent();
 
@@ -80,14 +77,15 @@ namespace GearVRController
                 try
                 {
                     // Pass processed coordinates to the visualizer
-                    _touchpadVisualizerWindow.ProcessTouchpadData(processedX, processedY, data.TouchpadButton, ViewModel.LastGesture);
+                    _touchpadVisualizerWindow.UpdateTouchpadVisualization(processedX, processedY, data.TouchpadButton, ViewModel.LastGesture);
                 }
                 catch (Exception ex)
                 {
-                    // 如果ProcessTouchpadData方法不存在或出错，尝试使用UpdateTouchpadData方法
+                    // If ProcessTouchpadData method doesn't exist or errors, try to use UpdateTouchpadData method
                     System.Diagnostics.Debug.WriteLine($"触摸板可视化数据发送错误: {ex.Message}");
-                    // Pass processed coordinates to the visualizer
-                    _touchpadVisualizerWindow.UpdateTouchpadData(processedX, processedY, data.TouchpadButton, ViewModel.LastGesture);
+                    // The redundant UpdateTouchpadData method has been removed, so this catch block can be simplified or removed if not needed for other errors.
+                    // For now, I'll remove the problematic line.
+                    // _touchpadVisualizerWindow.UpdateTouchpadData(processedX, processedY, data.TouchpadButton, ViewModel.LastGesture);
                 }
             }
         }
@@ -159,7 +157,10 @@ namespace GearVRController
                 _calibrationWindow.Close();
             }
 
-            _calibrationWindow = new TouchpadCalibrationWindow();
+            // Get TouchpadCalibrationViewModel from DI
+            var calibrationViewModel = App.ServiceProvider!.GetRequiredService<TouchpadCalibrationViewModel>();
+            _calibrationWindow = new TouchpadCalibrationWindow(calibrationViewModel); // Pass ViewModel to the window
+
             _calibrationWindow.CalibrationCompleted += (s, data) =>
             {
                 ViewModel.ApplyCalibrationData(data);
@@ -186,8 +187,10 @@ namespace GearVRController
                 return;
             }
 
-            // 创建新的触摸板可视化窗口
-            _touchpadVisualizerWindow = new Views.TouchpadVisualizerWindow();
+            // 创建新的触摸板可视化窗口 (assuming it takes MainViewModel or relevant data)
+            // For simplicity, directly pass the view model data it needs, or if it has its own view model, resolve it.
+            // Given it's just for visualization, it might not need its own complex VM, but let's pass the relevant data.
+            _touchpadVisualizerWindow = new Views.TouchpadVisualizerWindow(ViewModel); // Pass MainViewModel for data access
             _touchpadVisualizerWindow.Closed += (s, e) =>
             {
                 _touchpadVisualizerWindow = null;

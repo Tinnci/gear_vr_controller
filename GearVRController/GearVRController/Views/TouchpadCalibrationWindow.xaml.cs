@@ -12,14 +12,12 @@ namespace GearVRController.Views
     {
         private readonly TouchpadCalibrationViewModel _viewModel;
         private readonly DispatcherQueue _dispatcherQueue;
-        private readonly MainViewModel _mainViewModel;
 
-        public TouchpadCalibrationWindow()
+        public TouchpadCalibrationWindow(TouchpadCalibrationViewModel viewModel)
         {
             this.InitializeComponent();
-            _viewModel = new TouchpadCalibrationViewModel();
+            _viewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
             _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
-            _mainViewModel = ServiceLocator.GetService<MainViewModel>();
 
             if (Content is FrameworkElement rootElement)
             {

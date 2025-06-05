@@ -13,13 +13,13 @@ using System.Diagnostics;
 using Microsoft.UI.Xaml.Media.Animation;
 using Windows.UI;
 using EnumsNS = GearVRController.Enums;
+using GearVRController.ViewModels;
 
 namespace GearVRController.Views
 {
     public sealed partial class TouchpadVisualizerWindow : Window
     {
-        private readonly List<TouchpadPoint> _touchpadHistory = new List<TouchpadPoint>();
-        private const int MAX_HISTORY_POINTS = 100;
+        private readonly MainViewModel _viewModel;
         private bool _showTrail = true;
         private double _canvasWidth;
         private double _canvasHeight;
@@ -54,9 +54,11 @@ namespace GearVRController.Views
         // 添加一个属性来初始化和获取手势指示器
         private UIElement? GestureIndicator => _gestureIndicator ??= CreateGestureIndicator(EnumsNS.TouchpadGesture.None);
 
-        public TouchpadVisualizerWindow()
+        public TouchpadVisualizerWindow(MainViewModel viewModel)
         {
             this.InitializeComponent();
+
+            _viewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
 
             // 获取当前线程的调度器队列
             _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
@@ -104,6 +106,30 @@ namespace GearVRController.Views
 
             // 窗口大小改变时更新UI - 使用Window对应的事件类型
             this.AppWindow.Changed += AppWindow_Changed;
+
+            // Subscribe to ViewModel's PropertyChanged event for visualization updates
+            _viewModel.PropertyChanged += ViewModel_PropertyChanged;
+        }
+
+        private void ViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            // Only update visualization if relevant properties change
+            if (e.PropertyName == nameof(MainViewModel.ProcessedTouchpadX) ||
+                e.PropertyName == nameof(MainViewModel.ProcessedTouchpadY) ||
+                e.PropertyName == nameof(MainViewModel.LastControllerData) || // For touchpad button state
+                e.PropertyName == nameof(MainViewModel.LastGesture) ||
+                e.PropertyName == nameof(MainViewModel.TouchpadHistory)) // For trail drawing
+            {
+                _dispatcherQueue.TryEnqueue(() =>
+                {
+                    UpdateTouchpadVisualization(
+                        _viewModel.ProcessedTouchpadX,
+                        _viewModel.ProcessedTouchpadY,
+                        _viewModel.LastControllerData.TouchpadButton, // Use LastControllerData for button state
+                        _viewModel.LastGesture
+                    );
+                });
+            }
         }
 
         private void TouchpadVisualizerWindow_Activated(object sender, WindowActivatedEventArgs args)
@@ -274,79 +300,53 @@ namespace GearVRController.Views
         /// <summary>
         /// 处理触摸板数据
         /// </summary>
-        public void ProcessTouchpadData(double normalizedX, double normalizedY, bool isPressed, EnumsNS.TouchpadGesture gesture)
+        public void UpdateTouchpadVisualization(double normalizedX, double normalizedY, bool isPressed, EnumsNS.TouchpadGesture gesture)
         {
-            _dispatcherQueue.TryEnqueue(() =>
-            {
-                // Remove redundant data processing
-                double processedX = normalizedX;
-                double processedY = normalizedY;
+            // This method will now be called by the ViewModel's PropertyChanged event
+            // It should directly read from ViewModel's properties
+            _currentX = normalizedX; // _viewModel.ProcessedTouchpadX;
+            _currentY = normalizedY; // _viewModel.ProcessedTouchpadY;
+            _isTouching = isPressed; // _viewModel.LastControllerData.TouchpadButton;
 
-                // 记录历史 (Keep history recording as it's for visualization)
-                var point = new TouchpadPoint((float)processedX, (float)processedY, isPressed);
-                _touchpadHistory.Add(point);
+            // Update visibility of touch point and line
+            _touchPoint.Visibility = _isTouching ? Visibility.Visible : Visibility.Collapsed;
+            _touchLine.Visibility = _isTouching ? Visibility.Visible : Visibility.Collapsed;
+            _coordsText.Visibility = Visibility.Visible;
 
-                // 维持最大历史点数
-                while (_touchpadHistory.Count > MAX_HISTORY_POINTS)
-                {
-                    _touchpadHistory.RemoveAt(0);
-                }
+            // Scale raw data (0-1023) to canvas size (200x200)
+            double canvasWidth = TouchpadCanvas.ActualWidth;
+            double canvasHeight = TouchpadCanvas.ActualHeight;
+            const double rawRange = 1023.0; // Assuming 0-1023 as the full raw range
 
-                // 更新UI (Pass processedX, processedY, isPressed, and gesture received from MainViewModel)
-                UpdateTouchpadVisualization(processedX, processedY, isPressed, gesture);
+            double scaleX = canvasWidth / rawRange;
+            double scaleY = canvasHeight / rawRange;
 
-                // Update status text based on received data and gesture
-                XValueText.Text = processedX.ToString("F2");
-                YValueText.Text = processedY.ToString("F2");
-                PressedStateText.Text = isPressed ? "已按下" : "未按下";
-                GestureText.Text = GetGestureText(gesture);
+            // Update touch point position
+            double displayX = _currentX * scaleX;
+            double displayY = _currentY * scaleY;
 
-                // Debug.WriteLine($"触摸板数据更新: X={processedX:F2}, Y={processedY:F2}, 按下={isPressed}, 手势={gesture}");
-            });
-        }
+            // Adjust for center of the ellipse
+            Canvas.SetLeft(_touchPoint, displayX - _touchPoint.Width / 2);
+            Canvas.SetTop(_touchPoint, displayY - _touchPoint.Height / 2);
 
-        /// <summary>
-        /// 更新触摸板可视化
-        /// </summary>
-        private void UpdateTouchpadVisualization(double normalizedX, double normalizedY, bool isPressed, EnumsNS.TouchpadGesture gesture)
-        {
-            if (_canvasWidth <= 0 || _canvasHeight <= 0)
-                return;
+            // Update line from center to touch point
+            _touchLine.X1 = canvasWidth / 2;
+            _touchLine.Y1 = canvasHeight / 2;
+            _touchLine.X2 = displayX;
+            _touchLine.Y2 = displayY;
 
-            // 转换为画布坐标
-            double x = _center.X + normalizedX * _radius;
-            double y = _center.Y + normalizedY * _radius;
+            // Update coordinate text
+            _coordsText.Text = $"X: {normalizedX:F0}, Y: {normalizedY:F0}";
+            Canvas.SetLeft(_coordsText, displayX + 15);
+            Canvas.SetTop(_coordsText, displayY - 15);
 
-            // 更新触摸点
-            _touchPoint.Fill = new SolidColorBrush(isPressed ? Colors.Red : Colors.Blue);
-            _touchPoint.Width = isPressed ? 20 : 16;
-            _touchPoint.Height = isPressed ? 20 : 16;
+            // Draw the trail using data from ViewModel's history
+            DrawTrail();
 
-            Canvas.SetLeft(_touchPoint, x - _touchPoint.Width / 2);
-            Canvas.SetTop(_touchPoint, y - _touchPoint.Height / 2);
-            _touchPoint.Visibility = Visibility.Visible;
+            // Update gesture indicator
+            UpdateGestureIndicator(gesture); // Use gesture from ViewModel
 
-            // 更新连线
-            _touchLine.X1 = _center.X;
-            _touchLine.Y1 = _center.Y;
-            _touchLine.X2 = x;
-            _touchLine.Y2 = y;
-            _touchLine.Visibility = (normalizedX != 0 || normalizedY != 0) ? Visibility.Visible : Visibility.Collapsed;
-
-            // 更新坐标文本
-            _coordsText.Text = $"({normalizedX:F2}, {normalizedY:F2})";
-            Canvas.SetLeft(_coordsText, x - _coordsText.ActualWidth / 2);
-            Canvas.SetTop(_coordsText, y + 15);
-            _coordsText.Visibility = (normalizedX != 0 || normalizedY != 0) ? Visibility.Visible : Visibility.Collapsed;
-
-            // 更新轨迹
-            if (_showTrail)
-            {
-                DrawTrail();
-            }
-
-            // 更新手势指示器
-            UpdateGestureIndicator(gesture);
+            UpdateGestureInfo(gesture);
         }
 
         /// <summary>
@@ -354,44 +354,45 @@ namespace GearVRController.Views
         /// </summary>
         private void DrawTrail()
         {
-            // 清除旧的轨迹
+            // Remove old trail elements
             foreach (var element in _trailElements)
             {
                 TouchpadCanvas.Children.Remove(element);
             }
             _trailElements.Clear();
 
-            if (_touchpadHistory.Count < 2)
-                return;
+            // Get history from ViewModel
+            var history = _viewModel.TouchpadHistory;
 
-            // 绘制新轨迹
-            for (int i = 1; i < _touchpadHistory.Count; i++)
+            if (!_showTrail || history.Count == 0) return;
+
+            double canvasWidth = TouchpadCanvas.ActualWidth;
+            double canvasHeight = TouchpadCanvas.ActualHeight;
+            const double rawRange = 1023.0;
+            double scaleX = canvasWidth / rawRange;
+            double scaleY = canvasHeight / rawRange;
+
+            // Draw new trail elements
+            for (int i = 0; i < history.Count; i++)
             {
-                var prev = _touchpadHistory[i - 1];
-                var curr = _touchpadHistory[i];
-
-                // 如果中间有断点，不连接
-                if ((DateTime.Now - curr.Timestamp).TotalSeconds > 1)
-                    continue;
-
-                double prevX = _center.X + prev.X * _radius;
-                double prevY = _center.Y + prev.Y * _radius;
-                double currX = _center.X + curr.X * _radius;
-                double currY = _center.Y + curr.Y * _radius;
-
-                var line = new Line
+                var point = history[i];
+                var ellipse = new Ellipse
                 {
-                    X1 = prevX,
-                    Y1 = prevY,
-                    X2 = currX,
-                    Y2 = currY,
-                    Stroke = new SolidColorBrush(Colors.Blue),
-                    StrokeThickness = 2,
-                    Opacity = 0.5
+                    Width = 6,
+                    Height = 6,
+                    Fill = new SolidColorBrush(Color.FromArgb(128, 0, 0, 255)), // 半透明蓝色
+                    IsHitTestVisible = false // 不参与点击测试
                 };
 
-                TouchpadCanvas.Children.Add(line);
-                _trailElements.Add(line);
+                // 根据点在历史中的位置调整透明度
+                double opacity = (double)(i + 1) / history.Count; // 越新的点越不透明
+                ellipse.Opacity = opacity;
+
+                Canvas.SetLeft(ellipse, point.X * scaleX - ellipse.Width / 2);
+                Canvas.SetTop(ellipse, point.Y * scaleY - ellipse.Height / 2);
+
+                TouchpadCanvas.Children.Add(ellipse);
+                _trailElements.Add(ellipse);
             }
         }
 
@@ -538,28 +539,15 @@ namespace GearVRController.Views
         /// </summary>
         public void ClearHistory()
         {
-            _touchpadHistory.Clear();
-
-            // 更新UI
-            _dispatcherQueue.TryEnqueue(() =>
+            // Clear history in ViewModel
+            _viewModel.ClearTouchpadHistory();
+            // Clear visual trail
+            foreach (var element in _trailElements)
             {
-                // 清除轨迹
-                foreach (var element in _trailElements)
-                {
-                    TouchpadCanvas.Children.Remove(element);
-                }
-                _trailElements.Clear();
-
-                // 清除手势指示器
-                if (_gestureIndicator != null)
-                {
-                    TouchpadCanvas.Children.Remove(_gestureIndicator);
-                    _gestureIndicator = null;
-                }
-
-                // 重置状态文本
-                GestureText.Text = "无";
-            });
+                TouchpadCanvas.Children.Remove(element);
+            }
+            _trailElements.Clear();
+            UpdateGestureInfo(EnumsNS.TouchpadGesture.None);
         }
 
         /// <summary>
@@ -624,101 +612,6 @@ namespace GearVRController.Views
         private void CloseButton_Click(object sender, RoutedEventArgs e)
         {
             this.Close();
-        }
-
-        /// <summary>
-        /// 更新触摸板数据并刷新显示
-        /// </summary>
-        public void UpdateTouchpadData(double normalizedX, double normalizedY, bool isTouching, EnumsNS.TouchpadGesture gesture)
-        {
-            DispatcherQueue.TryEnqueue(() =>
-            {
-                // No need to check or transform raw values here, they are already processed
-                double processedX = normalizedX;
-                double processedY = normalizedY;
-
-                _currentX = processedX;
-                _currentY = processedY;
-                _isTouching = isTouching;
-
-                // Pass the received gesture to UpdateVisualization
-                UpdateVisualization(gesture);
-            });
-        }
-
-        private void UpdateVisualization(EnumsNS.TouchpadGesture gesture)
-        {
-            // Check for valid dimensions
-            if (_touchpadSize <= 0 || TouchpadCanvas.ActualWidth <= 0 || TouchpadCanvas.ActualHeight <= 0)
-                return;
-
-            // 计算触摸点在画布上的位置
-            double canvasCenterX = TouchpadCanvas.ActualWidth / 2;
-            double canvasCenterY = TouchpadCanvas.ActualHeight / 2;
-
-            double pointRadius = _touchpadSize / 2;
-            double pointX = canvasCenterX + (_currentX * pointRadius);
-            double pointY = canvasCenterY - (_currentY * pointRadius); // Y轴向上为正
-
-            // 更新触摸点位置
-            TouchPoint.Margin = new Thickness(pointX - TouchPoint.Width / 2, pointY - TouchPoint.Height / 2, 0, 0);
-
-            // 更新触摸点可见性
-            TouchPoint.Visibility = _isTouching ? Visibility.Visible : Visibility.Collapsed;
-
-            // 如果正在触摸，添加历史轨迹点
-            if (_isTouching)
-            {
-                AddHistoryPoint(pointX, pointY);
-            }
-
-            // 更新信息文本
-            TouchpadInfoText.Text = _isTouching
-                ? $"触摸位置: X={_currentX:F2}, Y={_currentY:F2}"
-                : "未检测到触摸";
-
-            // Update gesture text - use the received gesture directly
-            UpdateGestureInfo(gesture);
-        }
-
-        private void AddHistoryPoint(double x, double y)
-        {
-            // 创建一个新的历史点
-            var historyPoint = new Ellipse
-            {
-                Width = 8,
-                Height = 8,
-                Fill = new SolidColorBrush(Colors.Blue),
-                Opacity = 0.5,
-                Margin = new Thickness(x - 4, y - 4, 0, 0)
-            };
-
-            // 添加到历史轨迹集合
-            _historyPoints.Add(historyPoint);
-            HistoryCanvas.Children.Add(historyPoint);
-
-            // 创建淡出动画
-            var fadeAnimation = new DoubleAnimation
-            {
-                From = 0.5,
-                To = 0.1,
-                Duration = new Duration(TimeSpan.FromSeconds(1))
-            };
-
-            Storyboard.SetTarget(fadeAnimation, historyPoint);
-            Storyboard.SetTargetProperty(fadeAnimation, "Opacity");
-
-            var storyboard = new Storyboard();
-            storyboard.Children.Add(fadeAnimation);
-            storyboard.Begin();
-
-            // 限制历史轨迹点的数量
-            if (_historyPoints.Count > MaxHistoryPoints)
-            {
-                var oldestPoint = _historyPoints[0];
-                _historyPoints.RemoveAt(0);
-                HistoryCanvas.Children.Remove(oldestPoint);
-            }
         }
 
         /// <summary>
