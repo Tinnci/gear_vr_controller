@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using GearVRController.Enums;
 using GearVRController.Models;
+using Microsoft.UI.Dispatching;
 
 namespace GearVRController.Services
 {
@@ -10,22 +11,24 @@ namespace GearVRController.Services
         private const int GESTURE_SAMPLE_COUNT = 5;
         private const float MIN_GESTURE_DISTANCE = 0.2f;
 
-        private float _sensitivity;
+        private GestureConfig _gestureConfig;
+        private readonly DispatcherQueue _dispatcherQueue;
         private readonly Queue<TouchpadPoint> _points = new();
         private TouchpadPoint? _gestureStartPoint;
         private bool _isGestureInProgress;
 
         public event EventHandler<GestureDirection>? GestureDetected;
 
-        public GestureRecognizer(float sensitivity = 0.3f)
+        public GestureRecognizer(GestureConfig gestureConfig, DispatcherQueue dispatcherQueue)
         {
-            _sensitivity = Math.Max(0.1f, Math.Min(sensitivity, 1.0f));
+            _gestureConfig = gestureConfig;
+            _dispatcherQueue = dispatcherQueue;
             _isGestureInProgress = false;
         }
 
-        public void SetSensitivity(float sensitivity)
+        public void UpdateGestureConfig(GestureConfig gestureConfig)
         {
-            _sensitivity = Math.Clamp(sensitivity, 0.1f, 1.0f);
+            _gestureConfig = gestureConfig;
         }
 
         public void ProcessTouchpadPoint(TouchpadPoint point)
@@ -76,7 +79,7 @@ namespace GearVRController.Services
                 if (direction != GestureDirection.None)
                 {
                     System.Diagnostics.Debug.WriteLine($"[GestureRecognizer] EndGesture: Gesture detected: {{direction}}");
-                    GestureDetected?.Invoke(this, direction);
+                    _dispatcherQueue.TryEnqueue(() => GestureDetected?.Invoke(this, direction));
                 }
                 else
                 {
@@ -101,7 +104,7 @@ namespace GearVRController.Services
             float dy = endPoint.Y - startPoint.Y;
 
             float distance = (float)Math.Sqrt(dx * dx + dy * dy);
-            float minGestureDistanceThreshold = MIN_GESTURE_DISTANCE * _sensitivity;
+            float minGestureDistanceThreshold = MIN_GESTURE_DISTANCE * _gestureConfig.Sensitivity;
 
             System.Diagnostics.Debug.WriteLine("[GestureRecognizer] CalculateGestureDirection: " +
                                                "Start: (" + startPoint.X.ToString("F2") + ", " + startPoint.Y.ToString("F2") + "), " +

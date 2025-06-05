@@ -20,8 +20,12 @@ namespace GearVRController.Services
             services.AddSingleton<IInputSimulator, WindowsInputSimulator>();
             services.AddSingleton<ISettingsService, LocalSettingsService>();
             services.AddSingleton<TouchpadProcessor>();
-            services.AddSingleton<RotationProcessor>();
-            services.AddSingleton<GestureRecognizer>();
+            services.AddSingleton(serviceProvider =>
+            {
+                var settingsService = serviceProvider.GetRequiredService<ISettingsService>();
+                var dispatcherQueue = serviceProvider.GetRequiredService<DispatcherQueue>();
+                return new GestureRecognizer(settingsService.GestureConfig, dispatcherQueue);
+            });
 
             // 注册 DispatcherQueue
             services.AddSingleton(DispatcherQueue.GetForCurrentThread());

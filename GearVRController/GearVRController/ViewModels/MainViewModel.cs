@@ -88,7 +88,6 @@ namespace GearVRController.ViewModels
 
         private bool _isGestureMode;
         private GestureRecognizer _gestureRecognizer;
-        private GestureConfig _gestureConfig;
         private GestureAction _swipeUpAction = GestureAction.PageUp;
         private GestureAction _swipeDownAction = GestureAction.PageDown;
         private GestureAction _swipeLeftAction = GestureAction.BrowserBack;
@@ -96,9 +95,6 @@ namespace GearVRController.ViewModels
 
         // Add TouchpadProcessor field
         private readonly TouchpadProcessor _touchpadProcessor;
-
-        // Add RotationProcessor field
-        private readonly RotationProcessor _rotationProcessor;
 
         public event PropertyChangedEventHandler? PropertyChanged;
         public event EventHandler<ControllerData>? ControllerDataReceived;
@@ -358,13 +354,13 @@ namespace GearVRController.ViewModels
 
         public float GestureSensitivity
         {
-            get => _gestureConfig.Sensitivity;
+            get => _settingsService.GestureSensitivity;
             set
             {
-                if (_gestureConfig.Sensitivity != value)
+                if (_settingsService.GestureSensitivity != value)
                 {
-                    _gestureConfig.Sensitivity = value;
-                    _gestureRecognizer.SetSensitivity(value);
+                    _settingsService.GestureSensitivity = value;
+                    _gestureRecognizer.UpdateGestureConfig(_settingsService.GestureConfig);
                     OnPropertyChanged();
                 }
             }
@@ -372,12 +368,13 @@ namespace GearVRController.ViewModels
 
         public bool ShowGestureHints
         {
-            get => _gestureConfig.ShowGestureHints;
+            get => _settingsService.ShowGestureHints;
             set
             {
-                if (_gestureConfig.ShowGestureHints != value)
+                if (_settingsService.ShowGestureHints != value)
                 {
-                    _gestureConfig.ShowGestureHints = value;
+                    _settingsService.ShowGestureHints = value;
+                    _gestureRecognizer.UpdateGestureConfig(_settingsService.GestureConfig);
                     OnPropertyChanged();
                 }
             }
@@ -443,31 +440,25 @@ namespace GearVRController.ViewModels
             IInputSimulator inputSimulator,
             ISettingsService settingsService,
             DispatcherQueue dispatcherQueue,
-            TouchpadProcessor touchpadProcessor,
-            RotationProcessor rotationProcessor)
+            TouchpadProcessor touchpadProcessor)
         {
-            // 将事件订阅移到最前面
             _bluetoothService = bluetoothService;
             _controllerService = controllerService;
             _inputSimulator = inputSimulator;
             _settingsService = settingsService;
             _dispatcherQueue = dispatcherQueue;
             _touchpadProcessor = touchpadProcessor;
-            _rotationProcessor = rotationProcessor;
 
-            // 确保在任何可能触发事件的操作之前订阅事件
             _bluetoothService.ConnectionStatusChanged += BluetoothService_ConnectionStatusChanged;
             _bluetoothService.DataReceived += BluetoothService_DataReceived;
+            _controllerService.ControllerDataProcessed += (sender, data) => LastControllerData = data;
 
-            // Initialize _gestureConfig with a default value before using it
-            _gestureConfig = new GestureConfig(); // Initialize with default
-
-            _gestureRecognizer = new GestureRecognizer(_gestureConfig.Sensitivity);
+            _gestureRecognizer = new GestureRecognizer(_settingsService.GestureConfig, _dispatcherQueue);
             _gestureRecognizer.GestureDetected += OnGestureDetected;
 
+            LoadSettings();
             InitializeConnectionCheck();
             InitializeStateCheck();
-            LoadSettings();
             RegisterHotKeys();
         }
 
@@ -910,7 +901,22 @@ namespace GearVRController.ViewModels
             if (IsGestureMode)
             {
                 // 手势模式：根据识别到的方向执行预定义动作
-                var action = _gestureConfig.GetGestureAction(direction);
+                GestureAction action = GestureAction.None;
+                switch (direction)
+                {
+                    case GestureDirection.Up:
+                        action = _settingsService.SwipeUpAction;
+                        break;
+                    case GestureDirection.Down:
+                        action = _settingsService.SwipeDownAction;
+                        break;
+                    case GestureDirection.Left:
+                        action = _settingsService.SwipeLeftAction;
+                        break;
+                    case GestureDirection.Right:
+                        action = _settingsService.SwipeRightAction;
+                        break;
+                }
                 ExecuteGestureAction(action);
 
                 // 更新LastGesture以供可视化

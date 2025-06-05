@@ -35,7 +35,7 @@
                     Content="连接设备"
                     Click="ConnectButton_Click"
                     Margin="0,0,8,0"
-                    IsEnabled="{Binding IsConnecting, Converter={StaticResource BoolToInverseConverter}}" />
+                    IsEnabled="{Binding IsConnecting, Converter={StaticResource BooleanNegationConverter}}" />
                 <Button x:Name="DisconnectButton"
                     Content="断开连接"
                     Click="DisconnectButton_Click"

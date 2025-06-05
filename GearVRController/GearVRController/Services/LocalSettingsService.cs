@@ -162,6 +162,17 @@ namespace GearVRController.Services
             set => SaveSetting(SWIPE_RIGHT_ACTION_KEY, (int)value);
         }
 
+        public GearVRController.Models.GestureConfig GestureConfig
+        {
+            get
+            {
+                return new GearVRController.Models.GestureConfig
+                {
+                    Sensitivity = GestureSensitivity
+                };
+            }
+        }
+
         public Task LoadSettingsAsync()
         {
             // 设置已经在属性访问器中加载

@@ -1,5 +1,6 @@
 using System.Threading.Tasks;
 using GearVRController.ViewModels;
+using GearVRController.Models;
 
 namespace GearVRController.Services.Interfaces
 {
@@ -24,6 +25,7 @@ namespace GearVRController.Services.Interfaces
         GearVRController.Enums.GestureAction SwipeDownAction { get; set; }
         GearVRController.Enums.GestureAction SwipeLeftAction { get; set; }
         GearVRController.Enums.GestureAction SwipeRightAction { get; set; }
+        GearVRController.Models.GestureConfig GestureConfig { get; }
         void ResetToDefaults();
         Task SaveSettingsAsync();
         Task LoadSettingsAsync();
