@@ -1,15 +1,18 @@
 using GearVRController.Models;
 using GearVRController.ViewModels;
+using System;
 
 namespace GearVRController.Events
 {
-    public class CalibrationCompletedEvent
+    public class CalibrationCompletedEvent : EventArgs
     {
-        public TouchpadCalibrationData CalibrationData { get; }
+        public TouchpadCalibrationData? CalibrationData { get; }
+        public bool IsSuccess { get; }
 
-        public CalibrationCompletedEvent(TouchpadCalibrationData data)
+        public CalibrationCompletedEvent(TouchpadCalibrationData? data, bool isSuccess)
         {
             CalibrationData = data;
+            IsSuccess = isSuccess;
         }
     }
 }

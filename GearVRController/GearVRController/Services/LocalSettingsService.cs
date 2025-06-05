@@ -137,6 +137,10 @@ namespace GearVRController.Services
         /// 触摸阈值设置的键名。
         /// </summary>
         private const string TOUCH_THRESHOLD_KEY = "TouchThreshold";
+        /// <summary>
+        /// 处理后的触摸阈值设置的键名（归一化）。
+        /// </summary>
+        private const string PROCESSED_TOUCH_THRESHOLD_KEY = "ProcessedTouchThreshold";
 
         /// <summary>
         /// 已知蓝牙地址列表设置的键名。
@@ -405,6 +409,17 @@ namespace GearVRController.Services
         public int TouchThreshold
         {
             get => GetSetting(TOUCH_THRESHOLD_KEY, 10);
+            set => SaveSetting(TOUCH_THRESHOLD_KEY, value);
+        }
+
+        /// <summary>
+        /// 获取处理后的触摸阈值（归一化）。
+        /// 默认值为 0.05。
+        /// </summary>
+        public double ProcessedTouchThreshold
+        {
+            get => GetSetting(PROCESSED_TOUCH_THRESHOLD_KEY, 0.05);
+            set => SaveSetting(PROCESSED_TOUCH_THRESHOLD_KEY, value);
         }
 
         /// <summary>
@@ -481,6 +496,7 @@ namespace GearVRController.Services
             SaveSetting(MOUSE_SENSITIVITY_SCALING_FACTOR_KEY, 100.0);
             SaveSetting(MOVE_THRESHOLD_KEY, 0.005);
             SaveSetting(TOUCH_THRESHOLD_KEY, 10);
+            SaveSetting(PROCESSED_TOUCH_THRESHOLD_KEY, 0.05);
 
             // Known Bluetooth Addresses - only set default if not already present
             if (!_localSettings.Values.ContainsKey(KNOWN_BLUETOOTH_ADDRESSES_KEY))

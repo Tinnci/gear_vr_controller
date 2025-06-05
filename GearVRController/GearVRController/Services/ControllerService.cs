@@ -18,6 +18,7 @@ namespace GearVRController.Services
         private readonly TouchpadProcessor _touchpadProcessor;
         private readonly IInputSimulator _inputSimulator;
         private readonly GestureRecognizer _gestureRecognizer;
+        private readonly ILogger _logger;
 
         private bool _isTouchpadCurrentlyTouched = false;
         private double _lastTouchpadProcessedX = 0;
@@ -54,13 +55,15 @@ namespace GearVRController.Services
         /// <param name="touchpadProcessor">触摸板处理器，用于处理原始触摸板坐标。</param>
         /// <param name="inputSimulator">输入模拟器，用于模拟鼠标和键盘输入。</param>
         /// <param name="gestureRecognizer">手势识别器，用于识别触摸板手势。</param>
-        public ControllerService(IBluetoothService bluetoothService, ISettingsService settingsService, TouchpadProcessor touchpadProcessor, IInputSimulator inputSimulator, GestureRecognizer gestureRecognizer)
+        /// <param name="logger">日志服务，用于记录日志。</param>
+        public ControllerService(IBluetoothService bluetoothService, ISettingsService settingsService, TouchpadProcessor touchpadProcessor, IInputSimulator inputSimulator, GestureRecognizer gestureRecognizer, ILogger logger)
         {
             _bluetoothService = bluetoothService;
             _settingsService = settingsService;
             _touchpadProcessor = touchpadProcessor;
             _inputSimulator = inputSimulator;
             _gestureRecognizer = gestureRecognizer;
+            _logger = logger;
 
             _smoothingBufferX = new List<double>();
             _smoothingBufferY = new List<double>();
@@ -114,12 +117,12 @@ namespace GearVRController.Services
                 if (!data.TouchpadTouched && _isTouchpadCurrentlyTouched) // 触摸结束
                 {
                     _isTouchpadCurrentlyTouched = false;
-                    System.Diagnostics.Debug.WriteLine("[ControllerService] 触摸结束 (手势模式).");
+                    _logger.LogInfo("触摸结束 (手势模式).", nameof(ControllerService));
                 }
                 else if (data.TouchpadTouched && !_isTouchpadCurrentlyTouched) // 触摸开始
                 {
                     _isTouchpadCurrentlyTouched = true;
-                    System.Diagnostics.Debug.WriteLine("[ControllerService] 触摸开始 (手势模式).");
+                    _logger.LogInfo("触摸开始 (手势模式).", nameof(ControllerService));
                 }
             }
             else // 非手势模式 (相对模式)：处理连续鼠标移动
@@ -154,7 +157,7 @@ namespace GearVRController.Services
                     _lastTouchpadProcessedX = processedX;
                     _lastTouchpadProcessedY = processedY;
                     _isTouchpadCurrentlyTouched = true;
-                    System.Diagnostics.Debug.WriteLine($"[ControllerService] 触摸开始: ({processedX:F2}, {processedY:F2}), _lastTouchpadProcessedX={_lastTouchpadProcessedX:F2}, _lastTouchpadProcessedY={_lastTouchpadProcessedY:F2}");
+                    _logger.LogInfo($"触摸开始: ({processedX:F2}, {processedY:F2}), _lastTouchpadProcessedX={_lastTouchpadProcessedX:F2}, _lastTouchpadProcessedY={_lastTouchpadProcessedY:F2}", nameof(ControllerService));
                 }
                 else // 触摸持续
                 {
@@ -207,7 +210,7 @@ namespace GearVRController.Services
                 {
                     _isTouchpadCurrentlyTouched = false;
                     // 触摸结束时，GestureRecognizer 会根据接收到的点序列尝试识别离散手势
-                    System.Diagnostics.Debug.WriteLine("[ControllerService] 触摸结束 (相对模式).");
+                    _logger.LogInfo("触摸结束 (相对模式).", nameof(ControllerService));
                 }
                 // 如果本来就没有触摸，则不做任何事
             }
@@ -223,7 +226,7 @@ namespace GearVRController.Services
             // 检查触摸板数据范围（使用原始值范围0-1023）
             if (data.AxisX < 0 || data.AxisX > 1023 || data.AxisY < 0 || data.AxisY > 1023)
             {
-                System.Diagnostics.Debug.WriteLine($"[警告] 触摸板数据超出预期范围: X={data.AxisX}, Y={data.AxisY}");
+                _logger.LogWarning($"触摸板数据超出预期范围: X={data.AxisX}, Y={data.AxisY}", nameof(ControllerService));
                 // 不返回false，继续处理，因为有时数据可能暂时超出范围，但仍需处理
                 // 如果需要严格的过滤，这里可以返回false
             }
@@ -245,7 +248,6 @@ namespace GearVRController.Services
         /// <param name="data">要预处理的控制器数据。</param>
         private void PreprocessControllerData(ControllerData data)
         {
-            // 更新时间戳
             data.Timestamp = DateTimeOffset.Now.ToUnixTimeMilliseconds();
 
             // 应用Y轴翻转（如果启用）
@@ -255,12 +257,18 @@ namespace GearVRController.Services
                 data.AxisY = 1023 - data.AxisY;
             }
 
+            // 获取处理后的触摸板坐标，用于更精确的触摸检测
+            var (processedX, processedY) = _touchpadProcessor.ProcessRawData(data.AxisX, data.AxisY);
+            data.ProcessedTouchpadX = processedX;
+            data.ProcessedTouchpadY = processedY;
+
             // 处理触摸状态 - 更新判断逻辑，避免误判
-            // 认为触摸板被触摸的条件：触摸板按钮被按下，或者触摸板的X/Y坐标超过了预设的触摸阈值
-            System.Diagnostics.Debug.WriteLine($"[ControllerService] ProcessControllerData: Raw AxisX={{data.AxisX}}, AxisY={{data.AxisY}}, TouchpadButton={{data.TouchpadButton}}");
+            // 认为触摸板被触摸的条件：触摸板按钮被按下，或者处理后的触摸板X/Y坐标的绝对值超过了预设的归一化触摸阈值
+            System.Diagnostics.Debug.WriteLine($"[ControllerService] PreprocessControllerData: Raw AxisX={{data.AxisX}}, AxisY={{data.AxisY}}, TouchpadButton={{data.TouchpadButton}}");
             data.TouchpadTouched = data.TouchpadButton ||
-                                  (Math.Abs(data.AxisX) > _settingsService.TouchThreshold && Math.Abs(data.AxisY) > _settingsService.TouchThreshold);
-            System.Diagnostics.Debug.WriteLine($"[ControllerService] ProcessControllerData: Calculated TouchpadTouched={{data.TouchpadTouched}}");
+                                  (Math.Abs(processedX) > _settingsService.ProcessedTouchThreshold ||
+                                   Math.Abs(processedY) > _settingsService.ProcessedTouchThreshold);
+            System.Diagnostics.Debug.WriteLine($"[ControllerService] PreprocessControllerData: Processed TouchpadX={{processedX:F2}}, Processed TouchpadY={{processedY:F2}}, Calculated TouchpadTouched={{data.TouchpadTouched}}");
 
             // 处理按钮状态，判断是否有任何按钮被按下
             data.NoButton = !data.TriggerButton && !data.HomeButton &&

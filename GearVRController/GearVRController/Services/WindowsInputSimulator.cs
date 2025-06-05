@@ -445,43 +445,79 @@ namespace GearVRController.Services
         }
 
         /// <summary>
-        /// 模拟键盘按键的释放（Key Up）事件。
+        /// 模拟键盘按键释放。
         /// </summary>
-        /// <param name="keyCode">要模拟的虚拟键码（VirtualKeyCode）。</param>
+        /// <param name="keyCode">要释放的虚拟键码。</param>
         public void SimulateKeyRelease(int keyCode)
         {
-            try
+            var input = new INPUT
             {
-                var input = new INPUT
+                type = INPUT_KEYBOARD,
+                u = new InputUnion
                 {
-                    type = INPUT_KEYBOARD,
-                    u = new InputUnion
+                    ki = new KEYBDINPUT
                     {
-                        ki = new KEYBDINPUT
-                        {
-                            wVk = (ushort)keyCode,
-                            wScan = 0,
-                            dwFlags = KEYEVENTF_KEYUP, // Key up
-                            time = 0,
-                            dwExtraInfo = IntPtr.Zero
-                        }
+                        wVk = (ushort)keyCode,
+                        dwFlags = KEYEVENTF_KEYUP,
+                        time = 0,
+                        dwExtraInfo = IntPtr.Zero
                     }
-                };
-
-                if (SendInput(1, new INPUT[] { input }, Marshal.SizeOf(typeof(INPUT))) == 0)
-                {
-                    int error = Marshal.GetLastWin32Error();
-                    System.Diagnostics.Debug.WriteLine($"按键释放模拟失败: {error}");
                 }
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"按键释放模拟异常: {ex}");
-            }
+            };
+            SendInput(1, new INPUT[] { input }, Marshal.SizeOf(typeof(INPUT)));
+            System.Diagnostics.Debug.WriteLine($"[WindowsInputSimulator] Simulated key up: {keyCode}");
         }
 
         /// <summary>
-        /// 模拟组合键（修饰键 + 普通键）的按下和释放。
+        /// 模拟键盘按键按下（不释放）。
+        /// </summary>
+        /// <param name="keyCode">要按下的虚拟键码。</param>
+        public void SimulateKeyDown(int keyCode)
+        {
+            var input = new INPUT
+            {
+                type = INPUT_KEYBOARD,
+                u = new InputUnion
+                {
+                    ki = new KEYBDINPUT
+                    {
+                        wVk = (ushort)keyCode,
+                        dwFlags = 0, // No KEYEVENTF_KEYUP flag
+                        time = 0,
+                        dwExtraInfo = IntPtr.Zero
+                    }
+                }
+            };
+            SendInput(1, new INPUT[] { input }, Marshal.SizeOf(typeof(INPUT)));
+            System.Diagnostics.Debug.WriteLine($"[WindowsInputSimulator] Simulated key down: {keyCode}");
+        }
+
+        /// <summary>
+        /// 模拟键盘按键释放（不按下）。
+        /// </summary>
+        /// <param name="keyCode">要释放的虚拟键码。</param>
+        public void SimulateKeyUp(int keyCode)
+        {
+            var input = new INPUT
+            {
+                type = INPUT_KEYBOARD,
+                u = new InputUnion
+                {
+                    ki = new KEYBDINPUT
+                    {
+                        wVk = (ushort)keyCode,
+                        dwFlags = KEYEVENTF_KEYUP,
+                        time = 0,
+                        dwExtraInfo = IntPtr.Zero
+                    }
+                }
+            };
+            SendInput(1, new INPUT[] { input }, Marshal.SizeOf(typeof(INPUT)));
+            System.Diagnostics.Debug.WriteLine($"[WindowsInputSimulator] Simulated key up: {keyCode}");
+        }
+
+        /// <summary>
+        /// 模拟带有修饰键的按键组合。
         /// 例如，Ctrl + C。
         /// </summary>
         /// <param name="modifier">修饰键的虚拟键码（例如，VirtualKeyCode.CONTROL）。</param>

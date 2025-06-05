@@ -12,6 +12,7 @@
                 <!-- Other merged dictionaries here -->
             </ResourceDictionary.MergedDictionaries>
             <!-- Other app resources here -->
+            <x:Double x:Key="CALIBRATION_CENTER_DOT_SIZE">10.0</x:Double>
 
             <!-- 值转换器 -->
             <converters:BoolToConnectionColorConverter x:Key="BoolToConnectionColorConverter" />

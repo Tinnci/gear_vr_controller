@@ -14,6 +14,11 @@ namespace GearVRController.Views
         private readonly TouchpadCalibrationViewModel _viewModel;
         private readonly DispatcherQueue _dispatcherQueue;
 
+        // 校准中心点UI常量
+        private const double CALIBRATION_CENTER_DOT_SIZE = 10.0;
+        // 原始触摸板数据范围
+        private const double RAW_TOUCHPAD_RANGE = 1023.0;
+
         public TouchpadCalibrationWindow(TouchpadCalibrationViewModel viewModel)
         {
             this.InitializeComponent();
@@ -91,10 +96,10 @@ namespace GearVRController.Views
                 // Scale raw data (0-1023) to canvas size (200x200)
                 double canvasWidth = CalibrationCanvas.ActualWidth;
                 double canvasHeight = CalibrationCanvas.ActualHeight;
-                const double rawRange = 1023.0; // Assuming 0-1023 as the full raw range
+                // const double rawRange = 1023.0; // Assuming 0-1023 as the full raw range
 
-                double scaleX = canvasWidth / rawRange;
-                double scaleY = canvasHeight / rawRange;
+                double scaleX = canvasWidth / RAW_TOUCHPAD_RANGE;
+                double scaleY = canvasHeight / RAW_TOUCHPAD_RANGE;
 
                 // Update Rectangle (Boundary)
                 double rectLeft = minX * scaleX;
@@ -118,6 +123,8 @@ namespace GearVRController.Views
 
                 Canvas.SetLeft(CalibrationCenterDot, dotLeft);
                 Canvas.SetTop(CalibrationCenterDot, dotTop);
+                // CalibrationCenterDot.Width = CALIBRATION_CENTER_DOT_SIZE; // Set in XAML
+                // CalibrationCenterDot.Height = CALIBRATION_CENTER_DOT_SIZE; // Set in XAML
                 CalibrationCenterDot.Visibility = Visibility.Visible;
             }
             else

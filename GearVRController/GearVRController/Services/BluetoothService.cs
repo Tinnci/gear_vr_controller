@@ -124,6 +124,11 @@ namespace GearVRController.Services
         private const byte VOLUME_DOWN_BUTTON_MASK = 0b00100000;
 
         /// <summary>
+        /// 初始化命令之间的延迟时间（毫秒）。
+        /// </summary>
+        private const int COMMAND_DELAY_MS = 50;
+
+        /// <summary>
         /// 当前连接的蓝牙 LE 设备实例。
         /// </summary>
         private BluetoothLEDevice? _device;
@@ -153,6 +158,7 @@ namespace GearVRController.Services
         private CancellationTokenSource? _connectionCts;
 
         private readonly ISettingsService _settingsService;
+        private readonly ILogger _logger;
 
         /// <summary>
         /// 当接收到新的控制器数据时触发的事件。
@@ -172,9 +178,10 @@ namespace GearVRController.Services
         /// BluetoothService 的构造函数。
         /// </summary>
         /// <param name="settingsService">设置服务，用于获取重连参数等配置。</param>
-        public BluetoothService(ISettingsService settingsService)
+        public BluetoothService(ISettingsService settingsService, ILogger logger)
         {
             _settingsService = settingsService;
+            _logger = logger;
         }
 
         /// <summary>
@@ -187,7 +194,7 @@ namespace GearVRController.Services
         /// <exception cref="Exception">连接过程中发生其他错误时抛出。</exception>
         public async Task ConnectAsync(ulong bluetoothAddress, int timeoutMs = 10000)
         {
-            Debug.WriteLine($"[BluetoothService] 开始连接到设备地址: {bluetoothAddress}");
+            _logger.LogInfo($"开始连接到设备地址: {bluetoothAddress}", nameof(BluetoothService));
             try
             {
                 _lastConnectedAddress = bluetoothAddress;
@@ -198,15 +205,15 @@ namespace GearVRController.Services
                 using var timeoutCts = new CancellationTokenSource(timeoutMs);
                 using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(timeoutCts.Token, _connectionCts.Token);
 
-                Debug.WriteLine($"[BluetoothService] 尝试从地址获取设备: {bluetoothAddress}");
+                _logger.LogInfo($"尝试从地址获取设备: {bluetoothAddress}", nameof(BluetoothService));
                 _device = await BluetoothLEDevice.FromBluetoothAddressAsync(bluetoothAddress);
 
                 if (_device == null)
                 {
-                    Debug.WriteLine($"[BluetoothService] 无法从地址获取设备: {bluetoothAddress}");
+                    _logger.LogError($"无法从地址获取设备: {bluetoothAddress}", nameof(BluetoothService));
                     throw new Exception("无法连接到设备");
                 }
-                Debug.WriteLine($"[BluetoothService] 成功获取到设备对象. ConnectionStatus: {_device.ConnectionStatus}");
+                _logger.LogInfo($"成功获取到设备对象. ConnectionStatus: {_device.ConnectionStatus}", nameof(BluetoothService));
 
                 // 注册连接状态变化事件
                 _device.ConnectionStatusChanged += Device_ConnectionStatusChanged;
@@ -217,16 +224,16 @@ namespace GearVRController.Services
                 // 这可以帮助排除事件丢失或延迟的问题
                 Device_ConnectionStatusChanged(_device, null);
 
-                System.Diagnostics.Debug.WriteLine($"[BluetoothService] 连接到设备 {bluetoothAddress} 成功.");
+                _logger.LogInfo($"连接到设备 {bluetoothAddress} 成功.", nameof(BluetoothService));
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException ex)
             {
-                Debug.WriteLine($"[BluetoothService] 连接到设备超时: {bluetoothAddress}");
+                _logger.LogError($"连接到设备超时: {bluetoothAddress}", nameof(BluetoothService), ex);
                 throw new TimeoutException("连接超时");
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[BluetoothService] 连接到设备 {bluetoothAddress} 失败: {ex.Message}");
+                _logger.LogError($"连接到设备 {bluetoothAddress} 失败.", nameof(BluetoothService), ex);
                 _device?.Dispose();
                 _device = null;
                 throw;
@@ -242,12 +249,12 @@ namespace GearVRController.Services
         private async void Device_ConnectionStatusChanged(BluetoothLEDevice sender, object? args)
         {
             var status = sender.ConnectionStatus;
-            Debug.WriteLine($"[BluetoothService] ConnectionStatusChanged 事件触发. 新状态: {status}");
+            _logger.LogInfo($"ConnectionStatusChanged 事件触发. 新状态: {status}", nameof(BluetoothService));
             ConnectionStatusChanged?.Invoke(this, status);
 
             if (status == BluetoothConnectionStatus.Disconnected)
             {
-                Debug.WriteLine("[BluetoothService] 检测到断开连接，尝试重新连接...");
+                _logger.LogWarning("检测到断开连接，尝试重新连接...", nameof(BluetoothService));
                 await AttemptReconnectAsync();
             }
         }
@@ -260,12 +267,12 @@ namespace GearVRController.Services
         {
             if (_isReconnecting || _lastConnectedAddress == 0)
             {
-                if (_isReconnecting) Debug.WriteLine("[BluetoothService] 正在重连，跳过新的重连尝试.");
-                if (_lastConnectedAddress == 0) Debug.WriteLine("[BluetoothService] 无上次连接地址，跳过重连.");
+                if (_isReconnecting) _logger.LogInfo("正在重连，跳过新的重连尝试.", nameof(BluetoothService));
+                if (_lastConnectedAddress == 0) _logger.LogWarning("无上次连接地址，跳过重连.", nameof(BluetoothService));
                 return;
             }
 
-            Debug.WriteLine("[BluetoothService] 开始尝试重新连接流程.");
+            _logger.LogInfo("开始尝试重新连接流程.", nameof(BluetoothService));
             try
             {
                 await _reconnectionSemaphore.WaitAsync();
@@ -275,28 +282,28 @@ namespace GearVRController.Services
                 {
                     try
                     {
-                        System.Diagnostics.Debug.WriteLine($"[BluetoothService] 尝试重新连接，第 {attempt + 1} 次，地址: {_lastConnectedAddress}");
+                        _logger.LogInfo($"尝试重新连接，第 {attempt + 1} 次，地址: {_lastConnectedAddress}", nameof(BluetoothService));
                         await ConnectAsync(_lastConnectedAddress);
-                        System.Diagnostics.Debug.WriteLine("[BluetoothService] 重新连接成功");
+                        _logger.LogInfo("重新连接成功", nameof(BluetoothService));
                         return;
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[BluetoothService] 重新连接失败: {ex.Message}");
+                        _logger.LogError($"重新连接失败.", nameof(BluetoothService), ex);
                         if (attempt < _settingsService.MaxReconnectAttempts - 1)
                         {
-                            System.Diagnostics.Debug.WriteLine($"[BluetoothService] 等待 {_settingsService.ReconnectDelayMs}ms 后再次尝试.");
+                            _logger.LogInfo($"等待 {_settingsService.ReconnectDelayMs}ms 后再次尝试.", nameof(BluetoothService));
                             await Task.Delay(_settingsService.ReconnectDelayMs);
                         }
                     }
                 }
-                System.Diagnostics.Debug.WriteLine($"[BluetoothService] 达到最大重连次数 ({_settingsService.MaxReconnectAttempts})，停止重连.");
+                _logger.LogWarning($"达到最大重连次数 ({_settingsService.MaxReconnectAttempts})，停止重连.", nameof(BluetoothService));
             }
             finally
             {
                 _isReconnecting = false;
                 _reconnectionSemaphore.Release();
-                Debug.WriteLine("[BluetoothService] 尝试重新连接流程结束.");
+                _logger.LogInfo("尝试重新连接流程结束.", nameof(BluetoothService));
             }
         }
 
@@ -309,10 +316,10 @@ namespace GearVRController.Services
         /// <exception cref="Exception">如果设备未连接或未找到必要的服务/特征值则抛出。</exception>
         private async Task InitializeServicesAsync(CancellationToken cancellationToken)
         {
-            Debug.WriteLine("[BluetoothService] 开始 InitializeServicesAsync.");
+            _logger.LogInfo("开始 InitializeServicesAsync.", nameof(BluetoothService));
             if (_device == null)
             {
-                Debug.WriteLine("[BluetoothService] InitializeServicesAsync: 设备未连接.");
+                _logger.LogError("InitializeServicesAsync: 设备未连接.", nameof(BluetoothService));
                 throw new Exception("设备未连接");
             }
 
@@ -321,10 +328,10 @@ namespace GearVRController.Services
 
             if (result.Status != GattCommunicationStatus.Success)
             {
-                Debug.WriteLine($"[BluetoothService] GetGattServicesAsync 失败: {result.Status}");
+                _logger.LogError($"GetGattServicesAsync 失败: {result.Status}", nameof(BluetoothService));
                 throw new Exception("无法获取GATT服务");
             }
-            Debug.WriteLine($"[BluetoothService] 成功获取 GATT 服务 ({result.Services.Count} 个).");
+            _logger.LogInfo($"成功获取 GATT 服务 ({result.Services.Count} 个).", nameof(BluetoothService));
 
             foreach (var service in result.Services)
             {
@@ -348,15 +355,19 @@ namespace GearVRController.Services
                             }
                         }
                     }
+                    else
+                    {
+                        _logger.LogError($"GetCharacteristicsAsync 失败: {characteristicsResult.Status}", nameof(BluetoothService));
+                    }
                 }
             }
 
             if (_setupCharacteristic == null || _dataCharacteristic == null)
             {
-                System.Diagnostics.Debug.WriteLine("[BluetoothService] 未找到必要的特征值.");
+                _logger.LogError("未找到必要的特征值.", nameof(BluetoothService));
                 throw new Exception("未找到必要的特征值");
             }
-            System.Diagnostics.Debug.WriteLine("[BluetoothService] 已找到所有必要的特征值.");
+            _logger.LogInfo("已找到所有必要的特征值.", nameof(BluetoothService));
 
             await InitializeControllerAsync();
             await SubscribeToNotificationsAsync();
@@ -370,10 +381,10 @@ namespace GearVRController.Services
         /// <exception cref="Exception">如果数据特征值未初始化或订阅失败则抛出。</exception>
         private async Task SubscribeToNotificationsAsync()
         {
-            System.Diagnostics.Debug.WriteLine("[BluetoothService] 开始 SubscribeToNotificationsAsync.");
+            _logger.LogInfo("开始 SubscribeToNotificationsAsync.", nameof(BluetoothService));
             if (_dataCharacteristic == null)
             {
-                Debug.WriteLine("[BluetoothService] SubscribeToNotificationsAsync: 数据特征值未初始化.");
+                _logger.LogError("SubscribeToNotificationsAsync: 数据特征值未初始化.", nameof(BluetoothService));
                 throw new Exception("数据特征值未初始化");
             }
 
@@ -387,10 +398,10 @@ namespace GearVRController.Services
             }
             else
             {
-                System.Diagnostics.Debug.WriteLine($"[BluetoothService] 订阅数据特征值通知失败: {status}");
+                _logger.LogError($"订阅数据特征值通知失败: {status}", nameof(BluetoothService));
                 throw new Exception($"无法订阅数据特征值通知: {status}");
             }
-            System.Diagnostics.Debug.WriteLine("[BluetoothService] 订阅数据特征值通知成功.");
+            _logger.LogInfo("订阅数据特征值通知成功.", nameof(BluetoothService));
         }
 
         /// <summary>
@@ -400,27 +411,27 @@ namespace GearVRController.Services
         /// <exception cref="Exception">如果设置特征值未初始化或命令发送失败则抛出。</exception>
         private async Task InitializeControllerAsync()
         {
-            System.Diagnostics.Debug.WriteLine("[BluetoothService] 开始 InitializeControllerAsync.");
+            _logger.LogInfo("开始 InitializeControllerAsync.", nameof(BluetoothService));
             if (_setupCharacteristic == null)
             {
-                Debug.WriteLine("[BluetoothService] InitializeControllerAsync: 设置特征值未初始化.");
+                _logger.LogError("InitializeControllerAsync: 设置特征值未初始化.", nameof(BluetoothService));
                 throw new Exception("设置特征值未初始化");
             }
 
             // 发送初始化命令序列
             await SendCommandAsync(CMD_INIT_1);
-            await Task.Delay(50); // 短暂延迟，确保命令被控制器处理
+            await Task.Delay(COMMAND_DELAY_MS); // 短暂延迟，确保命令被控制器处理
             await SendCommandAsync(CMD_INIT_2);
-            await Task.Delay(50);
+            await Task.Delay(COMMAND_DELAY_MS);
             await SendCommandAsync(CMD_INIT_3);
-            await Task.Delay(50);
+            await Task.Delay(COMMAND_DELAY_MS);
             await SendCommandAsync(CMD_INIT_4);
-            await Task.Delay(50);
+            await Task.Delay(COMMAND_DELAY_MS);
 
             // 优化连接参数
             await OptimizeConnectionParametersAsync();
 
-            System.Diagnostics.Debug.WriteLine("[BluetoothService] 控制器初始化完成.");
+            _logger.LogInfo("控制器初始化完成.", nameof(BluetoothService));
         }
 
         /// <summary>
@@ -430,15 +441,15 @@ namespace GearVRController.Services
         /// <exception cref="Exception">如果设置特征值未初始化或命令发送失败则抛出。</exception>
         private async Task OptimizeConnectionParametersAsync()
         {
-            System.Diagnostics.Debug.WriteLine("[BluetoothService] 尝试优化连接参数.");
+            _logger.LogInfo("尝试优化连接参数.", nameof(BluetoothService));
             if (_setupCharacteristic == null)
             {
-                Debug.WriteLine("[BluetoothService] OptimizeConnectionParametersAsync: 设置特征值未初始化.");
+                _logger.LogError("OptimizeConnectionParametersAsync: 设置特征值未初始化.", nameof(BluetoothService));
                 throw new Exception("设置特征值未初始化");
             }
 
             await SendCommandAsync(CMD_OPTIMIZE_CONNECTION);
-            System.Diagnostics.Debug.WriteLine("[BluetoothService] 连接参数优化命令已发送.");
+            _logger.LogInfo("连接参数优化命令已发送.", nameof(BluetoothService));
         }
 
         /// <summary>
@@ -452,6 +463,7 @@ namespace GearVRController.Services
         {
             if (_dataCharacteristic == null)
             {
+                _logger.LogError("数据特征值未初始化，无法发送数据", nameof(BluetoothService));
                 throw new Exception("数据特征值未初始化，无法发送数据");
             }
 
@@ -464,11 +476,11 @@ namespace GearVRController.Services
                 var status = await _dataCharacteristic.WriteValueAsync(buffer);
                 if (status != GattCommunicationStatus.Success)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[BluetoothService] 发送数据失败: {status}");
+                    _logger.LogError($"发送数据失败: {status}", nameof(BluetoothService));
                     throw new Exception($"发送数据失败: {status}");
                 }
             }
-            Debug.WriteLine($"[BluetoothService] 数据已发送 (重复 {repeat} 次).");
+            _logger.LogInfo($"数据已发送 (重复 {repeat} 次).", nameof(BluetoothService));
         }
 
         /// <summary>
@@ -481,6 +493,7 @@ namespace GearVRController.Services
         {
             if (_setupCharacteristic == null)
             {
+                _logger.LogError("设置特征值未初始化，无法发送命令", nameof(BluetoothService));
                 throw new Exception("设置特征值未初始化，无法发送命令");
             }
             var writer = new DataWriter();
@@ -491,10 +504,11 @@ namespace GearVRController.Services
                 var status = await _setupCharacteristic.WriteValueAsync(buffer);
                 if (status != GattCommunicationStatus.Success)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[BluetoothService] 发送命令失败: {status}");
+                    _logger.LogError($"发送命令失败: {status}", nameof(BluetoothService));
                     throw new Exception($"发送命令失败: {status}");
                 }
             }
+            _logger.LogInfo($"命令已发送 (重复 {repeat} 次).", nameof(BluetoothService));
         }
 
         /// <summary>
@@ -528,12 +542,12 @@ namespace GearVRController.Services
                 _connectionCts?.Dispose();
                 _connectionCts = null;
 
-                Debug.WriteLine("[BluetoothService] 设备已断开连接并清理资源.");
+                _logger.LogInfo("设备已断开连接并清理资源.", nameof(BluetoothService));
                 ConnectionStatusChanged?.Invoke(this, BluetoothConnectionStatus.Disconnected); // Explicitly notify disconnected
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[BluetoothService] 断开连接异常: {ex}");
+                _logger.LogError($"断开连接异常.", nameof(BluetoothService), ex);
             }
         }
 
@@ -561,7 +575,7 @@ namespace GearVRController.Services
         {
             if (byteArray.Length != EXPECTED_PACKET_LENGTH)
             {
-                System.Diagnostics.Debug.WriteLine($"[BluetoothService] 接收到的数据包长度不符合预期: {byteArray.Length} (预期 {EXPECTED_PACKET_LENGTH})。数据包将被丢弃。");
+                _logger.LogWarning($"接收到的数据包长度不符合预期: {byteArray.Length} (预期 {EXPECTED_PACKET_LENGTH})。数据包将被丢弃。", nameof(BluetoothService));
                 return; // 直接丢弃不符合长度要求的数据包
             }
 
@@ -615,7 +629,7 @@ namespace GearVRController.Services
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[BluetoothService] 处理数据包时发生错误: {ex.Message}");
+                _logger.LogError($"处理数据包时发生错误.", nameof(BluetoothService), ex);
             }
         }
 

@@ -34,6 +34,7 @@ namespace GearVRController.ViewModels
         private readonly IWindowManagerService _windowManagerService;
         private readonly IEventAggregator _eventAggregator;
         private readonly IActionExecutionService _actionExecutionService;
+        private readonly ILogger _logger;
         private bool _isConnected;
         private string _statusMessage = string.Empty;
         private ControllerData _lastControllerData = new ControllerData();
@@ -603,6 +604,39 @@ namespace GearVRController.ViewModels
         public IEnumerable<GestureAction> AvailableGestureActions => Enum.GetValues<GestureAction>();
 
         /// <summary>
+        /// 鼠标灵敏度的最小允许值。
+        /// </summary>
+        private const double MOUSE_SENSITIVITY_MIN = 0.1;
+        /// <summary>
+        /// 鼠标灵敏度的最大允许值。
+        /// </summary>
+        private const double MOUSE_SENSITIVITY_MAX = 2.0;
+        /// <summary>
+        /// 平滑等级的最小允许值。
+        /// </summary>
+        private const int SMOOTHING_LEVEL_MIN = 1;
+        /// <summary>
+        /// 平滑等级的最大允许值。
+        /// </summary>
+        private const int SMOOTHING_LEVEL_MAX = 10;
+        /// <summary>
+        /// 非线性曲线幂次的最小允许值。
+        /// </summary>
+        private const double NON_LINEAR_CURVE_POWER_MIN = 1.0;
+        /// <summary>
+        /// 非线性曲线幂次的最大允许值。
+        /// </summary>
+        private const double NON_LINEAR_CURVE_POWER_MAX = 3.0;
+        /// <summary>
+        /// 死区的最小允许值。
+        /// </summary>
+        private const double DEAD_ZONE_MIN = 0.0;
+        /// <summary>
+        /// 死区的最大允许值。
+        /// </summary>
+        private const double DEAD_ZONE_MAX = 20.0;
+
+        /// <summary>
         /// MainViewModel 的构造函数。
         /// 通过依赖注入接收所有必要的服务。
         /// </summary>
@@ -616,6 +650,7 @@ namespace GearVRController.ViewModels
         /// <param name="windowManagerService">窗口管理服务，用于打开和关闭其他应用程序窗口（如校准窗口）。</param>
         /// <param name="eventAggregator">事件聚合器，用于跨组件发布和订阅事件。</param>
         /// <param name="actionExecutionService">动作执行服务，用于根据手势执行预定义的操作。</param>
+        /// <param name="logger">日志服务，用于记录日志信息。</param>
         public MainViewModel(
             IBluetoothService bluetoothService,
             IControllerService controllerService,
@@ -626,7 +661,8 @@ namespace GearVRController.ViewModels
             IInputStateMonitorService inputStateMonitorService,
             IWindowManagerService windowManagerService,
             IEventAggregator eventAggregator,
-            IActionExecutionService actionExecutionService)
+            IActionExecutionService actionExecutionService,
+            ILogger logger)
         {
             _bluetoothService = bluetoothService;
             _controllerService = controllerService;
@@ -635,23 +671,25 @@ namespace GearVRController.ViewModels
             _dispatcherQueue = dispatcherQueue;
             _touchpadProcessor = touchpadProcessor;
             _inputStateMonitorService = inputStateMonitorService;
-            _windowManagerService = windowManagerService; // Assign
-            _eventAggregator = eventAggregator; // Assign
-            _actionExecutionService = actionExecutionService; // Assign
+            _windowManagerService = windowManagerService;
+            _eventAggregator = eventAggregator;
+            _actionExecutionService = actionExecutionService;
+            _logger = logger;
 
-            _bluetoothService.ConnectionStatusChanged += BluetoothService_ConnectionStatusChanged;
             _bluetoothService.DataReceived += BluetoothService_DataReceived;
-            _controllerService.ControllerDataProcessed += (sender, data) => LastControllerData = data;
-
+            _bluetoothService.ConnectionStatusChanged += BluetoothService_ConnectionStatusChanged;
+            _inputStateMonitorService.InputTimeoutDetected += InputStateMonitorService_InputTimeoutDetected;
             _gestureRecognizer = new GestureRecognizer(_settingsService, _dispatcherQueue);
             _gestureRecognizer.GestureDetected += OnGestureDetected;
 
             LoadSettings();
-            _inputStateMonitorService.StartMonitor();
             RegisterHotKeys();
+            _inputStateMonitorService.StartMonitoring();
 
             // Subscribe to calibration completion event
             _calibrationCompletedSubscription = _eventAggregator.Subscribe<CalibrationCompletedEvent>(OnCalibrationCompleted);
+
+            _logger.LogInfo("MainViewModel 初始化完成.", nameof(MainViewModel));
         }
 
         /// <summary>
@@ -661,18 +699,68 @@ namespace GearVRController.ViewModels
         /// <param name="e">包含校准数据的事件参数。</param>
         private void OnCalibrationCompleted(CalibrationCompletedEvent e)
         {
-            ApplyCalibrationData(e.CalibrationData);
-            EndCalibration();
-            _windowManagerService.CloseTouchpadCalibrationWindow(); // Close the window
+            _dispatcherQueue.TryEnqueue(() =>
+            {
+                _logger.LogInfo($"接收到校准完成事件. 成功: {e.IsSuccess}", nameof(MainViewModel));
+                if (e.IsSuccess && e.CalibrationData != null)
+                {
+                    ApplyCalibrationData(e.CalibrationData);
+                    StatusMessage = "校准成功！";
+                    _logger.LogInfo("触摸板校准数据已应用.", nameof(MainViewModel));
+                }
+                else
+                {
+                    StatusMessage = "校准失败或已取消！";
+                    _logger.LogWarning("触摸板校准失败或已取消.", nameof(MainViewModel));
+                }
+                IsCalibrating = false;
+            });
         }
 
         /// <summary>
         /// 异步加载应用程序设置。
         /// </summary>
-        private async void LoadSettings()
+        private void LoadSettings()
         {
-            await _settingsService.InitializeSettings();
-            ApplyLoadedSettings();
+            _logger.LogInfo("加载应用程序设置.", nameof(MainViewModel));
+            try
+            {
+                IsControlEnabled = _settingsService.IsControlEnabled;
+                MouseSensitivity = _settingsService.MouseSensitivity;
+                IsMouseEnabled = _settingsService.IsMouseEnabled;
+                IsKeyboardEnabled = _settingsService.IsKeyboardEnabled;
+                IsControlEnabled = _settingsService.IsControlEnabled;
+                UseNaturalScrolling = _settingsService.UseNaturalScrolling;
+                InvertYAxis = _settingsService.InvertYAxis;
+                EnableSmoothing = _settingsService.EnableSmoothing;
+                SmoothingLevel = _settingsService.SmoothingLevel;
+                EnableNonLinearCurve = _settingsService.EnableNonLinearCurve;
+                NonLinearCurvePower = _settingsService.NonLinearCurvePower;
+                DeadZone = _settingsService.DeadZone;
+                IsGestureMode = _settingsService.IsGestureMode;
+                GestureSensitivity = _settingsService.GestureSensitivity;
+                ShowGestureHints = _settingsService.ShowGestureHints;
+                SwipeUpAction = _settingsService.SwipeUpAction;
+                SwipeDownAction = _settingsService.SwipeDownAction;
+                SwipeLeftAction = _settingsService.SwipeLeftAction;
+                SwipeRightAction = _settingsService.SwipeRightAction;
+
+                var loadedCalibrationData = _settingsService.LoadCalibrationData();
+                if (loadedCalibrationData != null)
+                {
+                    ApplyCalibrationData(loadedCalibrationData);
+                    _logger.LogInfo("已加载并应用保存的校准数据.", nameof(MainViewModel));
+                }
+                else
+                {
+                    _logger.LogInfo("未找到保存的校准数据，使用默认设置.", nameof(MainViewModel));
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("加载设置时发生错误.", nameof(MainViewModel), ex);
+                StatusMessage = "加载设置失败：" + ex.Message;
+            }
         }
 
         /// <summary>
@@ -681,9 +769,16 @@ namespace GearVRController.ViewModels
         /// </summary>
         private void RegisterHotKeys()
         {
-            // 这里可以添加热键注册逻辑
-            // 由于WinUI 3的限制，我们可能需要使用原生Windows API来实现
-            // 暂时可以通过UI按钮来控制
+            _logger.LogInfo("注册热键.", nameof(MainViewModel));
+            try
+            {
+                _inputStateMonitorService.RegisterHotKey(Enums.VirtualKeyCode.MEDIA_PLAY_PAUSE, () => ToggleControl());
+                _logger.LogInfo("播放/暂停键热键已注册.", nameof(MainViewModel));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("注册热键时发生错误.", nameof(MainViewModel), ex);
+            }
         }
 
         /// <summary>
@@ -694,20 +789,26 @@ namespace GearVRController.ViewModels
         /// <exception cref="Exception">连接失败时抛出。</exception>
         public async Task ConnectAsync(ulong deviceAddress)
         {
-            if (_bluetoothService.IsConnected) return;
-
+            if (IsConnecting) return; // Prevent multiple connection attempts
             IsConnecting = true;
             StatusMessage = "正在连接...";
+            _logger.LogInfo($"尝试连接到设备: {deviceAddress}", nameof(MainViewModel));
 
             try
             {
                 await _bluetoothService.ConnectAsync(deviceAddress);
+                StatusMessage = "连接成功！";
+                _logger.LogInfo($"成功连接到设备: {deviceAddress}", nameof(MainViewModel));
+            }
+            catch (TimeoutException ex)
+            {
+                StatusMessage = "连接超时。请确保控制器已开启并处于配对模式。";
+                _logger.LogError($"连接超时到设备: {deviceAddress}", nameof(MainViewModel), ex);
             }
             catch (Exception ex)
             {
                 StatusMessage = $"连接失败: {ex.Message}";
-                System.Diagnostics.Debug.WriteLine($"连接失败: {ex}");
-                throw;
+                _logger.LogError($"连接到设备 {deviceAddress} 失败.", nameof(MainViewModel), ex);
             }
             finally
             {
@@ -721,18 +822,18 @@ namespace GearVRController.ViewModels
         /// </summary>
         public void Disconnect()
         {
+            if (!IsConnected && !IsConnecting) return; // Only disconnect if connected or trying to connect
+            _logger.LogInfo("断开与设备的连接.", nameof(MainViewModel));
             try
             {
                 _bluetoothService.Disconnect();
                 StatusMessage = "已断开连接";
-                _inputStateMonitorService.StopMonitor(); // Stop the input state monitor
-
-                // 确保释放所有按键
-                _inputStateMonitorService.ForceReleaseAllButtons();
+                _logger.LogInfo("设备已成功断开连接.", nameof(MainViewModel));
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"断开连接异常: {ex}");
+                _logger.LogError("断开连接时发生错误.", nameof(MainViewModel), ex);
+                StatusMessage = $"断开连接失败: {ex.Message}";
             }
         }
 
@@ -745,33 +846,19 @@ namespace GearVRController.ViewModels
         /// <param name="status">新的蓝牙连接状态。</param>
         private void BluetoothService_ConnectionStatusChanged(object? sender, BluetoothConnectionStatus status)
         {
-            Debug.WriteLine($"[MainViewModel] 收到 ConnectionStatusChanged 事件. 新状态: {status}");
             _dispatcherQueue.TryEnqueue(() =>
             {
-                Debug.WriteLine($"[MainViewModel] 在 DispatcherQueue 中处理状态更新. 当前 IsConnected (前): {IsConnected}, 新状态: {status}");
-                IsConnected = status == BluetoothConnectionStatus.Connected;
-                Debug.WriteLine($"[MainViewModel] IsConnected 已更新为: {IsConnected}");
+                IsConnected = (status == BluetoothConnectionStatus.Connected);
+                StatusMessage = IsConnected ? "已连接" : "已断开连接";
+                _logger.LogInfo($"蓝牙连接状态改变: {status}", nameof(MainViewModel));
 
                 if (!IsConnected)
                 {
-                    // 断开连接时，确保释放所有按键
-                    _inputStateMonitorService.ForceReleaseAllButtons();
-                    Debug.WriteLine("[MainViewModel] 检测到断开连接，已释放按键并清空缓冲区.");
+                    _logger.LogWarning("蓝牙设备断开连接.", nameof(MainViewModel));
+                    // 清理状态，例如如果UI显示了校准数据，可能需要重置
+                    _lastControllerData = new ControllerData();
+                    ClearTouchpadHistory();
                 }
-
-                // 更新状态消息
-                if (IsConnected)
-                {
-                    StatusMessage = "已连接";
-                    Debug.WriteLine("[MainViewModel] 状态消息已更新为: 已连接");
-                }
-                else
-                {
-                    StatusMessage = "连接已断开，正在尝试重新连接..."; // Simplified status message
-                    Debug.WriteLine($"[MainViewModel] 状态消息已更新为: {StatusMessage}");
-                }
-
-                UpdateControlState();
             });
         }
 
@@ -783,39 +870,39 @@ namespace GearVRController.ViewModels
         /// <param name="data">接收到的控制器数据。</param>
         private void BluetoothService_DataReceived(object? sender, ControllerData data)
         {
-            // 将数据传递给 UI 线程处理
+            if (!_isControlEnabled)
+            {
+                // 如果控制已禁用，只更新 UI 相关属性，不进行输入模拟
+                _dispatcherQueue.TryEnqueue(() =>
+                {
+                    LastControllerData = data;
+                    ProcessedTouchpadX = data.ProcessedTouchpadX;
+                    ProcessedTouchpadY = data.ProcessedTouchpadY;
+                    if (data.TouchpadTouched) // 仅在触摸时记录历史
+                    {
+                        RecordTouchpadHistory(data.ProcessedTouchpadX, data.ProcessedTouchpadY, true);
+                    }
+                    else
+                    {
+                        RecordTouchpadHistory(data.ProcessedTouchpadX, data.ProcessedTouchpadY, false);
+                    }
+                });
+                return;
+            }
+
+            // Always process data through ControllerService for gestures and general data processing
+            _controllerService.ProcessControllerData(data);
+
+            // Update UI properties on the UI thread
             _dispatcherQueue.TryEnqueue(() =>
             {
-                // System.Diagnostics.Debug.WriteLine($"[MainViewModel] Data Received: AccelX={{data.AccelX}}, GyroZ={{data.GyroZ}}");
-
-                if (!IsControlEnabled)
-                {
-                    LastControllerData = data; // 即使禁用控制，也更新最新数据
-                    return;
-                }
-
-                // Process controller data (this will update ProcessedTouchpadX/Y in data object)
-                _controllerService.ProcessControllerData(data);
-
-                // Update processed touchpad coordinates from data (now populated by ControllerService)
+                LastControllerData = data;
                 ProcessedTouchpadX = data.ProcessedTouchpadX;
                 ProcessedTouchpadY = data.ProcessedTouchpadY;
-
-                // Record touchpad history for visualization
                 RecordTouchpadHistory(data.ProcessedTouchpadX, data.ProcessedTouchpadY, data.TouchpadTouched);
-
-                // Update LastControllerData
-                LastControllerData = data;
-
-                // Notify InputStateMonitorService of activity
-                _inputStateMonitorService.NotifyInputActivity();
-
-                // Handle button input if mouse is enabled
-                if (IsMouseEnabled)
-                {
-                    HandleButtonInput(data);
-                }
             });
+
+            HandleButtonInput(data);
         }
 
         /// <summary>
@@ -827,166 +914,151 @@ namespace GearVRController.ViewModels
         {
             try
             {
-                if (!IsControlEnabled || _isCalibrating) return;
-
-                if (IsMouseEnabled)
+                // 触摸板按钮
+                if (data.TouchpadButton)
                 {
-                    // 右键 (TriggerButton) 去抖动处理
-                    if (data.TriggerButton)
+                    _touchpadButtonPressCounter++;
+                    _touchpadButtonReleaseCounter = 0;
+                    if (_touchpadButtonPressCounter >= BUTTON_DEBOUNCE_THRESHOLD && !_isTouchpadButtonPressed)
                     {
-                        _triggerButtonReleaseCounter = 0;
-                        if (!_isTriggerButtonPressed)
+                        if (_isMouseEnabled)
                         {
-                            _triggerButtonPressCounter++;
-                            if (_triggerButtonPressCounter >= BUTTON_DEBOUNCE_THRESHOLD)
-                            {
-                                _isTriggerButtonPressed = true;
-                                _inputSimulator.SimulateMouseButtonEx(true, (int)EnumsNS.MouseButtons.Right);
-                                Debug.WriteLine($"[MainViewModel] Right button state changed to: pressed (debounced)");
-                                _inputStateMonitorService.NotifyInputActivity();
-                                _triggerButtonPressCounter = 0; // Reset counter
-                            }
+                            _inputSimulator.SimulateMouseButtonEx(true, (int)EnumsNS.MouseButtons.Left);
+                            _inputStateMonitorService.AddPressedKey(Enums.VirtualKeyCode.VK_LBUTTON); // Track pressed key
+                            _logger.LogInfo("模拟鼠标左键按下 (触摸板).");
                         }
+                        _isTouchpadButtonPressed = true;
                     }
-                    else // data.TriggerButton 为 false
+                }
+                else
+                {
+                    _touchpadButtonReleaseCounter++;
+                    _touchpadButtonPressCounter = 0;
+                    if (_touchpadButtonReleaseCounter >= BUTTON_DEBOUNCE_THRESHOLD && _isTouchpadButtonPressed)
                     {
-                        _triggerButtonPressCounter = 0;
-                        if (_isTriggerButtonPressed)
+                        if (_isMouseEnabled)
                         {
-                            _triggerButtonReleaseCounter++;
-                            if (_triggerButtonReleaseCounter >= BUTTON_DEBOUNCE_THRESHOLD)
-                            {
-                                _isTriggerButtonPressed = false;
-                                _inputSimulator.SimulateMouseButtonEx(false, (int)EnumsNS.MouseButtons.Right);
-                                Debug.WriteLine($"[MainViewModel] Right button state changed to: released (debounced)");
-                                _inputStateMonitorService.NotifyInputActivity();
-                                _triggerButtonReleaseCounter = 0; // Reset counter
-                            }
+                            _inputSimulator.SimulateMouseButtonEx(false, (int)EnumsNS.MouseButtons.Left);
+                            _inputStateMonitorService.RemovePressedKey(Enums.VirtualKeyCode.VK_LBUTTON); // Untrack released key
+                            _logger.LogInfo("模拟鼠标左键释放 (触摸板).");
                         }
-                    }
-
-                    // 左键 (TouchpadButton) 去抖动处理
-                    if (data.TouchpadButton)
-                    {
-                        _touchpadButtonReleaseCounter = 0;
-                        if (!_isTouchpadButtonPressed)
-                        {
-                            _touchpadButtonPressCounter++;
-                            if (_touchpadButtonPressCounter >= BUTTON_DEBOUNCE_THRESHOLD)
-                            {
-                                _isTouchpadButtonPressed = true;
-                                _inputSimulator.SimulateMouseButtonEx(true, (int)EnumsNS.MouseButtons.Left);
-                                Debug.WriteLine($"[MainViewModel] Left button state changed to: pressed (debounced)");
-                                _inputStateMonitorService.NotifyInputActivity();
-                                _touchpadButtonPressCounter = 0; // Reset counter
-                            }
-                        }
-                    }
-                    else // data.TouchpadButton 为 false
-                    {
-                        _touchpadButtonPressCounter = 0;
-                        if (_isTouchpadButtonPressed)
-                        {
-                            _touchpadButtonReleaseCounter++;
-                            if (_touchpadButtonReleaseCounter >= BUTTON_DEBOUNCE_THRESHOLD)
-                            {
-                                _isTouchpadButtonPressed = false;
-                                _inputSimulator.SimulateMouseButtonEx(false, (int)EnumsNS.MouseButtons.Left);
-                                Debug.WriteLine($"[MainViewModel] Left button state changed to: released (debounced)");
-                                _inputStateMonitorService.NotifyInputActivity();
-                                _touchpadButtonReleaseCounter = 0; // Reset counter
-                            }
-                        }
+                        _isTouchpadButtonPressed = false;
                     }
                 }
 
-                if (IsKeyboardEnabled)
+                // 触发器按钮
+                if (data.TriggerButton)
                 {
-                    // Home Button
-                    if (data.HomeButton)
+                    _triggerButtonPressCounter++;
+                    _triggerButtonReleaseCounter = 0;
+                    if (_triggerButtonPressCounter >= BUTTON_DEBOUNCE_THRESHOLD && !_isTriggerButtonPressed)
                     {
-                        _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.VK_HOME);
-                        _inputStateMonitorService.NotifyInputActivity();
+                        if (_isMouseEnabled)
+                        {
+                            _inputSimulator.SimulateMouseButtonEx(true, (int)EnumsNS.MouseButtons.Right);
+                            _inputStateMonitorService.AddPressedKey(Enums.VirtualKeyCode.VK_RBUTTON); // Track pressed key
+                            _logger.LogInfo("模拟鼠标右键按下 (触发器).");
+                        }
+                        _isTriggerButtonPressed = true;
                     }
+                }
+                else
+                {
+                    _triggerButtonReleaseCounter++;
+                    _triggerButtonPressCounter = 0;
+                    if (_triggerButtonReleaseCounter >= BUTTON_DEBOUNCE_THRESHOLD && _isTriggerButtonPressed)
+                    {
+                        if (_isMouseEnabled)
+                        {
+                            _inputSimulator.SimulateMouseButtonEx(false, (int)EnumsNS.MouseButtons.Right);
+                            _inputStateMonitorService.RemovePressedKey(Enums.VirtualKeyCode.VK_RBUTTON); // Untrack released key
+                            _logger.LogInfo("模拟鼠标右键释放 (触发器).");
+                        }
+                        _isTriggerButtonPressed = false;
+                    }
+                }
 
-                    // Back Button
-                    if (data.BackButton)
-                    {
-                        _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.VK_BACK);
-                        _inputStateMonitorService.NotifyInputActivity();
-                    }
+                // Home 按钮
+                if (data.HomeButton && _isKeyboardEnabled)
+                {
+                    _inputSimulator.SimulateKeyPress((int)Enums.VirtualKeyCode.VK_BROWSER_HOME); // Simulate browser home
+                    _logger.LogInfo("模拟浏览器主页键 (Home).");
+                }
 
-                    // 音量上键去抖动处理
-                    if (data.VolumeUpButton)
-                    {
-                        _volumeUpReleaseCounter = 0;
-                        if (!_isVolumeUpHeld)
-                        {
-                            _volumeUpPressCounter++;
-                            if (_volumeUpPressCounter >= BUTTON_DEBOUNCE_THRESHOLD)
-                            {
-                                _isVolumeUpHeld = true;
-                                _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.VOLUME_UP);
-                                _inputStateMonitorService.NotifyInputActivity();
-                                Debug.WriteLine($"[MainViewModel] Volume Up pressed (debounced)");
-                                _volumeUpPressCounter = 0; // Reset counter
-                            }
-                        }
-                    }
-                    else // data.VolumeUpButton 为 false
-                    {
-                        _volumeUpPressCounter = 0;
-                        if (_isVolumeUpHeld)
-                        {
-                            _volumeUpReleaseCounter++;
-                            if (_volumeUpReleaseCounter >= BUTTON_DEBOUNCE_THRESHOLD)
-                            {
-                                _isVolumeUpHeld = false;
-                                Debug.WriteLine($"[MainViewModel] Volume Up released (debounced)");
-                                _inputStateMonitorService.NotifyInputActivity(); // Notify on release too
-                                _volumeUpReleaseCounter = 0; // Reset counter
-                            }
-                        }
-                    }
+                // 返回按钮
+                if (data.BackButton && _isKeyboardEnabled)
+                {
+                    _inputSimulator.SimulateKeyPress((int)Enums.VirtualKeyCode.BROWSER_BACK); // Simulate browser back
+                    _logger.LogInfo("模拟浏览器后退键 (Back).");
+                }
 
-                    // 音量下键去抖动处理
-                    if (data.VolumeDownButton)
+                // 音量上键
+                if (data.VolumeUpButton)
+                {
+                    _volumeUpPressCounter++;
+                    _volumeUpReleaseCounter = 0;
+                    if (_volumeUpPressCounter >= BUTTON_DEBOUNCE_THRESHOLD && !_isVolumeUpHeld)
                     {
-                        _volumeDownReleaseCounter = 0;
-                        if (!_isVolumeDownHeld)
+                        if (_isKeyboardEnabled)
                         {
-                            _volumeDownPressCounter++;
-                            if (_volumeDownPressCounter >= BUTTON_DEBOUNCE_THRESHOLD)
-                            {
-                                _isVolumeDownHeld = true;
-                                _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.VOLUME_DOWN);
-                                _inputStateMonitorService.NotifyInputActivity();
-                                Debug.WriteLine($"[MainViewModel] Volume Down pressed (debounced)");
-                                _volumeDownPressCounter = 0; // Reset counter
-                            }
+                            _inputSimulator.SimulateKeyDown((int)Enums.VirtualKeyCode.VOLUME_UP);
+                            _inputStateMonitorService.AddPressedKey(Enums.VirtualKeyCode.VOLUME_UP); // Track pressed key
+                            _logger.LogInfo("模拟音量上键按下.");
                         }
+                        _isVolumeUpHeld = true;
                     }
-                    else // data.VolumeDownButton 为 false
+                }
+                else
+                {
+                    _volumeUpReleaseCounter++;
+                    _volumeUpPressCounter = 0;
+                    if (_volumeUpReleaseCounter >= BUTTON_DEBOUNCE_THRESHOLD && _isVolumeUpHeld)
                     {
-                        _volumeDownPressCounter = 0;
-                        if (_isVolumeDownHeld)
+                        if (_isKeyboardEnabled)
                         {
-                            _volumeDownReleaseCounter++;
-                            if (_volumeDownReleaseCounter >= BUTTON_DEBOUNCE_THRESHOLD)
-                            {
-                                _isVolumeDownHeld = false;
-                                Debug.WriteLine($"[MainViewModel] Volume Down released (debounced)");
-                                _inputStateMonitorService.NotifyInputActivity(); // Notify on release too
-                                _volumeDownReleaseCounter = 0; // Reset counter
-                            }
+                            _inputSimulator.SimulateKeyUp((int)Enums.VirtualKeyCode.VOLUME_UP);
+                            _inputStateMonitorService.RemovePressedKey(Enums.VirtualKeyCode.VOLUME_UP); // Untrack released key
+                            _logger.LogInfo("模拟音量上键释放.");
                         }
+                        _isVolumeUpHeld = false;
+                    }
+                }
+
+                // 音量下键
+                if (data.VolumeDownButton)
+                {
+                    _volumeDownPressCounter++;
+                    _volumeDownReleaseCounter = 0;
+                    if (_volumeDownPressCounter >= BUTTON_DEBOUNCE_THRESHOLD && !_isVolumeDownHeld)
+                    {
+                        if (_isKeyboardEnabled)
+                        {
+                            _inputSimulator.SimulateKeyDown((int)Enums.VirtualKeyCode.VOLUME_DOWN);
+                            _inputStateMonitorService.AddPressedKey(Enums.VirtualKeyCode.VOLUME_DOWN); // Track pressed key
+                            _logger.LogInfo("模拟音量下键按下.");
+                        }
+                        _isVolumeDownHeld = true;
+                    }
+                }
+                else
+                {
+                    _volumeDownReleaseCounter++;
+                    _volumeDownPressCounter = 0;
+                    if (_volumeDownReleaseCounter >= BUTTON_DEBOUNCE_THRESHOLD && _isVolumeDownHeld)
+                    {
+                        if (_isKeyboardEnabled)
+                        {
+                            _inputSimulator.SimulateKeyUp((int)Enums.VirtualKeyCode.VOLUME_DOWN);
+                            _inputStateMonitorService.RemovePressedKey(Enums.VirtualKeyCode.VOLUME_DOWN); // Untrack released key
+                            _logger.LogInfo("模拟音量下键释放.");
+                        }
+                        _isVolumeDownHeld = false;
                     }
                 }
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"按键处理异常: {ex}");
-                _inputStateMonitorService.ForceReleaseAllButtons();
+                _logger.LogError("处理按钮输入时发生错误.", nameof(MainViewModel), ex);
             }
         }
 
@@ -1177,7 +1249,7 @@ namespace GearVRController.ViewModels
 
             // 确保释放所有模拟的按键，以防应用在断开连接时意外退出。
             _inputStateMonitorService.ForceReleaseAllButtons();
-            _inputStateMonitorService.StopMonitor(); // 停止输入状态监控器
+            _inputStateMonitorService.StopMonitoring(); // 停止输入状态监控器
         }
 
         /// <summary>
@@ -1212,6 +1284,15 @@ namespace GearVRController.ViewModels
             {
                 ApplyCalibrationData(calibration);
             }
+        }
+
+        private void InputStateMonitorService_InputTimeoutDetected(object? sender, InputTimeoutDetectedEvent e)
+        {
+            _dispatcherQueue.TryEnqueue(() =>
+            {
+                _logger.LogWarning($"检测到输入超时. 强制释放 {e.ReleasedKeys.Count} 个按键.", nameof(MainViewModel));
+                StatusMessage = "检测到按键卡滞，已强制释放！";
+            });
         }
     }
 }

@@ -111,6 +111,10 @@ namespace GearVRController.Services.Interfaces
         /// 获取触摸阈值。
         /// </summary>
         int TouchThreshold { get; }
+        /// <summary>
+        /// 获取处理后的触摸阈值（归一化）。
+        /// </summary>
+        double ProcessedTouchThreshold { get; }
 
         /// <summary>
         /// 获取或设置已知的蓝牙地址列表。

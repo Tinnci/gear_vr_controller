@@ -31,6 +31,16 @@ namespace GearVRController.Services.Interfaces
         /// <param name="keyCode">要释放的虚拟键码。</param>
         void SimulateKeyRelease(int keyCode);
         /// <summary>
+        /// 模拟键盘按键按下（不释放）。
+        /// </summary>
+        /// <param name="keyCode">要按下的虚拟键码。</param>
+        void SimulateKeyDown(int keyCode);
+        /// <summary>
+        /// 模拟键盘按键释放（不按下）。
+        /// </summary>
+        /// <param name="keyCode">要释放的虚拟键码。</param>
+        void SimulateKeyUp(int keyCode);
+        /// <summary>
         /// 模拟鼠标滚轮移动。
         /// </summary>
         /// <param name="delta">滚轮移动量（正值向上滚动，负值向下滚动）。</param>

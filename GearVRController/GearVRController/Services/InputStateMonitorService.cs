@@ -3,9 +3,10 @@ using Microsoft.UI.Dispatching;
 using GearVRController.Services.Interfaces;
 using System.Diagnostics;
 using GearVRController.Enums; // 添加对 MouseButtons 的引用
-// using WindowsInput.Native; // Not needed if VirtualKeys are merged
 using Microsoft.UI.Xaml; // Add this for DispatcherTimer
-// using WindowsInput; // Not needed if direct WindowsInputSimulator reference is removed
+using System.Collections.Generic;
+using GearVRController.Events;
+using System.Linq; // Added for ToList()
 
 namespace GearVRController.Services
 {
@@ -32,38 +33,45 @@ namespace GearVRController.Services
         /// <summary>
         /// 检测无输入活动超时的毫秒数。如果超过此时间没有输入，将强制释放按键。
         /// </summary>
-        private const int INPUT_TIMEOUT_MS = 5000; // 5秒超时
+        private const int INPUT_TIMEOUT_MS = 2000; // 2秒超时
         /// <summary>
         /// 用于定期检查输入状态的计时器。
         /// </summary>
         private DispatcherTimer? _stateCheckTimer;
+
+        private readonly ILogger _logger; // Added ILogger dependency
+        private readonly HashSet<VirtualKeyCode> _pressedKeys = new HashSet<VirtualKeyCode>(); // Track pressed keys
+
+        // Event for input timeout
+        public event EventHandler<InputTimeoutDetectedEvent>? InputTimeoutDetected;
 
         /// <summary>
         /// InputStateMonitorService 的构造函数。
         /// </summary>
         /// <param name="inputSimulator">输入模拟器服务，用于模拟按键释放。</param>
         /// <param name="dispatcherQueue">DispatcherQueue 实例，用于调度 UI 线程操作。</param>
-        public InputStateMonitorService(IInputSimulator inputSimulator, DispatcherQueue dispatcherQueue)
+        public InputStateMonitorService(IInputSimulator inputSimulator, DispatcherQueue dispatcherQueue, ILogger logger)
         {
             _inputSimulator = inputSimulator;
             _dispatcherQueue = dispatcherQueue;
+            _logger = logger; // Initialize logger
         }
 
         /// <summary>
         /// 启动输入状态监控器。
         /// 初始化并启动一个定时器，该定时器会定期检查是否有输入活动。
         /// </summary>
-        public void StartMonitor() // Renamed from Initialize
+        public void StartMonitoring() // Renamed from StartMonitor
         {
             if (_stateCheckTimer == null)
             {
                 _stateCheckTimer = new DispatcherTimer();
                 _stateCheckTimer.Interval = TimeSpan.FromSeconds(1); // Check every second
-                _stateCheckTimer.Tick += MonitorInputState_Tick; // Use a named method for easy unsubscription
+                _stateCheckTimer.Tick += MonitorInputState_Tick;
             }
             _lastInputTime = DateTime.Now; // Reset timer on start
             _stateCheckTimer.Start();
-            Debug.WriteLine("[InputStateMonitorService] State check timer initialized and started.");
+            _logger.LogInfo("State check timer initialized and started.", nameof(InputStateMonitorService));
         }
 
         /// <summary>
@@ -87,15 +95,14 @@ namespace GearVRController.Services
                 var now = DateTime.Now;
                 if ((now - _lastInputTime).TotalMilliseconds > INPUT_TIMEOUT_MS)
                 {
-                    System.Diagnostics.Debug.WriteLine("检测到长时间无输入，强制释放所有按键 (守护机制)");
+                    _logger.LogWarning("检测到长时间无输入，强制释放所有按键 (守护机制)", nameof(InputStateMonitorService));
                     ForceReleaseAllButtons();
-                    // Reset last input time to avoid continuous releases if no input is ever received again
                     _lastInputTime = now;
                 }
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"监控输入状态异常: {ex}");
+                _logger.LogError($"监控输入状态异常.", nameof(InputStateMonitorService), ex);
             }
         }
 
@@ -104,16 +111,33 @@ namespace GearVRController.Services
         /// </summary>
         public void ForceReleaseAllButtons()
         {
+            if (_pressedKeys.Count == 0) return; // Only proceed if there are keys to release
             try
             {
-                _inputSimulator.SimulateMouseButtonEx(false, (int)MouseButtons.Left);
-                _inputSimulator.SimulateMouseButtonEx(false, (int)MouseButtons.Right);
-                _inputSimulator.SimulateMouseButtonEx(false, (int)MouseButtons.Middle);
-                System.Diagnostics.Debug.WriteLine("已强制释放所有按键");
+                var releasedKeys = new List<VirtualKeyCode>();
+                foreach (var keyCode in _pressedKeys.ToList()) // ToList to avoid modification during iteration
+                {
+                    if (Enum.IsDefined(typeof(MouseButtons), (int)keyCode))
+                    {
+                        // It's a mouse button
+                        _inputSimulator.SimulateMouseButtonEx(false, (int)keyCode);
+                        _logger.LogInfo($"强制释放鼠标按键: {keyCode}", nameof(InputStateMonitorService));
+                    }
+                    else
+                    {
+                        // It's a keyboard key
+                        _inputSimulator.SimulateKeyRelease((int)keyCode);
+                        _logger.LogInfo($"强制释放键盘按键: {keyCode}", nameof(InputStateMonitorService));
+                    }
+                    releasedKeys.Add(keyCode);
+                }
+                _pressedKeys.Clear();
+                _logger.LogInfo($"已强制释放所有跟踪的 {releasedKeys.Count} 个按键.", nameof(InputStateMonitorService));
+                InputTimeoutDetected?.Invoke(this, new InputTimeoutDetectedEvent(releasedKeys));
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"强制释放按键异常: {ex}");
+                _logger.LogError($"强制释放按键异常.", nameof(InputStateMonitorService), ex);
             }
         }
 
@@ -121,16 +145,15 @@ namespace GearVRController.Services
         /// 停止输入状态监控器并清理相关资源。
         /// 停止计时器并取消其事件订阅。
         /// </summary>
-        public void StopMonitor()
+        public void StopMonitoring() // Renamed from StopMonitor
         {
             if (_stateCheckTimer != null)
             {
                 _stateCheckTimer.Stop();
-                // 取消订阅Tick事件
-                _stateCheckTimer.Tick -= MonitorInputState_Tick; // Unsubscribe
-                _stateCheckTimer = null; // Help with garbage collection
+                _stateCheckTimer.Tick -= MonitorInputState_Tick;
+                _stateCheckTimer = null;
             }
-            Debug.WriteLine("[InputStateMonitorService] State check timer stopped and cleaned up.");
+            _logger.LogInfo("State check timer stopped and cleaned up.", nameof(InputStateMonitorService));
         }
 
         /// <summary>
@@ -140,7 +163,39 @@ namespace GearVRController.Services
         public void NotifyInputActivity()
         {
             _lastInputTime = DateTime.Now;
-            // Debug.WriteLine("[InputStateMonitorService] Input activity notified, timer reset."); // Too verbose
+            // _logger.LogInfo("Input activity notified, timer reset.", nameof(InputStateMonitorService)); // Too verbose for continuous activity
+        }
+
+        /// <summary>
+        /// 跟踪当前按下的键，以便在超时时释放。
+        /// </summary>
+        /// <param name="keyCode">按下的键的虚拟键码。</param>
+        public void AddPressedKey(VirtualKeyCode keyCode)
+        {
+            _pressedKeys.Add(keyCode);
+            _logger.LogInfo($"跟踪按下的键: {keyCode}. 当前跟踪数量: {_pressedKeys.Count}", nameof(InputStateMonitorService));
+        }
+
+        /// <summary>
+        /// 从跟踪列表中移除已释放的键。
+        /// </summary>
+        /// <param name="keyCode">释放的键的虚拟键码。</param>
+        public void RemovePressedKey(VirtualKeyCode keyCode)
+        {
+            _pressedKeys.Remove(keyCode);
+            _logger.LogInfo($"移除已释放的键: {keyCode}. 当前跟踪数量: {_pressedKeys.Count}", nameof(InputStateMonitorService));
+        }
+
+        /// <summary>
+        /// 注册一个全局热键。此实现仅作日志记录，不实际注册。
+        /// </summary>
+        /// <param name="keyCode">要注册的虚拟键码。</param>
+        /// <param name="action">热键触发时执行的动作。</param>
+        public void RegisterHotKey(VirtualKeyCode keyCode, Action action)
+        {
+            _logger.LogWarning($"热键注册功能未完全实现。键码: {keyCode}. 动作将被记录，但不会实际注册全局热键。", nameof(InputStateMonitorService));
+            // 在实际应用中，这里需要调用P/Invoke来注册全局热键。
+            // 为简化目的，目前只记录日志。
         }
 
         /// <summary>
@@ -161,11 +216,10 @@ namespace GearVRController.Services
         {
             if (disposing)
             {
-                // Dispose managed state (managed objects)
-                StopMonitor(); // Stop and clean up the timer
+                StopMonitoring(); // Stop and clean up the timer
+                ForceReleaseAllButtons(); // Ensure any pressed keys are released on dispose
+                _pressedKeys.Clear();
             }
-            // Free unmanaged resources (unmanaged objects) and override finalizer
-            // Set large fields to null
         }
     }
 }

@@ -196,7 +196,9 @@
                         <Rectangle x:Name="CalibrationRect"
                             Stroke="{ThemeResource SystemAccentColor}" StrokeThickness="2" />
                         <!-- 中心点 -->
-                        <Ellipse x:Name="CalibrationCenterDot" Width="10" Height="10"
+                        <Ellipse x:Name="CalibrationCenterDot"
+                            Width="{Binding Source={StaticResource CALIBRATION_CENTER_DOT_SIZE}, Mode=OneWay}"
+                            Height="{Binding Source={StaticResource CALIBRATION_CENTER_DOT_SIZE}, Mode=OneWay}"
                             Fill="{ThemeResource SystemAccentColor}" />
                     </Canvas>
                 </Border>

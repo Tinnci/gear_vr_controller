@@ -41,6 +41,25 @@ namespace GearVRController.Views
         // 历史轨迹的最大数量
         private const int MaxHistoryPoints = 50;
 
+        // 窗口尺寸常量
+        private const int WINDOW_WIDTH = 400;
+        private const int WINDOW_HEIGHT = 500;
+
+        // 触摸点UI常量
+        private const double TOUCH_POINT_SIZE = 20;
+        private const double TOUCH_LINE_THICKNESS = 1;
+        private const double TOUCH_LINE_OPACITY = 0.5;
+
+        // 坐标文本UI常量
+        private const double COORDS_TEXT_FONT_SIZE = 12;
+
+        // 布局和尺寸常量
+        private const double MIN_CANVAS_DIMENSION = 20;
+        private const double TOUCHPAD_PADDING = 20;
+        private const double MIN_TOUCHPAD_SIZE = 100;
+        private const double MAX_TOUCHPAD_SIZE = 500;
+        private const double DEFAULT_TOUCHPAD_BOUNDARY_SIZE = 300;
+
         // 触摸板区域的尺寸
         private double _touchpadSize;
 
@@ -64,13 +83,13 @@ namespace GearVRController.Views
             _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
 
             // 设置窗口大小
-            this.AppWindow.Resize(new Windows.Graphics.SizeInt32(400, 500));
+            this.AppWindow.Resize(new Windows.Graphics.SizeInt32(WINDOW_WIDTH, WINDOW_HEIGHT));
 
             // 初始化触摸点圆形
             _touchPoint = new Ellipse
             {
-                Width = 20,
-                Height = 20,
+                Width = TOUCH_POINT_SIZE,
+                Height = TOUCH_POINT_SIZE,
                 Fill = new SolidColorBrush(Colors.Blue),
                 Visibility = Visibility.Collapsed
             };
@@ -79,8 +98,8 @@ namespace GearVRController.Views
             _touchLine = new Line
             {
                 Stroke = new SolidColorBrush(Colors.Gray),
-                StrokeThickness = 1,
-                Opacity = 0.5,
+                StrokeThickness = TOUCH_LINE_THICKNESS,
+                Opacity = TOUCH_LINE_OPACITY,
                 Visibility = Visibility.Collapsed
             };
 
@@ -88,7 +107,7 @@ namespace GearVRController.Views
             _coordsText = new TextBlock
             {
                 Foreground = new SolidColorBrush(Colors.Black),
-                FontSize = 12,
+                FontSize = COORDS_TEXT_FONT_SIZE,
                 Visibility = Visibility.Collapsed
             };
 
@@ -181,7 +200,7 @@ namespace GearVRController.Views
         private void UpdateVisualizationLayout()
         {
             // 确保Canvas有合理的尺寸
-            if (TouchpadCanvas.ActualWidth <= 20 || TouchpadCanvas.ActualHeight <= 20)
+            if (TouchpadCanvas.ActualWidth <= MIN_CANVAS_DIMENSION || TouchpadCanvas.ActualHeight <= MIN_CANVAS_DIMENSION)
             {
                 Debug.WriteLine("画布尺寸太小，暂不更新布局");
                 return; // 画布尺寸太小，不进行更新
@@ -194,10 +213,10 @@ namespace GearVRController.Views
 
             // 计算触摸板显示区域的尺寸（取宽度和高度的较小值）
             // 考虑到实际触摸板范围是0~315，我们设置一个合理的尺寸
-            _touchpadSize = Math.Min(_canvasWidth, _canvasHeight) - 20;
+            _touchpadSize = Math.Min(_canvasWidth, _canvasHeight) - TOUCHPAD_PADDING;
 
             // 确保尺寸是正数且合理
-            _touchpadSize = Math.Max(100, Math.Min(500, _touchpadSize));
+            _touchpadSize = Math.Max(MIN_TOUCHPAD_SIZE, Math.Min(MAX_TOUCHPAD_SIZE, _touchpadSize));
             _radius = _touchpadSize / 2; // Update radius based on calculated touchpadSize
 
             // Update coordinate axes
@@ -225,11 +244,11 @@ namespace GearVRController.Views
             {
                 Debug.WriteLine($"设置触摸板边界尺寸时出错: {ex.Message}");
                 // 使用更安全的默认值
-                TouchpadBoundary.Width = 300;
-                TouchpadBoundary.Height = 300;
+                TouchpadBoundary.Width = DEFAULT_TOUCHPAD_BOUNDARY_SIZE;
+                TouchpadBoundary.Height = DEFAULT_TOUCHPAD_BOUNDARY_SIZE;
                 TouchpadBoundary.Margin = new Thickness(
-                    Math.Max(0, (_canvasWidth - 300) / 2),
-                    Math.Max(0, (_canvasHeight - 300) / 2),
+                    Math.Max(0, (_canvasWidth - DEFAULT_TOUCHPAD_BOUNDARY_SIZE) / 2),
+                    Math.Max(0, (_canvasHeight - DEFAULT_TOUCHPAD_BOUNDARY_SIZE) / 2),
                     0, 0);
             }
 
