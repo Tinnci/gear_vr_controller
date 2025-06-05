@@ -75,6 +75,10 @@ namespace GearVRController.Services
         /// </summary>
         private const string SHOW_GESTURE_HINTS_KEY = "ShowGestureHints";
         /// <summary>
+        /// 按钮去抖动阈值设置的键名。
+        /// </summary>
+        private const string BUTTON_DEBOUNCE_THRESHOLD_KEY = "ButtonDebounceThreshold";
+        /// <summary>
         /// 向上滑动动作设置的键名。
         /// </summary>
         private const string SWIPE_UP_ACTION_KEY = "SwipeUpAction";
@@ -310,6 +314,16 @@ namespace GearVRController.Services
         {
             get => GetSetting(SHOW_GESTURE_HINTS_KEY, true);
             set => SaveSetting(SHOW_GESTURE_HINTS_KEY, value);
+        }
+
+        /// <summary>
+        /// 获取或设置按钮去抖动阈值。
+        /// 默认值为 2。
+        /// </summary>
+        public int ButtonDebounceThreshold
+        {
+            get => GetSetting(BUTTON_DEBOUNCE_THRESHOLD_KEY, 2);
+            set => SaveSetting(BUTTON_DEBOUNCE_THRESHOLD_KEY, value);
         }
 
         /// <summary>

@@ -71,6 +71,10 @@ namespace GearVRController.Services.Interfaces
         /// </summary>
         bool ShowGestureHints { get; set; }
         /// <summary>
+        /// 获取或设置按钮去抖动阈值。
+        /// </summary>
+        int ButtonDebounceThreshold { get; set; }
+        /// <summary>
         /// 获取或设置向上滑动时执行的动作。
         /// </summary>
         GearVRController.Enums.GestureAction SwipeUpAction { get; set; }

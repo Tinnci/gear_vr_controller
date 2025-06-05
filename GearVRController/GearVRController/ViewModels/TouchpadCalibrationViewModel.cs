@@ -826,7 +826,7 @@ namespace GearVRController.ViewModels
             _inactivityTimer.Stop();
             StopCountdown();
             CanProceedToNextStep = false;
-            _eventAggregator.Publish(new CalibrationCompletedEvent(_calibrationData));
+            _eventAggregator.Publish(new CalibrationCompletedEvent(_calibrationData, true));
         }
 
         /// <summary>
