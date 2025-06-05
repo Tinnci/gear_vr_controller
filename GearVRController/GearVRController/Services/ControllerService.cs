@@ -39,11 +39,11 @@ namespace GearVRController.Services
             _smoothingBufferY = new List<double>();
         }
 
-        public Task InitializeAsync()
-        {
-            // 初始化控制器
-            return Task.CompletedTask;
-        }
+        // public Task InitializeAsync()
+        // {
+        //     // 初始化控制器
+        //     return Task.CompletedTask;
+        // }
 
         public Task SendCommandAsync(byte[] command, int repeat = 1)
         {
@@ -182,13 +182,13 @@ namespace GearVRController.Services
                 // 如果需要严格的过滤，这里可以返回false
             }
 
-            // 检查加速度计数据
-            if (float.IsNaN(data.AccelX) || float.IsNaN(data.AccelY) || float.IsNaN(data.AccelZ))
-                return false;
+            // 检查加速度计数据 (Currently not used for core logic)
+            // if (float.IsNaN(data.AccelX) || float.IsNaN(data.AccelY) || float.IsNaN(data.AccelZ))
+            //     return false;
 
-            // 检查陀螺仪数据
-            if (float.IsNaN(data.GyroX) || float.IsNaN(data.GyroY) || float.IsNaN(data.GyroZ))
-                return false;
+            // 检查陀螺仪数据 (Currently not used for core logic)
+            // if (float.IsNaN(data.GyroX) || float.IsNaN(data.GyroY) || float.IsNaN(data.GyroZ))
+            //     return false;
 
             return true;
         }

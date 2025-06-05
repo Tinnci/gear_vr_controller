@@ -370,73 +370,100 @@ namespace GearVRController.Services
 
         private void ProcessDataAsync(byte[] byteArray)
         {
-            if (byteArray.Length < EXPECTED_PACKET_LENGTH)
+            if (byteArray == null)
             {
-                System.Diagnostics.Debug.WriteLine($"[BluetoothService] 接收到的数据包长度不足. 预期: {EXPECTED_PACKET_LENGTH}, 实际: {byteArray.Length}");
-                return; // 或者根据需要抛出异常
+                System.Diagnostics.Debug.WriteLine("[BluetoothService] ProcessDataAsync: 接收到空数据包。");
+                return;
             }
+
+            // 更严格的长度检查：如果数据包长度不符合预期，则丢弃并记录警告
+            if (byteArray.Length != EXPECTED_PACKET_LENGTH)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BluetoothService] ProcessDataAsync: 接收到长度异常的数据包。预期长度: {EXPECTED_PACKET_LENGTH}, 实际长度: {byteArray.Length}。数据包已丢弃。");
+                return;
+            }
+
+            ControllerData data = new ControllerData();
 
             try
             {
-                using (var stream = new MemoryStream(byteArray))
-                using (var reader = new BinaryReader(stream))
+                using (MemoryStream stream = new MemoryStream(byteArray))
                 {
-                    var data = new ControllerData
+                    using (BinaryReader reader = new BinaryReader(stream))
                     {
-                        Timestamp = DateTimeOffset.Now.ToUnixTimeMilliseconds(),
-                        // PacketLength = byteArray.Length // PacketLength 不存在于 ControllerData 中
-                    };
+                        // 解析按钮状态
+                        // 假设按钮状态在一个字节中，每个位代表一个按钮
+                        // 添加 try-catch 块，以便在读取特定数据类型时捕获异常
+                        try
+                        {
+                            reader.BaseStream.Seek(BUTTON_STATE_OFFSET, SeekOrigin.Begin);
+                            byte buttonState = reader.ReadByte();
+                            data.TouchpadButton = (buttonState & TOUCHPAD_BUTTON_MASK) != 0;
+                            data.HomeButton = (buttonState & HOME_BUTTON_MASK) != 0;
+                            data.TriggerButton = (buttonState & TRIGGER_BUTTON_MASK) != 0;
+                            data.BackButton = (buttonState & BACK_BUTTON_MASK) != 0;
+                            data.VolumeUpButton = (buttonState & VOLUME_UP_BUTTON_MASK) != 0;
+                            data.VolumeDownButton = (buttonState & VOLUME_DOWN_BUTTON_MASK) != 0;
+                        }
+                        catch (EndOfStreamException ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[BluetoothService] 解析按钮状态时数据流过早结束: {ex.Message}");
+                            return; // 数据不完整，停止处理
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[BluetoothService] 解析按钮状态时发生异常: {ex.GetType().Name} - {ex.Message}");
+                            return; // 解析失败，停止处理
+                        }
 
-                    // 解析加速度计和陀螺仪数据 (Signed 16-bit integers)
-                    // 假设数据在特定偏移量，并且是小端字节序
-                    reader.BaseStream.Seek(ACCEL_X_OFFSET, SeekOrigin.Begin);
-                    data.AccelX = reader.ReadInt16();
-                    reader.BaseStream.Seek(ACCEL_Y_OFFSET, SeekOrigin.Begin);
-                    data.AccelY = reader.ReadInt16();
-                    reader.BaseStream.Seek(ACCEL_Z_OFFSET, SeekOrigin.Begin);
-                    data.AccelZ = reader.ReadInt16();
+                        // Touchpad coordinates (Raw values from 0 to 1023)
+                        try
+                        {
+                            reader.BaseStream.Seek(TOUCHPAD_X_OFFSET, SeekOrigin.Begin);
+                            data.TouchpadX = reader.ReadUInt16();
+                            reader.BaseStream.Seek(TOUCHPAD_Y_OFFSET, SeekOrigin.Begin);
+                            data.TouchpadY = reader.ReadUInt16();
+                        }
+                        catch (EndOfStreamException ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[BluetoothService] 解析触摸板坐标时数据流过早结束: {ex.Message}");
+                            return; // 数据不完整，停止处理
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[BluetoothService] 解析触摸板坐标时发生异常: {ex.GetType().Name} - {ex.Message}");
+                            return; // 解析失败，停止处理
+                        }
 
-                    reader.BaseStream.Seek(GYRO_X_OFFSET, SeekOrigin.Begin);
-                    data.GyroX = reader.ReadInt16();
-                    reader.BaseStream.Seek(GYRO_Y_OFFSET, SeekOrigin.Begin);
-                    data.GyroY = reader.ReadInt16();
-                    reader.BaseStream.Seek(GYRO_Z_OFFSET, SeekOrigin.Begin);
-                    data.GyroZ = reader.ReadInt16();
+                        // Accel data (Int16, then converted to float) (Currently not used for core logic)
+                        // reader.BaseStream.Seek(ACCEL_X_OFFSET, SeekOrigin.Begin);
+                        // data.AccelX = reader.ReadInt16();
+                        // reader.BaseStream.Seek(ACCEL_Y_OFFSET, SeekOrigin.Begin);
+                        // data.AccelY = reader.ReadInt16();
+                        // reader.BaseStream.Seek(ACCEL_Z_OFFSET, SeekOrigin.Begin);
+                        // data.AccelZ = reader.ReadInt16();
 
-                    // 解析触摸板数据 (Unsigned 16-bit integers)
-                    // 注意：Gear VR Controller 的触摸板数据通常在 [0, 1023] 范围内
-                    // 这里读取为 int，后续在 TouchpadProcessor 中会进行归一化和校准
-                    reader.BaseStream.Seek(TOUCHPAD_X_OFFSET, SeekOrigin.Begin);
-                    data.TouchpadX = reader.ReadUInt16();
-                    reader.BaseStream.Seek(TOUCHPAD_Y_OFFSET, SeekOrigin.Begin);
-                    data.TouchpadY = reader.ReadUInt16();
+                        // Gyro data (Int16, then converted to float) (Currently not used for core logic)
+                        // reader.BaseStream.Seek(GYRO_X_OFFSET, SeekOrigin.Begin);
+                        // data.GyroX = reader.ReadInt16();
+                        // reader.BaseStream.Seek(GYRO_Y_OFFSET, SeekOrigin.Begin);
+                        // data.GyroY = reader.ReadInt16();
+                        // reader.BaseStream.Seek(GYRO_Z_OFFSET, SeekOrigin.Begin);
+                        // data.GyroZ = reader.ReadInt16();
 
-                    // 解析按钮状态
-                    // 假设按钮状态在一个字节中，每个位代表一个按钮
-                    reader.BaseStream.Seek(BUTTON_STATE_OFFSET, SeekOrigin.Begin);
-                    byte buttonStates = reader.ReadByte();
-                    data.TouchpadButton = (buttonStates & TOUCHPAD_BUTTON_MASK) != 0;
-                    data.HomeButton = (buttonStates & HOME_BUTTON_MASK) != 0;
-                    data.TriggerButton = (buttonStates & TRIGGER_BUTTON_MASK) != 0;
-                    data.BackButton = (buttonStates & BACK_BUTTON_MASK) != 0;
-                    data.VolumeUpButton = (buttonStates & VOLUME_UP_BUTTON_MASK) != 0;
-                    data.VolumeDownButton = (buttonStates & VOLUME_DOWN_BUTTON_MASK) != 0;
+                        // Magnet data (Int16) - No parsing code found in this service.
 
-                    // 清除注释掉的电池电量读取代码
-                    // reader.BaseStream.Seek(BATTERY_LEVEL_OFFSET, SeekOrigin.Begin);
-                    // byte batteryLevel = reader.ReadByte();
-                    // data.BatteryLevel = batteryLevel;
-
-                    DataReceived?.Invoke(this, data);
+                        DataReceived?.Invoke(this, data);
+                    }
                 }
             }
             catch (EndOfStreamException ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[BluetoothService] 数据包不完整，无法解析: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[BluetoothService] ProcessDataAsync: 顶级数据流过早结束: {ex.Message}");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[BluetoothService] 解析数据包时发生错误: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[BluetoothService] ProcessDataAsync: 处理数据包时发生未预期异常: {ex.GetType().Name} - {ex.Message}");
             }
         }
 

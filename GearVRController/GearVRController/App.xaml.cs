@@ -59,6 +59,7 @@ namespace GearVRController
             services.AddSingleton<IInputStateMonitorService, InputStateMonitorService>();
             services.AddSingleton<IEventAggregator, EventAggregator>();
             services.AddSingleton<IWindowManagerService, WindowManagerService>();
+            services.AddSingleton<IActionExecutionService, ActionExecutionService>();
 
             // Register ViewModels as transient (or singleton if their state needs to persist globally)
             services.AddSingleton<MainViewModel>();

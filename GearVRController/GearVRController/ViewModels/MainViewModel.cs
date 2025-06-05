@@ -28,6 +28,7 @@ namespace GearVRController.ViewModels
         private readonly IInputStateMonitorService _inputStateMonitorService;
         private readonly IWindowManagerService _windowManagerService;
         private readonly IEventAggregator _eventAggregator;
+        private readonly IActionExecutionService _actionExecutionService;
         private bool _isConnected;
         private string _statusMessage = string.Empty;
         private ControllerData _lastControllerData = new ControllerData();
@@ -55,6 +56,17 @@ namespace GearVRController.ViewModels
         // Add internal button state tracking
         private bool _isTriggerButtonPressed = false;
         private bool _isTouchpadButtonPressed = false;
+
+        // Add debouncing counters for mouse buttons
+        private int _touchpadButtonPressCounter = 0;
+        private int _touchpadButtonReleaseCounter = 0;
+        private int _triggerButtonPressCounter = 0;
+        private int _triggerButtonReleaseCounter = 0;
+        private const int BUTTON_DEBOUNCE_THRESHOLD = 2; // Number of consistent packets
+
+        // Add state for volume buttons
+        private bool _isVolumeUpHeld = false;
+        private bool _isVolumeDownHeld = false;
 
         // 在类的字段部分添加触摸板可视化相关的字段
         private EnumsNS.TouchpadGesture _lastGesture = EnumsNS.TouchpadGesture.None; // 使用命名空间别名
@@ -449,7 +461,8 @@ namespace GearVRController.ViewModels
             TouchpadProcessor touchpadProcessor,
             IInputStateMonitorService inputStateMonitorService,
             IWindowManagerService windowManagerService, // Add this parameter
-            IEventAggregator eventAggregator) // Add this parameter
+            IEventAggregator eventAggregator,
+            IActionExecutionService actionExecutionService) // Add this parameter
         {
             _bluetoothService = bluetoothService;
             _controllerService = controllerService;
@@ -460,6 +473,7 @@ namespace GearVRController.ViewModels
             _inputStateMonitorService = inputStateMonitorService;
             _windowManagerService = windowManagerService; // Assign
             _eventAggregator = eventAggregator; // Assign
+            _actionExecutionService = actionExecutionService; // Assign
 
             _bluetoothService.ConnectionStatusChanged += BluetoothService_ConnectionStatusChanged;
             _bluetoothService.DataReceived += BluetoothService_DataReceived;
@@ -487,32 +501,7 @@ namespace GearVRController.ViewModels
         private async void LoadSettings()
         {
             await _settingsService.LoadSettingsAsync();
-            MouseSensitivity = _settingsService.MouseSensitivity;
-            IsMouseEnabled = _settingsService.IsMouseEnabled;
-            IsKeyboardEnabled = _settingsService.IsKeyboardEnabled;
-            IsControlEnabled = _settingsService.IsControlEnabled;
-            UseNaturalScrolling = _settingsService.UseNaturalScrolling;
-            InvertYAxis = _settingsService.InvertYAxis;
-            EnableSmoothing = _settingsService.EnableSmoothing;
-            SmoothingLevel = _settingsService.SmoothingLevel;
-            EnableNonLinearCurve = _settingsService.EnableNonLinearCurve;
-            NonLinearCurvePower = _settingsService.NonLinearCurvePower;
-            DeadZone = _settingsService.DeadZone;
-            IsGestureMode = _settingsService.IsGestureMode;
-            IsRelativeMode = _settingsService.IsRelativeMode;
-            GestureSensitivity = _settingsService.GestureSensitivity;
-            ShowGestureHints = _settingsService.ShowGestureHints;
-            SwipeUpAction = _settingsService.SwipeUpAction;
-            SwipeDownAction = _settingsService.SwipeDownAction;
-            SwipeLeftAction = _settingsService.SwipeLeftAction;
-            SwipeRightAction = _settingsService.SwipeRightAction;
-
-            // 尝试加载校准数据
-            var calibration = _settingsService.LoadCalibrationData();
-            if (calibration != null)
-            {
-                ApplyCalibrationData(calibration);
-            }
+            ApplyLoadedSettings();
         }
 
         private void RegisterHotKeys()
@@ -532,7 +521,6 @@ namespace GearVRController.ViewModels
             try
             {
                 await _bluetoothService.ConnectAsync(deviceAddress);
-                await _controllerService.InitializeAsync();
             }
             catch (Exception ex)
             {
@@ -658,22 +646,72 @@ namespace GearVRController.ViewModels
 
                 if (IsMouseEnabled)
                 {
-                    // Right mouse button (TriggerButton)
-                    if (_isTriggerButtonPressed != data.TriggerButton)
+                    // Right mouse button (TriggerButton) with debouncing
+                    if (data.TriggerButton)
                     {
-                        _isTriggerButtonPressed = data.TriggerButton;
-                        _inputSimulator.SimulateMouseButtonEx(data.TriggerButton, (int)EnumsNS.MouseButtons.Right);
-                        Debug.WriteLine($"[MainViewModel] Right button state changed to: {data.TriggerButton}");
-                        _inputStateMonitorService.NotifyInputActivity();
+                        _triggerButtonReleaseCounter = 0;
+                        if (!_isTriggerButtonPressed)
+                        {
+                            _triggerButtonPressCounter++;
+                            if (_triggerButtonPressCounter >= BUTTON_DEBOUNCE_THRESHOLD)
+                            {
+                                _isTriggerButtonPressed = true;
+                                _inputSimulator.SimulateMouseButtonEx(true, (int)EnumsNS.MouseButtons.Right);
+                                Debug.WriteLine($"[MainViewModel] Right button state changed to: pressed (debounced)");
+                                _inputStateMonitorService.NotifyInputActivity();
+                                _triggerButtonPressCounter = 0; // Reset counter
+                            }
+                        }
+                    }
+                    else // data.TriggerButton is false
+                    {
+                        _triggerButtonPressCounter = 0;
+                        if (_isTriggerButtonPressed)
+                        {
+                            _triggerButtonReleaseCounter++;
+                            if (_triggerButtonReleaseCounter >= BUTTON_DEBOUNCE_THRESHOLD)
+                            {
+                                _isTriggerButtonPressed = false;
+                                _inputSimulator.SimulateMouseButtonEx(false, (int)EnumsNS.MouseButtons.Right);
+                                Debug.WriteLine($"[MainViewModel] Right button state changed to: released (debounced)");
+                                _inputStateMonitorService.NotifyInputActivity();
+                                _triggerButtonReleaseCounter = 0; // Reset counter
+                            }
+                        }
                     }
 
-                    // Left mouse button (TouchpadButton)
-                    if (_isTouchpadButtonPressed != data.TouchpadButton)
+                    // Left mouse button (TouchpadButton) with debouncing
+                    if (data.TouchpadButton)
                     {
-                        _isTouchpadButtonPressed = data.TouchpadButton;
-                        _inputSimulator.SimulateMouseButtonEx(data.TouchpadButton, (int)EnumsNS.MouseButtons.Left);
-                        Debug.WriteLine($"[MainViewModel] Left button state changed to: {data.TouchpadButton}");
-                        _inputStateMonitorService.NotifyInputActivity();
+                        _touchpadButtonReleaseCounter = 0;
+                        if (!_isTouchpadButtonPressed)
+                        {
+                            _touchpadButtonPressCounter++;
+                            if (_touchpadButtonPressCounter >= BUTTON_DEBOUNCE_THRESHOLD)
+                            {
+                                _isTouchpadButtonPressed = true;
+                                _inputSimulator.SimulateMouseButtonEx(true, (int)EnumsNS.MouseButtons.Left);
+                                Debug.WriteLine($"[MainViewModel] Left button state changed to: pressed (debounced)");
+                                _inputStateMonitorService.NotifyInputActivity();
+                                _touchpadButtonPressCounter = 0; // Reset counter
+                            }
+                        }
+                    }
+                    else // data.TouchpadButton is false
+                    {
+                        _touchpadButtonPressCounter = 0;
+                        if (_isTouchpadButtonPressed)
+                        {
+                            _touchpadButtonReleaseCounter++;
+                            if (_touchpadButtonReleaseCounter >= BUTTON_DEBOUNCE_THRESHOLD)
+                            {
+                                _isTouchpadButtonPressed = false;
+                                _inputSimulator.SimulateMouseButtonEx(false, (int)EnumsNS.MouseButtons.Left);
+                                Debug.WriteLine($"[MainViewModel] Left button state changed to: released (debounced)");
+                                _inputStateMonitorService.NotifyInputActivity();
+                                _touchpadButtonReleaseCounter = 0; // Reset counter
+                            }
+                        }
                     }
                 }
 
@@ -691,16 +729,36 @@ namespace GearVRController.ViewModels
                         _inputStateMonitorService.NotifyInputActivity();
                     }
 
+                    // Volume Up button (rising edge detection)
                     if (data.VolumeUpButton)
                     {
-                        _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.VOLUME_UP);
-                        _inputStateMonitorService.NotifyInputActivity();
+                        if (!_isVolumeUpHeld)
+                        {
+                            _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.VOLUME_UP);
+                            _inputStateMonitorService.NotifyInputActivity();
+                            _isVolumeUpHeld = true;
+                            Debug.WriteLine($"[MainViewModel] Volume Up pressed");
+                        }
+                    }
+                    else
+                    {
+                        _isVolumeUpHeld = false;
                     }
 
+                    // Volume Down button (rising edge detection)
                     if (data.VolumeDownButton)
                     {
-                        _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.VOLUME_DOWN);
-                        _inputStateMonitorService.NotifyInputActivity();
+                        if (!_isVolumeDownHeld)
+                        {
+                            _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.VOLUME_DOWN);
+                            _inputStateMonitorService.NotifyInputActivity();
+                            _isVolumeDownHeld = true;
+                            Debug.WriteLine($"[MainViewModel] Volume Down pressed");
+                        }
+                    }
+                    else
+                    {
+                        _isVolumeDownHeld = false;
                     }
                 }
             }
@@ -735,17 +793,7 @@ namespace GearVRController.ViewModels
         public void ResetSettings()
         {
             _settingsService.ResetToDefaults();
-            MouseSensitivity = _settingsService.MouseSensitivity;
-            IsMouseEnabled = _settingsService.IsMouseEnabled;
-            IsKeyboardEnabled = _settingsService.IsKeyboardEnabled;
-            IsControlEnabled = _settingsService.IsControlEnabled;
-            UseNaturalScrolling = _settingsService.UseNaturalScrolling;
-            InvertYAxis = _settingsService.InvertYAxis;
-            EnableSmoothing = _settingsService.EnableSmoothing;
-            SmoothingLevel = _settingsService.SmoothingLevel;
-            EnableNonLinearCurve = _settingsService.EnableNonLinearCurve;
-            NonLinearCurvePower = _settingsService.NonLinearCurvePower;
-            DeadZone = _settingsService.DeadZone;
+            ApplyLoadedSettings(); // Apply default settings after resetting
         }
 
         public void ApplyCalibrationData(TouchpadCalibrationData calibrationData)
@@ -831,51 +879,7 @@ namespace GearVRController.ViewModels
 
         private void ExecuteGestureAction(GestureAction action)
         {
-            switch (action)
-            {
-                case GestureAction.PageUp:
-                    _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.PRIOR);
-                    break;
-                case GestureAction.PageDown:
-                    _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.NEXT);
-                    break;
-                case GestureAction.BrowserBack:
-                    _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.BROWSER_BACK);
-                    break;
-                case GestureAction.BrowserForward:
-                    _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.BROWSER_FORWARD);
-                    break;
-                case GestureAction.VolumeUp:
-                    _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.VOLUME_UP);
-                    break;
-                case GestureAction.VolumeDown:
-                    _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.VOLUME_DOWN);
-                    break;
-                case GestureAction.MediaPlayPause:
-                    _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.MEDIA_PLAY_PAUSE);
-                    break;
-                case GestureAction.MediaNext:
-                    _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.MEDIA_NEXT_TRACK);
-                    break;
-                case GestureAction.MediaPrevious:
-                    _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.MEDIA_PREV_TRACK);
-                    break;
-                case GestureAction.Copy:
-                    _inputSimulator.SimulateModifiedKeyStroke(VirtualKeyCode.CONTROL, VirtualKeyCode.VK_C);
-                    break;
-                case GestureAction.Paste:
-                    _inputSimulator.SimulateModifiedKeyStroke(VirtualKeyCode.CONTROL, VirtualKeyCode.VK_V);
-                    break;
-                case GestureAction.Undo:
-                    _inputSimulator.SimulateModifiedKeyStroke(VirtualKeyCode.CONTROL, VirtualKeyCode.VK_Z);
-                    break;
-                case GestureAction.Redo:
-                    _inputSimulator.SimulateModifiedKeyStroke(VirtualKeyCode.CONTROL, VirtualKeyCode.VK_Y);
-                    break;
-                case GestureAction.SelectAll:
-                    _inputSimulator.SimulateModifiedKeyStroke(VirtualKeyCode.CONTROL, VirtualKeyCode.VK_A);
-                    break;
-            }
+            _actionExecutionService.ExecuteAction(action);
         }
 
         // 恢复手动校准相关方法
@@ -905,6 +909,37 @@ namespace GearVRController.ViewModels
                 _gestureRecognizer.GestureDetected -= OnGestureDetected;
             }
             _calibrationCompletedSubscription?.Dispose();
+        }
+
+        // New helper method to apply settings to ViewModel properties
+        private void ApplyLoadedSettings()
+        {
+            MouseSensitivity = _settingsService.MouseSensitivity;
+            IsMouseEnabled = _settingsService.IsMouseEnabled;
+            IsKeyboardEnabled = _settingsService.IsKeyboardEnabled;
+            IsControlEnabled = _settingsService.IsControlEnabled;
+            UseNaturalScrolling = _settingsService.UseNaturalScrolling;
+            InvertYAxis = _settingsService.InvertYAxis;
+            EnableSmoothing = _settingsService.EnableSmoothing;
+            SmoothingLevel = _settingsService.SmoothingLevel;
+            EnableNonLinearCurve = _settingsService.EnableNonLinearCurve;
+            NonLinearCurvePower = _settingsService.NonLinearCurvePower;
+            DeadZone = _settingsService.DeadZone;
+            IsGestureMode = _settingsService.IsGestureMode;
+            // IsRelativeMode is derived from IsGestureMode, no direct setting needed
+            GestureSensitivity = _settingsService.GestureSensitivity;
+            ShowGestureHints = _settingsService.ShowGestureHints;
+            SwipeUpAction = _settingsService.SwipeUpAction;
+            SwipeDownAction = _settingsService.SwipeDownAction;
+            SwipeLeftAction = _settingsService.SwipeLeftAction;
+            SwipeRightAction = _settingsService.SwipeRightAction;
+
+            // 尝试加载校准数据
+            var calibration = _settingsService.LoadCalibrationData();
+            if (calibration != null)
+            {
+                ApplyCalibrationData(calibration);
+            }
         }
     }
 }
