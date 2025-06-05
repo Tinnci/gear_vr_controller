@@ -559,10 +559,10 @@ namespace GearVRController.Services
         /// <param name="byteArray">包含原始控制器数据的数据包。</param>
         private void ProcessDataAsync(byte[] byteArray)
         {
-            if (byteArray.Length < EXPECTED_PACKET_LENGTH)
+            if (byteArray.Length != EXPECTED_PACKET_LENGTH)
             {
-                System.Diagnostics.Debug.WriteLine($"[BluetoothService] 接收到的数据包长度不符合预期: {byteArray.Length} (预期 {EXPECTED_PACKET_LENGTH})");
-                return;
+                System.Diagnostics.Debug.WriteLine($"[BluetoothService] 接收到的数据包长度不符合预期: {byteArray.Length} (预期 {EXPECTED_PACKET_LENGTH})。数据包将被丢弃。");
+                return; // 直接丢弃不符合长度要求的数据包
             }
 
             try

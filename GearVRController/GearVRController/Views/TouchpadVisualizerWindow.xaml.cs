@@ -140,7 +140,7 @@ namespace GearVRController.Views
 
         private void TouchpadVisualizerWindow_Activated(object sender, WindowActivatedEventArgs args)
         {
-            InitializeVisualization(); // This method is now redundant, UpdateVisualizationLayout already handles init
+            // InitializeVisualization(); // This method is now redundant, UpdateVisualizationLayout already handles init
         }
 
         private void AppWindow_Changed(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowChangedEventArgs args)
@@ -176,13 +176,6 @@ namespace GearVRController.Views
             _historyPoints.Clear(); // Ensure this is also cleared if used separately
 
             Debug.WriteLine("[TouchpadVisualizerWindow] Window resources cleaned up.");
-        }
-
-        private void InitializeVisualization()
-        {
-            // This method is now redundant as UpdateVisualizationLayout already handles initial setup.
-            // Keeping it for now to avoid breaking existing calls, but its body can be emptied or removed.
-            UpdateVisualizationLayout();
         }
 
         private void UpdateVisualizationLayout()

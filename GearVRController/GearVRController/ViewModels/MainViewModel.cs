@@ -97,6 +97,23 @@ namespace GearVRController.ViewModels
         private const int BUTTON_DEBOUNCE_THRESHOLD = 2; // Number of consistent packets
 
         /// <summary>
+        /// 音量上键按下计数器，用于实现去抖动。
+        /// </summary>
+        private int _volumeUpPressCounter = 0;
+        /// <summary>
+        /// 音量上键释放计数器，用于实现去抖动。
+        /// </summary>
+        private int _volumeUpReleaseCounter = 0;
+        /// <summary>
+        /// 音量下键按下计数器，用于实现去抖动。
+        /// </summary>
+        private int _volumeDownPressCounter = 0;
+        /// <summary>
+        /// 音量下键释放计数器，用于实现去抖动。
+        /// </summary>
+        private int _volumeDownReleaseCounter = 0;
+
+        /// <summary>
         /// 内部音量上键状态跟踪，用于边缘检测。
         /// </summary>
         private bool _isVolumeUpHeld = false;
@@ -155,10 +172,6 @@ namespace GearVRController.ViewModels
         /// 当 ViewModel 的属性发生变化时触发的事件。
         /// </summary>
         public event PropertyChangedEventHandler? PropertyChanged;
-        /// <summary>
-        /// 当控制器接收到新数据并处理后触发的事件。
-        /// </summary>
-        public event EventHandler<ControllerData>? ControllerDataReceived;
 
         /// <summary>
         /// 获取或设置是否启用对控制器输入的整体控制（鼠标、键盘等）。
@@ -658,7 +671,7 @@ namespace GearVRController.ViewModels
         /// </summary>
         private async void LoadSettings()
         {
-            await _settingsService.LoadSettingsAsync();
+            await _settingsService.InitializeSettings();
             ApplyLoadedSettings();
         }
 
@@ -778,7 +791,6 @@ namespace GearVRController.ViewModels
                 if (!IsControlEnabled)
                 {
                     LastControllerData = data; // 即使禁用控制，也更新最新数据
-                    ControllerDataReceived?.Invoke(this, data); // 触发事件以便UI更新可视化
                     return;
                 }
 
@@ -794,9 +806,6 @@ namespace GearVRController.ViewModels
 
                 // Update LastControllerData
                 LastControllerData = data;
-
-                // Invoke event for UI updates
-                ControllerDataReceived?.Invoke(this, data);
 
                 // Notify InputStateMonitorService of activity
                 _inputStateMonitorService.NotifyInputActivity();
@@ -907,36 +916,70 @@ namespace GearVRController.ViewModels
                         _inputStateMonitorService.NotifyInputActivity();
                     }
 
-                    // 音量上键 (上升沿检测)
+                    // 音量上键去抖动处理
                     if (data.VolumeUpButton)
                     {
+                        _volumeUpReleaseCounter = 0;
                         if (!_isVolumeUpHeld)
                         {
-                            _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.VOLUME_UP);
-                            _inputStateMonitorService.NotifyInputActivity();
-                            _isVolumeUpHeld = true;
-                            Debug.WriteLine($"[MainViewModel] Volume Up pressed");
+                            _volumeUpPressCounter++;
+                            if (_volumeUpPressCounter >= BUTTON_DEBOUNCE_THRESHOLD)
+                            {
+                                _isVolumeUpHeld = true;
+                                _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.VOLUME_UP);
+                                _inputStateMonitorService.NotifyInputActivity();
+                                Debug.WriteLine($"[MainViewModel] Volume Up pressed (debounced)");
+                                _volumeUpPressCounter = 0; // Reset counter
+                            }
                         }
                     }
-                    else
+                    else // data.VolumeUpButton 为 false
                     {
-                        _isVolumeUpHeld = false;
+                        _volumeUpPressCounter = 0;
+                        if (_isVolumeUpHeld)
+                        {
+                            _volumeUpReleaseCounter++;
+                            if (_volumeUpReleaseCounter >= BUTTON_DEBOUNCE_THRESHOLD)
+                            {
+                                _isVolumeUpHeld = false;
+                                Debug.WriteLine($"[MainViewModel] Volume Up released (debounced)");
+                                _inputStateMonitorService.NotifyInputActivity(); // Notify on release too
+                                _volumeUpReleaseCounter = 0; // Reset counter
+                            }
+                        }
                     }
 
-                    // 音量下键 (上升沿检测)
+                    // 音量下键去抖动处理
                     if (data.VolumeDownButton)
                     {
+                        _volumeDownReleaseCounter = 0;
                         if (!_isVolumeDownHeld)
                         {
-                            _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.VOLUME_DOWN);
-                            _inputStateMonitorService.NotifyInputActivity();
-                            _isVolumeDownHeld = true;
-                            Debug.WriteLine($"[MainViewModel] Volume Down pressed");
+                            _volumeDownPressCounter++;
+                            if (_volumeDownPressCounter >= BUTTON_DEBOUNCE_THRESHOLD)
+                            {
+                                _isVolumeDownHeld = true;
+                                _inputSimulator.SimulateKeyPress((int)VirtualKeyCode.VOLUME_DOWN);
+                                _inputStateMonitorService.NotifyInputActivity();
+                                Debug.WriteLine($"[MainViewModel] Volume Down pressed (debounced)");
+                                _volumeDownPressCounter = 0; // Reset counter
+                            }
                         }
                     }
-                    else
+                    else // data.VolumeDownButton 为 false
                     {
-                        _isVolumeDownHeld = false;
+                        _volumeDownPressCounter = 0;
+                        if (_isVolumeDownHeld)
+                        {
+                            _volumeDownReleaseCounter++;
+                            if (_volumeDownReleaseCounter >= BUTTON_DEBOUNCE_THRESHOLD)
+                            {
+                                _isVolumeDownHeld = false;
+                                Debug.WriteLine($"[MainViewModel] Volume Down released (debounced)");
+                                _inputStateMonitorService.NotifyInputActivity(); // Notify on release too
+                                _volumeDownReleaseCounter = 0; // Reset counter
+                            }
+                        }
                     }
                 }
             }

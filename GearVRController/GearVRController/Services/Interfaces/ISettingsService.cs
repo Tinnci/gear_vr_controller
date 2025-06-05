@@ -122,15 +122,10 @@ namespace GearVRController.Services.Interfaces
         /// </summary>
         void ResetToDefaults();
         /// <summary>
-        /// 异步保存当前设置。
+        /// 初始化应用程序设置，确保默认值已加载。
         /// </summary>
         /// <returns>表示异步操作的任务。</returns>
-        Task SaveSettingsAsync();
-        /// <summary>
-        /// 异步加载设置。
-        /// </summary>
-        /// <returns>表示异步操作的任务。</returns>
-        Task LoadSettingsAsync();
+        Task InitializeSettings();
         /// <summary>
         /// 加载触控板校准数据。
         /// </summary>

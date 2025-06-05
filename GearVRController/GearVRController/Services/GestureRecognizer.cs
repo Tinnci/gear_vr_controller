@@ -156,7 +156,7 @@ namespace GearVRController.Services
         /// <returns>识别到的手势方向，如果没有识别到有效手势则返回 `GestureDirection.None`。</returns>
         private GestureDirection CalculateGestureDirection()
         {
-            System.Diagnostics.Debug.WriteLine("[GestureRecognizer] CalculateGestureDirection: Calculating direction.");
+            // System.Diagnostics.Debug.WriteLine("[GestureRecognizer] CalculateGestureDirection: Calculating direction.");
             if (_points.Count < 2 || _gestureStartPoint == null) return GestureDirection.None;
 
             var pointsArray = _points.ToArray();
@@ -169,12 +169,12 @@ namespace GearVRController.Services
             float distance = (float)Math.Sqrt(dx * dx + dy * dy);
             float minGestureDistanceThreshold = MIN_GESTURE_DISTANCE * _gestureConfig.Sensitivity;
 
-            System.Diagnostics.Debug.WriteLine("[GestureRecognizer] CalculateGestureDirection: " +
-                                               "Start: (" + startPoint.X.ToString("F2") + ", " + startPoint.Y.ToString("F2") + "), " +
-                                               "End: (" + endPoint.X.ToString("F2") + ", " + endPoint.Y.ToString("F2") + "), " +
-                                               "Delta: (" + dx.ToString("F2") + ", " + dy.ToString("F2") + "), " +
-                                               "Distance: " + distance.ToString("F2") + ", " +
-                                               "MinThreshold: " + minGestureDistanceThreshold.ToString("F2"));
+            // System.Diagnostics.Debug.WriteLine("[GestureRecognizer] CalculateGestureDirection: " +
+            //                                    "Start: (" + startPoint.X.ToString("F2") + ", " + startPoint.Y.ToString("F2") + "), " +
+            //                                    "End: (" + endPoint.X.ToString("F2") + ", " + endPoint.Y.ToString("F2") + "), " +
+            //                                    "Delta: (" + dx.ToString("F2") + ", " + dy.ToString("F2") + "), " +
+            //                                    "Distance: " + distance.ToString("F2") + ", " +
+            //                                    "MinThreshold: " + minGestureDistanceThreshold.ToString("F2"));
 
             if (distance < minGestureDistanceThreshold)
             {
@@ -187,7 +187,7 @@ namespace GearVRController.Services
             if (degrees < 0)
                 degrees += 360;
 
-            System.Diagnostics.Debug.WriteLine("[GestureRecognizer] CalculateGestureDirection: Calculated degrees = " + degrees.ToString("F2"));
+            // System.Diagnostics.Debug.WriteLine("[GestureRecognizer] CalculateGestureDirection: Calculated degrees = " + degrees.ToString("F2"));
 
             const double tolerance = 60 / 2.0;
 

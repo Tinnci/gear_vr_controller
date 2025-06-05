@@ -437,24 +437,13 @@ namespace GearVRController.Services
         }
 
         /// <summary>
-        /// 异步加载所有应用程序设置。
         /// 注意：由于设置通过属性访问器按需加载，此方法目前仅作为占位符。
         /// </summary>
         /// <returns>表示异步操作的任务。</returns>
-        public Task LoadSettingsAsync()
+        public Task InitializeSettings()
         {
-            // 设置已经在属性访问器中加载
-            return Task.CompletedTask;
-        }
-
-        /// <summary>
-        /// 异步保存所有应用程序设置。
-        /// 注意：由于设置通过属性访问器实时保存，此方法目前仅作为占位符。
-        /// </summary>
-        /// <returns>表示异步操作的任务。</returns>
-        public Task SaveSettingsAsync()
-        {
-            // 设置已经在属性访问器中保存
+            // 设置已经在属性访问器中加载，此方法主要用于确保默认值已加载。
+            LoadDefaultSettings(); // Ensure defaults are loaded if not already.
             return Task.CompletedTask;
         }
 

@@ -45,13 +45,13 @@ namespace GearVRController.Services
         /// <returns>一个包含处理后的X和Y坐标的元组。</returns>
         public (double processedX, double processedY) ProcessRawData(int rawX, int rawY)
         {
-            System.Diagnostics.Debug.WriteLine($"[TouchpadProcessor] ProcessRawData: rawX={rawX}, rawY={rawY}");
+            // System.Diagnostics.Debug.WriteLine($"[TouchpadProcessor] ProcessRawData: rawX={rawX}, rawY={rawY}");
             double processedX = 0;
             double processedY = 0;
 
             if (_calibrationData != null)
             {
-                System.Diagnostics.Debug.WriteLine($"[TouchpadProcessor] Calibration Data: MinX={_calibrationData.MinX}, MaxX={_calibrationData.MaxX}, MinY={_calibrationData.MinY}, MaxY={_calibrationData.MaxY}, CenterX={_calibrationData.CenterX}, CenterY={_calibrationData.CenterY}");
+                // System.Diagnostics.Debug.WriteLine($"[TouchpadProcessor] Calibration Data: MinX={_calibrationData.MinX}, MaxX={_calibrationData.MaxX}, MinY={_calibrationData.MinY}, MaxY={_calibrationData.MaxY}, CenterX={_calibrationData.CenterX}, CenterY={_calibrationData.CenterY}");
 
                 // 计算相对于中心点的偏移
                 double deltaX = rawX - _calibrationData.CenterX;
@@ -70,14 +70,14 @@ namespace GearVRController.Services
                 processedX = Math.Max(-1.0, Math.Min(1.0, deltaX / xScale));
                 processedY = Math.Max(-1.0, Math.Min(1.0, -deltaY / yScale)); // Y轴翻转
 
-                System.Diagnostics.Debug.WriteLine($"[TouchpadProcessor] Calibrated: deltaX={deltaX:F2}, deltaY={deltaY:F2}, xScale={xScale:F2}, yScale={yScale:F2}, processedX={processedX:F2}, processedY={processedY:F2}");
+                // System.Diagnostics.Debug.WriteLine($"[TouchpadProcessor] Calibrated: deltaX={deltaX:F2}, deltaY={deltaY:F2}, xScale={xScale:F2}, yScale={yScale:F2}, processedX={processedX:F2}, processedY={processedY:F2}");
             }
             else
             {
                 // 如果没有校准数据，使用简单的归一化（假设0-1023范围），并Y轴翻转
                 processedX = Math.Max(-1.0, Math.Min(1.0, (rawX - DEFAULT_CENTER) / DEFAULT_HALF_RANGE));
                 processedY = Math.Max(-1.0, Math.Min(1.0, -(rawY - DEFAULT_CENTER) / DEFAULT_HALF_RANGE)); // Y轴翻转
-                System.Diagnostics.Debug.WriteLine($"[TouchpadProcessor] Uncalibrated: processedX={processedX:F2}, processedY={processedY:F2}");
+                // System.Diagnostics.Debug.WriteLine($"[TouchpadProcessor] Uncalibrated: processedX={processedX:F2}, processedY={processedY:F2}");
             }
 
             return (processedX, processedY);
