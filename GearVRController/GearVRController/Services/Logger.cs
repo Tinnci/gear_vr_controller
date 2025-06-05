@@ -27,5 +27,11 @@ namespace GearVRController.Services
             }
             Debug.WriteLine(logMessage);
         }
+
+        public void LogDebug(string message, string source = "")
+        {
+            string logMessage = !string.IsNullOrEmpty(source) ? $"[DEBUG] [{source}] {message}" : $"[DEBUG] {message}";
+            Debug.WriteLine(logMessage);
+        }
     }
 }

@@ -7,6 +7,7 @@ using GearVRController.Services.Interfaces;
 using Microsoft.UI.Dispatching;
 using Windows.Devices.Bluetooth;
 using GearVRController.Events;
+using System.Collections.Generic;
 
 namespace GearVRController.ViewModels
 {
@@ -60,47 +61,43 @@ namespace GearVRController.ViewModels
 
         public async Task ConnectAsync(ulong deviceAddress)
         {
-            if (IsConnecting || IsConnected)
-            {
-                _logger.LogWarning($"ConnectAsync called but already connecting or connected. IsConnecting: {IsConnecting}, IsConnected: {IsConnected}");
-                return;
-            }
+            if (IsConnecting) return;
 
             IsConnecting = true;
             StatusMessage = "正在连接...";
-            _logger.LogInformation($"尝试连接到设备：{deviceAddress}");
+            _logger.LogInfo($"尝试连接到设备：{deviceAddress}");
 
             try
             {
                 await _bluetoothService.ConnectAsync(deviceAddress);
-                // 连接状态会在 ConnectionStatusChanged 事件中更新
+                IsConnected = _bluetoothService.IsConnected;
+                StatusMessage = IsConnected ? "已连接" : "连接失败";
+                _logger.LogInfo($"设备连接成功: {deviceAddress}");
+            }
+            catch (TimeoutException)
+            {
+                StatusMessage = "连接超时";
+                _logger.LogError($"连接到设备 {deviceAddress} 超时。", nameof(ConnectionViewModel));
             }
             catch (Exception ex)
             {
-                _logger.LogError($"连接失败：{ex.Message}");
                 StatusMessage = $"连接失败: {ex.Message}";
-                IsConnected = false;
+                _logger.LogError($"连接到设备 {deviceAddress} 失败: {ex.Message}", nameof(ConnectionViewModel), ex);
             }
             finally
             {
-                IsConnecting = false; // 连接尝试结束，无论是成功还是失败
+                IsConnecting = false;
             }
         }
 
         public void Disconnect()
         {
-            if (!IsConnected && !IsConnecting)
-            {
-                _logger.LogWarning("Disconnect called but not connected or connecting.");
-                return;
-            }
+            if (!IsConnected && !IsConnecting) return;
 
             _bluetoothService.Disconnect();
-            // 连接状态会在 ConnectionStatusChanged 事件中更新
-            StatusMessage = "已断开";
-            IsConnected = false;
-            IsConnecting = false;
-            _logger.LogInformation("已手动断开设备连接。");
+            IsConnected = _bluetoothService.IsConnected;
+            StatusMessage = "已手动断开设备连接。";
+            _logger.LogInfo("已手动断开设备连接。");
         }
 
         private void BluetoothService_ConnectionStatusChanged(object? sender, BluetoothConnectionStatus status)
@@ -109,7 +106,7 @@ namespace GearVRController.ViewModels
             {
                 IsConnected = status == BluetoothConnectionStatus.Connected;
                 StatusMessage = IsConnected ? "已连接" : "已断开";
-                _logger.LogInformation($"蓝牙连接状态改变：{status}");
+                _logger.LogInfo($"蓝牙连接状态改变：{status}");
                 _eventAggregator.Publish(new ConnectionStatusChangedEvent(IsConnected));
             });
         }

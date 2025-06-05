@@ -474,7 +474,7 @@ namespace GearVRController.Services
         }
 
         /// <summary>
-        /// Releases the unmanaged resources occupied by the BluetoothService instance.
+        /// Releases the unmanaged resources occupied by the BluetoothService instance。
         /// </summary>
         /// <param name="disposing">True to release both managed and unmanaged resources; false to release only unmanaged resources.</param>
         protected virtual void Dispose(bool disposing)
