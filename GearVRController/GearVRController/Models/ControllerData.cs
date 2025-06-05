@@ -9,14 +9,14 @@ namespace GearVRController.Models
         public int AxisY { get; set; }
 
         // 加速度数据 (Currently not used for core logic, only for display/debug)
-        // public float AccelX { get; set; }
-        // public float AccelY { get; set; }
-        // public float AccelZ { get; set; }
+        public float AccelX { get; set; }
+        public float AccelY { get; set; }
+        public float AccelZ { get; set; }
 
         // 陀螺仪数据 (Currently not used for core logic, only for display/debug)
-        // public float GyroX { get; set; }
-        // public float GyroY { get; set; }
-        // public float GyroZ { get; set; }
+        public float GyroX { get; set; }
+        public float GyroY { get; set; }
+        public float GyroZ { get; set; }
 
         // 磁力计数据 (Currently not used for core logic, only for display/debug)
         // public int MagnetX { get; set; }
