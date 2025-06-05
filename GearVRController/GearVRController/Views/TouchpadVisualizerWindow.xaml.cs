@@ -99,6 +99,7 @@ namespace GearVRController.Views
             // InitializeGrid() will be called from UpdateVisualizationLayout()
 
             Debug.WriteLine("触摸板可视化窗口已初始化");
+            Debug.WriteLine("Attempting to add Closed event handler."); // TEST LINE
 
             // 窗口加载完成后初始化UI - 使用正确的事件类型
             this.Activated += TouchpadVisualizerWindow_Activated;
@@ -108,6 +109,9 @@ namespace GearVRController.Views
 
             // Subscribe to ViewModel's PropertyChanged event for visualization updates
             _viewModel.PropertyChanged += ViewModel_PropertyChanged;
+
+            // Handle window closing for proper cleanup
+            // this.Closed += TouchpadVisualizerWindow_Closed; // This will be uncommented after testing
 
             // Ensure layout is initialized after all setup
             UpdateVisualizationLayout();
@@ -148,6 +152,30 @@ namespace GearVRController.Views
                     UpdateVisualizationLayout();
                 });
             }
+        }
+
+        private void TouchpadVisualizerWindow_Closed(object sender, WindowEventArgs args)
+        {
+            // Unsubscribe from ViewModel events
+            if (_viewModel != null)
+            {
+                _viewModel.PropertyChanged -= ViewModel_PropertyChanged;
+                Debug.WriteLine("[TouchpadVisualizerWindow] Unsubscribed from MainViewModel.PropertyChanged.");
+            }
+
+            // Unsubscribe from window events
+            this.Activated -= TouchpadVisualizerWindow_Activated;
+            this.AppWindow.Changed -= AppWindow_Changed;
+            this.Closed -= TouchpadVisualizerWindow_Closed; // Unsubscribe itself
+            Debug.WriteLine("[TouchpadVisualizerWindow] Unsubscribed from window events.");
+
+            // Clear visual elements
+            TouchpadCanvas.Children.Clear();
+            _gridElements.Clear();
+            _trailElements.Clear();
+            _historyPoints.Clear(); // Ensure this is also cleared if used separately
+
+            Debug.WriteLine("[TouchpadVisualizerWindow] Window resources cleaned up.");
         }
 
         private void InitializeVisualization()

@@ -5,6 +5,7 @@ using GearVRController.ViewModels;
 using GearVRController.Models;
 using Microsoft.UI.Dispatching;
 using GearVRController.Services;
+using Windows.UI.Xaml;
 
 namespace GearVRController.Views
 {
@@ -29,8 +30,24 @@ namespace GearVRController.Views
             // Subscribe to PropertyChanged event to update visualization
             _viewModel.PropertyChanged += ViewModel_PropertyChanged;
 
+            // Subscribe to window closed event for cleanup
+            this.Closed += TouchpadCalibrationWindow_Closed;
+
             // Initial visualization update
             UpdateCalibrationVisualization();
+        }
+
+        private void TouchpadCalibrationWindow_Closed(object sender, WindowEventArgs args)
+        {
+            // Unsubscribe from ViewModel events to prevent memory leaks
+            if (_viewModel != null)
+            {
+                _viewModel.PropertyChanged -= ViewModel_PropertyChanged;
+                System.Diagnostics.Debug.WriteLine("[TouchpadCalibrationWindow] Unsubscribed from ViewModel.PropertyChanged.");
+            }
+            // Unsubscribe from window events to prevent double subscription on re-opening
+            this.Closed -= TouchpadCalibrationWindow_Closed;
+            System.Diagnostics.Debug.WriteLine("[TouchpadCalibrationWindow] Unsubscribed from its own Closed event.");
         }
 
         private void ViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)

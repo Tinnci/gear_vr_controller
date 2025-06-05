@@ -13,7 +13,7 @@ using System.IO;
 
 namespace GearVRController.Services
 {
-    public class BluetoothService : IBluetoothService
+    public class BluetoothService : IBluetoothService, IDisposable
     {
         // 服务和特征值UUID
         private static readonly Guid CONTROLLER_SERVICE_UUID = new Guid("4f63756c-7573-2054-6872-65656d6f7465");
@@ -336,24 +336,38 @@ namespace GearVRController.Services
 
         public void Disconnect()
         {
-            _connectionCts?.Cancel(); // 取消任何正在进行的连接或重连尝试
-            _connectionCts?.Dispose();
-            _connectionCts = null;
-
-            if (_dataCharacteristic != null)
+            try
             {
-                _dataCharacteristic.ValueChanged -= DataCharacteristic_ValueChanged;
+                if (_device != null)
+                {
+                    // Unsubscribe from events
+                    _device.ConnectionStatusChanged -= Device_ConnectionStatusChanged;
+                    if (_dataCharacteristic != null)
+                    {
+                        _dataCharacteristic.ValueChanged -= DataCharacteristic_ValueChanged;
+                    }
+
+                    _device.Dispose();
+                    _device = null;
+                }
+
+                _setupCharacteristic = null;
                 _dataCharacteristic = null;
-            }
+                _lastConnectedAddress = 0; // Clear last connected address
+                _isReconnecting = false;
 
-            if (_device != null)
-            {
-                _device.ConnectionStatusChanged -= Device_ConnectionStatusChanged;
-                _device.Dispose();
-                _device = null;
+                // Dispose CancellationTokenSource
+                _connectionCts?.Cancel();
+                _connectionCts?.Dispose();
+                _connectionCts = null;
+
+                Debug.WriteLine("[BluetoothService] 设备已断开连接并清理资源.");
+                ConnectionStatusChanged?.Invoke(this, BluetoothConnectionStatus.Disconnected); // Explicitly notify disconnected
             }
-            Debug.WriteLine("[BluetoothService] 设备已断开连接并清理资源.");
-            ConnectionStatusChanged?.Invoke(this, BluetoothConnectionStatus.Disconnected);
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BluetoothService] 断开连接异常: {ex}");
+            }
         }
 
         private void DataCharacteristic_ValueChanged(GattCharacteristic sender, GattValueChangedEventArgs args)
@@ -471,6 +485,25 @@ namespace GearVRController.Services
         {
             // This method is for testing/simulation purposes
             DataReceived?.Invoke(this, data);
+        }
+
+        // Implement IDisposable
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                // Dispose managed state (managed objects)
+                Disconnect(); // Call Disconnect to handle event unsubscription and device disposal
+                _reconnectionSemaphore.Dispose();
+            }
+            // Free unmanaged resources (unmanaged objects) and override finalizer
+            // Set large fields to null
         }
     }
 }

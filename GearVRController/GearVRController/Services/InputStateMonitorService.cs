@@ -9,7 +9,7 @@ using Microsoft.UI.Xaml; // Add this for DispatcherTimer
 
 namespace GearVRController.Services
 {
-    public class InputStateMonitorService : IInputStateMonitorService
+    public class InputStateMonitorService : IInputStateMonitorService, IDisposable
     {
         private readonly IInputSimulator _inputSimulator;
         private readonly DispatcherQueue _dispatcherQueue; // Used for DispatcherTimer
@@ -30,14 +30,16 @@ namespace GearVRController.Services
             {
                 _stateCheckTimer = new DispatcherTimer();
                 _stateCheckTimer.Interval = TimeSpan.FromSeconds(1); // Check every second
-                _stateCheckTimer.Tick += (s, e) =>
-                {
-                    MonitorInputState();
-                };
+                _stateCheckTimer.Tick += MonitorInputState_Tick; // Use a named method for easy unsubscription
             }
             _lastInputTime = DateTime.Now; // Reset timer on start
             _stateCheckTimer.Start();
             Debug.WriteLine("[InputStateMonitorService] State check timer initialized and started.");
+        }
+
+        private void MonitorInputState_Tick(object? sender, object e) // Named event handler
+        {
+            MonitorInputState();
         }
 
         private void MonitorInputState()
@@ -76,14 +78,38 @@ namespace GearVRController.Services
 
         public void StopMonitor()
         {
-            _stateCheckTimer?.Stop();
-            Debug.WriteLine("[InputStateMonitorService] State check timer stopped.");
+            if (_stateCheckTimer != null)
+            {
+                _stateCheckTimer.Stop();
+                // 取消订阅Tick事件
+                _stateCheckTimer.Tick -= MonitorInputState_Tick; // Unsubscribe
+                _stateCheckTimer = null; // Help with garbage collection
+            }
+            Debug.WriteLine("[InputStateMonitorService] State check timer stopped and cleaned up.");
         }
 
         public void NotifyInputActivity()
         {
             _lastInputTime = DateTime.Now;
             // Debug.WriteLine("[InputStateMonitorService] Input activity notified, timer reset."); // Too verbose
+        }
+
+        // Implement IDisposable
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                // Dispose managed state (managed objects)
+                StopMonitor(); // Stop and clean up the timer
+            }
+            // Free unmanaged resources (unmanaged objects) and override finalizer
+            // Set large fields to null
         }
     }
 }
