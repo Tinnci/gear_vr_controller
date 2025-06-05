@@ -1,0 +1,27 @@
+<Page
+    x:Class="GearVRController.Views.AboutPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:GearVRController.Views"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <StackPanel Padding="12">
+        <TextBlock Text="关于 Gear VR Controller" Style="{StaticResource TitleTextBlockStyle}"
+            Margin="0,0,0,12" />
+
+        <TextBlock Text="版本: 1.0.0" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,0,0,4" />
+        <TextBlock Text="开发者: 您的名称" Margin="0,0,0,4" />
+        <TextBlock Text="一个用于将 Gear VR 控制器连接到 Windows PC 的应用程序，并将其输入模拟为鼠标和键盘。" TextWrapping="Wrap"
+            Margin="0,0,0,12" />
+
+        <TextBlock Text="联系我们:" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,0,0,4" />
+        <HyperlinkButton Content="GitHub 项目" NavigateUri="https://github.com/your-repo"
+            Margin="0,0,0,4" />
+        <HyperlinkButton Content="支持邮箱" NavigateUri="mailto:support@example.com" Margin="0,0,0,12" />
+
+        <TextBlock Text="免责声明:" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,0,0,4" />
+        <TextBlock Text="此应用程序不是 Oculus/Meta 或 Samsung 的官方产品。使用此应用程序的风险由您自行承担。" TextWrapping="Wrap" />
+    </StackPanel>
+</Page> 

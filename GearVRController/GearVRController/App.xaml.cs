@@ -69,6 +69,10 @@ namespace GearVRController
 
             // Register Views (MainWindow, etc.) as transient or singleton as needed
             services.AddSingleton<MainWindow>();
+            services.AddTransient<Views.HomePage>();
+            services.AddTransient<Views.SettingsPage>();
+            services.AddTransient<Views.CalibrationPage>();
+            services.AddTransient<Views.AboutPage>();
 
             ServiceProvider = services.BuildServiceProvider();
         }

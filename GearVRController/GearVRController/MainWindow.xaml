@@ -10,357 +10,49 @@
     mc:Ignorable="d"
     Title="GearVRController">
 
-    <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-        </Grid.RowDefinitions>
-
-        <!-- 标题栏 -->
-        <Grid Grid.Row="0" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
-            Padding="12">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-
-            <TextBlock Text="Gear VR Controller"
-                Style="{StaticResource TitleTextBlockStyle}"
-                VerticalAlignment="Center" />
-
-            <StackPanel Grid.Column="1"
-                Orientation="Horizontal"
-                Margin="0,0,0,0">
-                <Button x:Name="ConnectButton"
-                    Content="连接设备"
-                    Click="ConnectButton_Click"
-                    Margin="0,0,8,0"
-                    IsEnabled="{Binding IsConnecting, Converter={StaticResource BooleanNegationConverter}}" />
-                <Button x:Name="DisconnectButton"
-                    Content="断开连接"
-                    Click="DisconnectButton_Click"
-                    IsEnabled="{Binding IsConnected}" />
-            </StackPanel>
-        </Grid>
-
-        <!-- 主要内容区域 -->
-        <ScrollViewer Grid.Row="1"
-            VerticalScrollMode="Auto"
-            VerticalScrollBarVisibility="Auto">
-            <Grid Padding="12" Margin="0,0,12,0">
+    <NavigationView x:Name="MainNavigationView"
+        IsSettingsVisible="False"
+        ExpandedModeThresholdWidth="1000"
+        SelectionChanged="MainNavigationView_SelectionChanged">
+        <NavigationView.Header>
+            <Grid Padding="12">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" MinWidth="300" />
+                    <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
-                <!-- 左侧面板：状态和基本控制 -->
-                <StackPanel Grid.Column="0" Margin="0,0,0,0">
-                    <!-- 状态显示区域 -->
-                    <Border BorderBrush="{ThemeResource SystemControlForegroundBaseMediumBrush}"
-                        BorderThickness="1" Padding="12" CornerRadius="4"
-                        Margin="0,0,0,12">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <Ellipse Width="12" Height="12" Margin="0,0,8,0"
-                                VerticalAlignment="Center"
-                                Fill="{Binding IsConnected, Converter={StaticResource BoolToConnectionColorConverter}}" />
-                            <TextBlock Grid.Column="1" Text="{Binding StatusMessage}"
-                                VerticalAlignment="Center" />
-                        </Grid>
-                    </Border>
+                <TextBlock Text="Gear VR Controller"
+                    Style="{StaticResource TitleTextBlockStyle}"
+                    VerticalAlignment="Center" />
 
-                    <!-- 基本控制按钮 -->
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
-                        <Button x:Name="ToggleControlButton"
-                            Content="{Binding IsControlEnabled, Converter={StaticResource BoolToControlStateConverter}}"
-                            Click="ToggleControlButton_Click"
-                            Margin="0,0,8,0" />
-                        <Button x:Name="TouchpadVisualizerButton"
-                            Content="触摸板可视化"
-                            Click="TouchpadVisualizerButton_Click"
-                            IsEnabled="{Binding IsConnected}" />
-                    </StackPanel>
-
-                    <!-- 基本设置 -->
-                    <StackPanel>
-                        <TextBlock Text="基本设置" Style="{StaticResource SubtitleTextBlockStyle}"
-                            Margin="0,0,0,8" />
-                        <controls:WrapPanel HorizontalSpacing="12" VerticalSpacing="8">
-                            <CheckBox Content="启用鼠标控制"
-                                IsChecked="{Binding IsMouseEnabled, Mode=TwoWay}"
-                            />
-                            <CheckBox Content="启用键盘控制"
-                                IsChecked="{Binding IsKeyboardEnabled, Mode=TwoWay}"
-                            />
-                            <CheckBox Content="自然滚动"
-                                IsChecked="{Binding UseNaturalScrolling, Mode=TwoWay}"
-                                ToolTipService.ToolTip="启用后，滚轮向上滑动页面向上滚动" />
-                            <CheckBox Content="Y轴反转"
-                                IsChecked="{Binding InvertYAxis, Mode=TwoWay}"
-                                ToolTipService.ToolTip="启用后，上下移动方向将被反转" />
-                        </controls:WrapPanel>
-
-                        <TextBlock Text="控制模式" Style="{StaticResource SubtitleTextBlockStyle}"
-                            Margin="0,12,0,8" />
-                        <RadioButtons>
-                            <RadioButton Content="相对位置模式"
-                                IsChecked="{Binding IsRelativeMode, Mode=TwoWay}"
-                                ToolTipService.ToolTip="以触摸板中心为原点，偏移量决定移动速度和方向" />
-                            <RadioButton Content="手势模式"
-                                IsChecked="{Binding IsGestureMode, Mode=TwoWay}"
-                                ToolTipService.ToolTip="识别滑动手势，触发预定义动作" />
-                        </RadioButtons>
-
-                        <!-- 手势模式设置 -->
-                        <Expander Header="手势设置"
-                            IsExpanded="False"
-                            Margin="0,8,0,0"
-                            IsEnabled="{Binding IsGestureMode}">
-                            <StackPanel Margin="0,12,0,0">
-                                <TextBlock Text="手势灵敏度" Margin="0,0,0,4" />
-                                <Slider Minimum="0.1"
-                                    Maximum="2.0"
-                                    Value="{Binding GestureSensitivity, Mode=TwoWay}"
-                                    Width="200"
-                                    HorizontalAlignment="Left" />
-
-                                <TextBlock Text="手势动作映射" Margin="0,12,0,4" />
-                                <Grid Margin="0,0,0,8">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                    </Grid.RowDefinitions>
-
-                                    <TextBlock Text="向上滑动:" Grid.Row="0" Grid.Column="0"
-                                        VerticalAlignment="Center" Margin="0,0,8,8" />
-                                    <ComboBox Grid.Row="0" Grid.Column="1"
-                                        SelectedValue="{Binding SwipeUpAction, Mode=TwoWay}"
-                                        ItemsSource="{Binding AvailableGestureActions}"
-                                        Margin="0,0,0,8" />
-
-                                    <TextBlock Text="向下滑动:" Grid.Row="1" Grid.Column="0"
-                                        VerticalAlignment="Center" Margin="0,0,8,8" />
-                                    <ComboBox Grid.Row="1" Grid.Column="1"
-                                        SelectedValue="{Binding SwipeDownAction, Mode=TwoWay}"
-                                        ItemsSource="{Binding AvailableGestureActions}"
-                                        Margin="0,0,0,8" />
-
-                                    <TextBlock Text="向左滑动:" Grid.Row="2" Grid.Column="0"
-                                        VerticalAlignment="Center" Margin="0,0,8,8" />
-                                    <ComboBox Grid.Row="2" Grid.Column="1"
-                                        SelectedValue="{Binding SwipeLeftAction, Mode=TwoWay}"
-                                        ItemsSource="{Binding AvailableGestureActions}"
-                                        Margin="0,0,0,8" />
-
-                                    <TextBlock Text="向右滑动:" Grid.Row="3" Grid.Column="0"
-                                        VerticalAlignment="Center" Margin="0,0,8,8" />
-                                    <ComboBox Grid.Row="3" Grid.Column="1"
-                                        SelectedValue="{Binding SwipeRightAction, Mode=TwoWay}"
-                                        ItemsSource="{Binding AvailableGestureActions}"
-                                        Margin="0,0,0,8" />
-                                </Grid>
-
-                                <CheckBox Content="显示手势提示"
-                                    IsChecked="{Binding ShowGestureHints, Mode=TwoWay}"
-                                    ToolTipService.ToolTip="在触摸板可视化窗口中显示手势轨迹" />
-                            </StackPanel>
-                        </Expander>
-                    </StackPanel>
-                </StackPanel>
-
-                <!-- 右侧面板：高级设置和数据显示 -->
                 <StackPanel Grid.Column="1"
-                    Margin="12,0,0,0"
-                    MinWidth="300">
-                    <!-- 高级设置 -->
-                    <Expander Header="高级设置" IsExpanded="False">
-                        <StackPanel Margin="0,12,0,0">
-                            <StackPanel Margin="0,0,0,12">
-                                <TextBlock Text="鼠标灵敏度" />
-                                <Slider Minimum="0.1"
-                                    Maximum="2.0"
-                                    Value="{Binding MouseSensitivity, Mode=TwoWay}"
-                                    Width="200"
-                                    HorizontalAlignment="Left"
-                                    IsEnabled="{Binding IsRelativeMode}" />
-                            </StackPanel>
-
-                            <StackPanel Margin="0,0,0,12">
-                                <TextBlock Text="平滑等级" />
-                                <Slider Minimum="1"
-                                    Maximum="10"
-                                    Value="{Binding SmoothingLevel, Mode=TwoWay}"
-                                    Width="200"
-                                    HorizontalAlignment="Left"
-                                    IsEnabled="{Binding EnableSmoothing}"
-                                    Visibility="{Binding IsRelativeMode, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                            </StackPanel>
-
-                            <StackPanel Margin="0,0,0,12">
-                                <TextBlock Text="非线性曲线强度" />
-                                <Slider Minimum="1.0"
-                                    Maximum="3.0"
-                                    Value="{Binding NonLinearCurvePower, Mode=TwoWay}"
-                                    Width="200"
-                                    HorizontalAlignment="Left"
-                                    IsEnabled="{Binding EnableNonLinearCurve}"
-                                    Visibility="{Binding IsRelativeMode, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                            </StackPanel>
-
-                            <StackPanel Margin="0,0,0,12">
-                                <TextBlock Text="死区大小" />
-                                <Slider Minimum="0"
-                                    Maximum="20"
-                                    Value="{Binding DeadZone, Mode=TwoWay}"
-                                    Width="200"
-                                    HorizontalAlignment="Left"
-                                    Visibility="{Binding IsRelativeMode, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                            </StackPanel>
-
-                            <controls:WrapPanel HorizontalSpacing="12" VerticalSpacing="8">
-                                <CheckBox Content="移动平滑"
-                                    IsChecked="{Binding EnableSmoothing, Mode=TwoWay}"
-                                    IsEnabled="{Binding IsRelativeMode}" />
-                                <CheckBox Content="非线性曲线"
-                                    IsChecked="{Binding EnableNonLinearCurve, Mode=TwoWay}"
-                                    IsEnabled="{Binding IsRelativeMode}" />
-                            </controls:WrapPanel>
-
-                            <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
-                                <Button Content="重置设置"
-                                    Click="ResetSettingsButton_Click"
-                                    Margin="0,0,8,0" />
-                                <Button Content="校准触摸板"
-                                    Click="CalibrateButton_Click" />
-                            </StackPanel>
-                        </StackPanel>
-                    </Expander>
-
-                    <!-- 传感器数据 -->
-                    <Expander Header="传感器数据" IsExpanded="False" Margin="0,12,0,0">
-                        <Grid Margin="0,12,0,0">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                            </Grid.RowDefinitions>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-
-                            <!-- 加速度计数据 -->
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Accel X:" Margin="0,0,8,4" />
-                            <!-- <Run Text="{Binding LastControllerData.AccelX, Mode=OneWay}" /> -->
-                            <TextBlock Grid.Row="0" Grid.Column="1" Margin="0,0,0,4">
-                                <Run Text="N/A" />
-                            </TextBlock>
-
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Accel Y:" Margin="0,0,8,4" />
-                            <!-- <Run Text="{Binding LastControllerData.AccelY, Mode=OneWay}" /> -->
-                            <TextBlock Grid.Row="1" Grid.Column="1" Margin="0,0,0,4">
-                                <Run Text="N/A" />
-                            </TextBlock>
-
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Accel Z:" Margin="0,0,8,4" />
-                            <!-- <Run Text="{Binding LastControllerData.AccelZ, Mode=OneWay}" /> -->
-                            <TextBlock Grid.Row="2" Grid.Column="1" Margin="0,0,0,4">
-                                <Run Text="N/A" />
-                            </TextBlock>
-
-                            <!-- 陀螺仪数据 -->
-                            <TextBlock Grid.Row="3" Grid.Column="0" Text="Gyro X:" Margin="0,12,8,4" />
-                            <!-- <Run Text="{Binding LastControllerData.GyroX, Mode=OneWay}" /> -->
-                            <TextBlock Grid.Row="3" Grid.Column="1" Margin="0,12,0,4">
-                                <Run Text="N/A" />
-                            </TextBlock>
-
-                            <TextBlock Grid.Row="4" Grid.Column="0" Text="Gyro Y:" Margin="0,0,8,4" />
-                            <!-- <Run Text="{Binding LastControllerData.GyroY, Mode=OneWay}" /> -->
-                            <TextBlock Grid.Row="4" Grid.Column="1" Margin="0,0,0,4">
-                                <Run Text="N/A" />
-                            </TextBlock>
-
-                            <TextBlock Grid.Row="5" Grid.Column="0" Text="Gyro Z:" Margin="0,0,8,4" />
-                            <!-- <Run Text="{Binding LastControllerData.GyroZ, Mode=OneWay}" /> -->
-                            <TextBlock Grid.Row="5" Grid.Column="1" Margin="0,0,0,4">
-                                <Run Text="N/A" />
-                            </TextBlock>
-
-                            <!-- 磁力计数据 -->
-                            <TextBlock Grid.Row="6" Grid.Column="0" Text="Magnet X:"
-                                Margin="0,12,8,4" />
-                            <!-- <Run Text="{Binding LastControllerData.MagnetX, Mode=OneWay}" /> -->
-                            <TextBlock Grid.Row="6" Grid.Column="1" Margin="0,12,0,4">
-                                <Run Text="N/A" />
-                            </TextBlock>
-
-                            <TextBlock Grid.Row="7" Grid.Column="0" Text="Magnet Y:"
-                                Margin="0,0,8,4" />
-                            <!-- <Run Text="{Binding LastControllerData.MagnetY, Mode=OneWay}" /> -->
-                            <TextBlock Grid.Row="7" Grid.Column="1" Margin="0,0,0,4">
-                                <Run Text="N/A" />
-                            </TextBlock>
-
-                            <TextBlock Grid.Row="8" Grid.Column="0" Text="Magnet Z:"
-                                Margin="0,0,8,4" />
-                            <!-- <Run Text="{Binding LastControllerData.MagnetZ, Mode=OneWay}" /> -->
-                            <TextBlock Grid.Row="8" Grid.Column="1" Margin="0,0,0,4">
-                                <Run Text="N/A" />
-                            </TextBlock>
-                        </Grid>
-                    </Expander>
-
-                    <!-- 按钮状态 -->
-                    <Expander Header="按钮状态" IsExpanded="False" Margin="0,12,0,0">
-                        <StackPanel Margin="0,12,0,0">
-                            <controls:WrapPanel Margin="0,4,0,0"
-                                HorizontalSpacing="12"
-                                VerticalSpacing="4">
-                                <StackPanel Orientation="Horizontal">
-                                    <Ellipse Width="8" Height="8" Margin="0,0,4,0"
-                                        VerticalAlignment="Center"
-                                        Fill="{Binding LastControllerData.TriggerButton, Converter={StaticResource BoolToButtonStateConverter}}" />
-                                    <TextBlock Text="触发键" />
-                                </StackPanel>
-                                <StackPanel Orientation="Horizontal">
-                                    <Ellipse Width="8" Height="8" Margin="0,0,4,0"
-                                        VerticalAlignment="Center"
-                                        Fill="{Binding LastControllerData.HomeButton, Converter={StaticResource BoolToButtonStateConverter}}" />
-                                    <TextBlock Text="Home键" />
-                                </StackPanel>
-                                <StackPanel Orientation="Horizontal">
-                                    <Ellipse Width="8" Height="8" Margin="0,0,4,0"
-                                        VerticalAlignment="Center"
-                                        Fill="{Binding LastControllerData.BackButton, Converter={StaticResource BoolToButtonStateConverter}}" />
-                                    <TextBlock Text="返回键" />
-                                </StackPanel>
-                                <StackPanel Orientation="Horizontal">
-                                    <Ellipse Width="8" Height="8" Margin="0,0,4,0"
-                                        VerticalAlignment="Center"
-                                        Fill="{Binding LastControllerData.TouchpadButton, Converter={StaticResource BoolToButtonStateConverter}}" />
-                                    <TextBlock Text="触摸板" />
-                                </StackPanel>
-                            </controls:WrapPanel>
-                        </StackPanel>
-                    </Expander>
+                    Orientation="Horizontal"
+                    Margin="0,0,0,0">
+                    <Button x:Name="ConnectButton"
+                        Content="连接设备"
+                        Click="ConnectButton_Click"
+                        Margin="0,0,8,0"
+                        IsEnabled="{Binding IsConnecting, Converter={StaticResource BooleanNegationConverter}}" />
+                    <Button x:Name="DisconnectButton"
+                        Content="断开连接"
+                        Click="DisconnectButton_Click"
+                        IsEnabled="{Binding IsConnected}" />
                 </StackPanel>
             </Grid>
-        </ScrollViewer>
-    </Grid>
+        </NavigationView.Header>
+
+        <NavigationView.MenuItems>
+            <NavigationViewItem Tag="home" Icon="Home" Content="状态与控制" />
+            <NavigationViewItem Tag="settings" Icon="Setting" Content="设置" />
+            <NavigationViewItem Tag="calibrate" Icon="Sync" Content="校准" />
+            <NavigationViewItem Tag="about" Icon="Help" Content="关于" />
+        </NavigationView.MenuItems>
+
+        <NavigationView.FooterMenuItems>
+            <NavigationViewItem Tag="resetSettings" Icon="Refresh" Content="重置设置" />
+            <NavigationViewItem Tag="visualizer" Icon="View" Content="触摸板可视化" />
+        </NavigationView.FooterMenuItems>
+
+        <Frame x:Name="ContentFrame" Margin="12,0,0,0" />
+    </NavigationView>
 </Window>

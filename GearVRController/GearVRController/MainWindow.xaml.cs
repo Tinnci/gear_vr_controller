@@ -59,6 +59,9 @@ namespace GearVRController
 
             // 设置默认窗口大小
             _appWindow.Resize(new SizeInt32(900, 700));
+
+            // 初始导航到主页
+            MainNavigationView.SelectedItem = MainNavigationView.MenuItems.OfType<NavigationViewItem>().First();
         }
 
         private async void ConnectButton_Click(object sender, RoutedEventArgs e)
@@ -104,26 +107,37 @@ namespace GearVRController
             ViewModel.Disconnect();
         }
 
-        private void ToggleControlButton_Click(object sender, RoutedEventArgs e)
+        private void MainNavigationView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
         {
-            ViewModel.ToggleControl();
-        }
-
-        private void ResetSettingsButton_Click(object sender, RoutedEventArgs e)
-        {
-            ViewModel.ResetSettings();
-        }
-
-        private void CalibrateButton_Click(object sender, RoutedEventArgs e)
-        {
-            // 启动校准流程
-            ViewModel.StartManualCalibration();
-            _windowManagerService.OpenTouchpadCalibrationWindow();
-        }
-
-        private void TouchpadVisualizerButton_Click(object sender, RoutedEventArgs e)
-        {
-            _windowManagerService.OpenTouchpadVisualizerWindow();
+            if (args.IsSettingsSelected)
+            {
+                // 设置页面（如果将来有专门的设置页面）
+                // ContentFrame.Navigate(typeof(SettingsPage)); // 目前我们已经在主设置页面中处理了
+            }
+            else if (args.SelectedItem is NavigationViewItem selectedItem)
+            {
+                switch (selectedItem.Tag)
+                {
+                    case "home":
+                        ContentFrame.Navigate(typeof(HomePage), ViewModel);
+                        break;
+                    case "settings":
+                        ContentFrame.Navigate(typeof(SettingsPage), ViewModel);
+                        break;
+                    case "calibrate":
+                        ContentFrame.Navigate(typeof(CalibrationPage), ViewModel);
+                        break;
+                    case "about":
+                        ContentFrame.Navigate(typeof(AboutPage), ViewModel);
+                        break;
+                    case "resetSettings":
+                        ViewModel.ResetSettings();
+                        break;
+                    case "visualizer":
+                        _windowManagerService.OpenTouchpadVisualizerWindow();
+                        break;
+                }
+            }
         }
     }
 }
