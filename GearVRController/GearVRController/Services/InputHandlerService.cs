@@ -14,9 +14,7 @@ namespace GearVRController.Services
         private readonly ILogger _logger;
 
         // Debounce and state variables from MainViewModel
-        private int _triggerDebounceCounter = 0;
         private bool _isTriggerButtonPressed = false;
-        private bool _isTriggerButtonReleased = false;
 
         private int _volumeUpDebounceCounter = 0;
         private bool _isVolumeUpHeld = false;
@@ -26,9 +24,6 @@ namespace GearVRController.Services
 
         private int _backDebounceCounter = 0;
         private bool _isBackButtonPressed = false;
-
-        private int _touchpadPressDebounceCounter = 0;
-        private bool _isTouchpadPressActive = false;
 
         private bool _isTouchpadButtonPressed = false;
         private int _touchpadButtonPressCounter = 0;
@@ -58,7 +53,6 @@ namespace GearVRController.Services
                 if (_triggerButtonPressCounter >= _settingsService.ButtonDebounceThreshold && !_isTriggerButtonPressed)
                 {
                     _isTriggerButtonPressed = true;
-                    _isTriggerButtonReleased = false;
                     _inputSimulator.SimulateMouseButtonEx(true, (int)MouseButtons.Left);
                     _logger.LogInfo("Left mouse button pressed");
                 }
@@ -70,7 +64,6 @@ namespace GearVRController.Services
                 if (_triggerButtonReleaseCounter >= _settingsService.ButtonDebounceThreshold && _isTriggerButtonPressed)
                 {
                     _isTriggerButtonPressed = false;
-                    _isTriggerButtonReleased = true;
                     _inputSimulator.SimulateMouseButtonEx(false, (int)MouseButtons.Left);
                     _logger.LogInfo("Left mouse button released");
                 }

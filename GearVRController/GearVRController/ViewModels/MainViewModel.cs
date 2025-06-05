@@ -634,7 +634,7 @@ namespace GearVRController.ViewModels
             _inputHandlerService = inputHandlerService;
 
             _bluetoothService.DataReceived += BluetoothService_DataReceived;
-            _eventAggregator.Subscribe<CalibrationCompletedEvent>(OnCalibrationCompleted);
+            _calibrationCompletedSubscription = _eventAggregator.Subscribe<CalibrationCompletedEvent>(OnCalibrationCompleted);
             _gestureRecognizer = new GestureRecognizer(_settingsService, _dispatcherQueue);
             _gestureRecognizer.GestureDetected += OnGestureDetected;
             LoadSettings();
