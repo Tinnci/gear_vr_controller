@@ -2,6 +2,8 @@ using System;
 using System.Threading.Tasks;
 using GearVRController.Models;
 using GearVRController.Services.Interfaces;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace GearVRController.Services
 {
@@ -17,6 +19,12 @@ namespace GearVRController.Services
         private double _lastTouchpadProcessedX = 0;
         private double _lastTouchpadProcessedY = 0;
 
+        // 用于平滑处理的字段
+        private double _smoothedDeltaX = 0;
+        private double _smoothedDeltaY = 0;
+        private List<double> _smoothingBufferX;
+        private List<double> _smoothingBufferY;
+
         public event EventHandler<ControllerData>? ControllerDataProcessed;
 
         public ControllerService(IBluetoothService bluetoothService, ISettingsService settingsService, TouchpadProcessor touchpadProcessor, IInputSimulator inputSimulator, GestureRecognizer gestureRecognizer)
@@ -26,6 +34,9 @@ namespace GearVRController.Services
             _touchpadProcessor = touchpadProcessor;
             _inputSimulator = inputSimulator;
             _gestureRecognizer = gestureRecognizer;
+
+            _smoothingBufferX = new List<double>();
+            _smoothingBufferY = new List<double>();
         }
 
         public Task InitializeAsync()
@@ -58,6 +69,8 @@ namespace GearVRController.Services
                 // 手势模式：只将处理后的触摸板数据传递给手势识别器
                 // 不进行鼠标移动，手势识别结果由 MainViewModel 处理离散动作
                 var (processedX, processedY) = _touchpadProcessor.ProcessRawData(data.AxisX, data.AxisY);
+                data.ProcessedTouchpadX = processedX;
+                data.ProcessedTouchpadY = processedY;
                 _gestureRecognizer.ProcessTouchpadPoint(new Models.TouchpadPoint { X = (float)processedX, Y = (float)processedY, IsTouched = data.TouchpadTouched });
 
                 if (!data.TouchpadTouched && _isTouchpadCurrentlyTouched) // 触摸结束
@@ -84,6 +97,8 @@ namespace GearVRController.Services
         {
             // 使用 TouchpadProcessor 处理原始触摸板数据到归一化坐标 (-1 to 1)
             var (processedX, processedY) = _touchpadProcessor.ProcessRawData(data.AxisX, data.AxisY);
+            data.ProcessedTouchpadX = processedX;
+            data.ProcessedTouchpadY = processedY;
 
             // 将处理后的点传递给手势识别器（无论触摸状态如何，让它跟踪点）
             // 注意：GestureRecognizer 需要 TouchpadPoint 对象，这里我们需要根据 ControllerData 创建
@@ -105,17 +120,36 @@ namespace GearVRController.Services
                     double deltaX = processedX - _lastTouchpadProcessedX;
                     double deltaY = processedY - _lastTouchpadProcessedY;
 
+                    // 应用死区
+                    (deltaX, deltaY) = ApplyDeadZone(deltaX, deltaY);
+
+                    // 应用平滑
+                    if (_settingsService.EnableSmoothing)
+                    {
+                        _smoothedDeltaX = ApplySmoothing(deltaX, _smoothingBufferX, _settingsService.SmoothingLevel);
+                        _smoothedDeltaY = ApplySmoothing(deltaY, _smoothingBufferY, _settingsService.SmoothingLevel);
+                    }
+                    else
+                    {
+                        _smoothedDeltaX = deltaX;
+                        _smoothedDeltaY = deltaY;
+                        _smoothingBufferX.Clear(); // 清空缓冲区以立即响应
+                        _smoothingBufferY.Clear();
+                    }
+
                     // 更新上一个点
                     _lastTouchpadProcessedX = processedX;
                     _lastTouchpadProcessedY = processedY;
 
-                    // 根据增量、灵敏度和缩放因子计算鼠标移动量
-                    // 缩放因子需要调整以获得合适的移动速度，可能需要根据实际测试来确定。
-                    // 一个小的缩放因子可能更合适，因为deltaX/Y是-2到2之间的变化。
-                    double mouseDeltaX = deltaX * _settingsService.MouseSensitivity * _settingsService.MouseSensitivityScalingFactor;
-                    double mouseDeltaY = deltaY * _settingsService.MouseSensitivity * _settingsService.MouseSensitivityScalingFactor;
+                    // 应用非线性曲线
+                    double finalDeltaX = ApplyNonLinearCurve(_smoothedDeltaX, _settingsService.NonLinearCurvePower, _settingsService.EnableNonLinearCurve);
+                    double finalDeltaY = ApplyNonLinearCurve(_smoothedDeltaY, _settingsService.NonLinearCurvePower, _settingsService.EnableNonLinearCurve);
 
-                    System.Diagnostics.Debug.WriteLine($"[ControllerService] 触摸持续: rawX={{data.AxisX}}, rawY={{data.AxisY}}, processedX={{processedX:F2}}, processedY={{processedY:F2}}, deltaX={{deltaX:F2}}, deltaY={{deltaY:F2}}, mouseDeltaX={{mouseDeltaX:F2}}, mouseDeltaY={{mouseDeltaY:F2}}");
+                    // 根据增量、灵敏度和缩放因子计算鼠标移动量
+                    double mouseDeltaX = finalDeltaX * _settingsService.MouseSensitivity * _settingsService.MouseSensitivityScalingFactor;
+                    double mouseDeltaY = finalDeltaY * _settingsService.MouseSensitivity * _settingsService.MouseSensitivityScalingFactor;
+
+                    System.Diagnostics.Debug.WriteLine($"[ControllerService] 触摸持续: rawX={{data.AxisX}}, rawY={{data.AxisY}}, processedX={{processedX:F2}}, processedY={{processedY:F2}}, deltaX={{deltaX:F2}}, deltaY={{deltaY:F2}}, smoothedX={{_smoothedDeltaX:F2}}, smoothedY={{_smoothedDeltaY:F2}}, finalX={{finalDeltaX:F2}}, finalY={{finalDeltaY:F2}}, mouseDeltaX={{mouseDeltaX:F2}}, mouseDeltaY={{mouseDeltaY:F2}}");
 
                     // 模拟鼠标移动
                     // 增加一个小的阈值，避免微小移动导致的抖动
@@ -193,6 +227,42 @@ namespace GearVRController.Services
                 return -delta;
             }
             return delta;
+        }
+
+        // 新增：应用死区
+        private (double, double) ApplyDeadZone(double deltaX, double deltaY)
+        {
+            double deadZoneThreshold = _settingsService.DeadZone / 100.0; // 将百分比转换为 [-1, 1] 范围的比例
+            double magnitude = Math.Sqrt(deltaX * deltaX + deltaY * deltaY);
+
+            if (magnitude <= deadZoneThreshold)
+            {
+                return (0.0, 0.0);
+            }
+            return (deltaX, deltaY);
+        }
+
+        // 新增：应用平滑
+        private double ApplySmoothing(double newValue, List<double> buffer, int smoothingLevel)
+        {
+            buffer.Add(newValue);
+            while (buffer.Count > smoothingLevel)
+            {
+                buffer.RemoveAt(0);
+            }
+            return buffer.Average();
+        }
+
+        // 新增：应用非线性曲线
+        private double ApplyNonLinearCurve(double value, double power, bool enableNonLinearCurve)
+        {
+            if (!enableNonLinearCurve || power == 1.0)
+            {
+                return value;
+            }
+
+            // 应用非线性曲线： sign(value) * abs(value)^power
+            return Math.Sign(value) * Math.Pow(Math.Abs(value), power);
         }
 
         protected virtual void OnControllerDataProcessed(ControllerData data)

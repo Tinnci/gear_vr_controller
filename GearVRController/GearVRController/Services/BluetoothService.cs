@@ -31,7 +31,6 @@ namespace GearVRController.Services
         private const int EXPECTED_PACKET_LENGTH = 60;
         private const int TOUCHPAD_X_OFFSET = 54; // Assuming from previous code
         private const int TOUCHPAD_Y_OFFSET = 56; // Assuming from previous code
-        private const int BATTERY_LEVEL_OFFSET = 1; // Example offset, verify with actual data spec
         private const int BUTTON_STATE_OFFSET = 2; // Example offset, verify with actual data spec
         private const int ACCEL_X_OFFSET = 6;
         private const int ACCEL_Y_OFFSET = 8;
@@ -334,10 +333,6 @@ namespace GearVRController.Services
                     // Move to the offset where actual data begins if there's a header
                     // For now, assuming data starts from beginning, adjust if needed.
 
-                    // Example: Read battery level
-                    // reader.BaseStream.Seek(BATTERY_LEVEL_OFFSET, SeekOrigin.Begin);
-                    // byte batteryLevel = reader.ReadByte();
-
                     // Example: Read button states
                     reader.BaseStream.Seek(BUTTON_STATE_OFFSET, SeekOrigin.Begin);
                     byte buttonStates = reader.ReadByte();
@@ -374,7 +369,6 @@ namespace GearVRController.Services
                     // Create ControllerData object
                     var data = new ControllerData
                     {
-                        // BatteryLevel = batteryLevel,
                         TouchpadButton = touchpadButton,
                         HomeButton = homeButton,
                         TriggerButton = triggerButton,
@@ -391,6 +385,14 @@ namespace GearVRController.Services
                         AxisY = axisY
                     };
 
+                    // Example: Read battery level
+                    // reader.BaseStream.Seek(BATTERY_LEVEL_OFFSET, SeekOrigin.Begin);
+                    // byte batteryLevel = reader.ReadByte();
+                    // data.BatteryLevel = batteryLevel; // Assign to ControllerData
+
+                    // data.BatteryLevel = batteryLevel; // Assign to ControllerData
+
+                    // Update LastControllerData
                     DataReceived?.Invoke(this, data);
                 }
             }

@@ -9,45 +9,25 @@ namespace GearVRController.Enums
         /// 无手势
         /// </summary>
         None = 0,
-        
-        /// <summary>
-        /// 点击
-        /// </summary>
-        Tap,
-        
-        /// <summary>
-        /// 双击
-        /// </summary>
-        DoubleTap,
-        
+
         /// <summary>
         /// 向上滑动
         /// </summary>
-        SwipeUp,
-        
+        SwipeUp = 1,
+
         /// <summary>
         /// 向下滑动
         /// </summary>
-        SwipeDown,
-        
+        SwipeDown = 2,
+
         /// <summary>
         /// 向左滑动
         /// </summary>
-        SwipeLeft,
-        
+        SwipeLeft = 3,
+
         /// <summary>
         /// 向右滑动
         /// </summary>
-        SwipeRight,
-        
-        /// <summary>
-        /// 画圈
-        /// </summary>
-        Circle,
-        
-        /// <summary>
-        /// 长按
-        /// </summary>
-        LongPress
+        SwipeRight = 4,
     }
-} 
+}

@@ -528,8 +528,6 @@ namespace GearVRController.Views
                 EnumsNS.TouchpadGesture.SwipeDown => "向下滑动",
                 EnumsNS.TouchpadGesture.SwipeLeft => "向左滑动",
                 EnumsNS.TouchpadGesture.SwipeRight => "向右滑动",
-                EnumsNS.TouchpadGesture.Tap => "点击",
-                EnumsNS.TouchpadGesture.LongPress => "长按",
                 _ => "未知"
             };
         }
@@ -622,13 +620,10 @@ namespace GearVRController.Views
             string gestureText = gesture switch
             {
                 EnumsNS.TouchpadGesture.None => "无手势",
-                EnumsNS.TouchpadGesture.Tap => "点击",
-                EnumsNS.TouchpadGesture.DoubleTap => "双击",
                 EnumsNS.TouchpadGesture.SwipeUp => "向上滑动",
                 EnumsNS.TouchpadGesture.SwipeDown => "向下滑动",
                 EnumsNS.TouchpadGesture.SwipeLeft => "向左滑动",
                 EnumsNS.TouchpadGesture.SwipeRight => "向右滑动",
-                EnumsNS.TouchpadGesture.Circle => "画圈",
                 _ => "未知手势"
             };
 

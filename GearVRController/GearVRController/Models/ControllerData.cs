@@ -34,8 +34,9 @@ namespace GearVRController.Models
         public bool VolumeDownButton { get; set; }
         public bool NoButton { get; set; }
 
-        // 电池状态
-        public int BatteryLevel { get; set; }
+        // 处理后的触摸板坐标 (归一化到 [-1, 1])
+        public double ProcessedTouchpadX { get; set; }
+        public double ProcessedTouchpadY { get; set; }
 
         // 时间戳
         public DateTime Timestamp { get; set; } = DateTime.Now;

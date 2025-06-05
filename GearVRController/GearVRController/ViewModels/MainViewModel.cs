@@ -5,7 +5,6 @@ using System.Threading.Tasks;
 using GearVRController.Models;
 using GearVRController.Services;
 using GearVRController.Services.Interfaces;
-using GearVRController.Helpers;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Dispatching;
 using Windows.Devices.Bluetooth;
@@ -590,10 +589,12 @@ namespace GearVRController.ViewModels
                 // Process controller data
                 _controllerService.ProcessControllerData(data);
 
-                // Add these lines:
-                var (pX, pY) = _touchpadProcessor.ProcessRawData(data.AxisX, data.AxisY);
-                ProcessedTouchpadX = pX;
-                ProcessedTouchpadY = pY;
+                // Update processed touchpad coordinates from data (now populated by ControllerService)
+                ProcessedTouchpadX = data.ProcessedTouchpadX;
+                ProcessedTouchpadY = data.ProcessedTouchpadY;
+
+                // Record touchpad history for visualization
+                RecordTouchpadHistory(data.ProcessedTouchpadX, data.ProcessedTouchpadY, data.TouchpadTouched);
 
                 // Update LastControllerData
                 LastControllerData = data;
@@ -664,13 +665,6 @@ namespace GearVRController.ViewModels
                 System.Diagnostics.Debug.WriteLine($"按键处理异常: {ex}");
                 _inputStateMonitorService.ForceReleaseAllButtons();
             }
-        }
-
-        private int CalculateWheelPosition(int x, int y)
-        {
-            if (x == 0 && y == 0) return -1;
-            double angle = Math.Atan2(y, x);
-            return (int)Math.Floor((angle + Math.PI) / (2 * Math.PI) * NumberOfWheelPositions);
         }
 
         protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)

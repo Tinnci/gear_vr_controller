@@ -19,7 +19,6 @@ using Microsoft.UI.Dispatching;
 using GearVRController.Services;
 using GearVRController.Services.Interfaces;
 using GearVRController.ViewModels;
-using GearVRController.Helpers;
 using Microsoft.Extensions.DependencyInjection;
 
 // To learn more about WinUI, the WinUI project structure,

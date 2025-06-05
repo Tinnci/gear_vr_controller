@@ -16,7 +16,7 @@ namespace GearVRController.Services
         }
 
         /// <summary>
-        /// Processes raw touchpad data (0-315 range) and returns normalized and calibrated coordinates (-1 to 1).
+        /// Processes raw touchpad data (0-1023 range) and returns normalized and calibrated coordinates (-1 to 1).
         /// </summary>
         /// <param name="rawX">Raw X coordinate from controller.</param>
         /// <param name="rawY">Raw Y coordinate from controller.</param>
@@ -52,8 +52,7 @@ namespace GearVRController.Services
             }
             else
             {
-                // 如果没有校准数据，使用简单的归一化方法 ( assuming center is 157.5 and max radius is 157.5)
-                // 重新审视这些默认值，确保它们与实际数据范围匹配
+                // If no calibration data, use simple normalization (assuming 0-1023 range)
                 processedX = Math.Max(-1.0, Math.Min(1.0, (rawX - DEFAULT_CENTER) / DEFAULT_HALF_RANGE));
                 processedY = Math.Max(-1.0, Math.Min(1.0, -(rawY - DEFAULT_CENTER) / DEFAULT_HALF_RANGE)); // Y轴翻转
                 System.Diagnostics.Debug.WriteLine($"[TouchpadProcessor] Uncalibrated: processedX={processedX:F2}, processedY={processedY:F2}");
