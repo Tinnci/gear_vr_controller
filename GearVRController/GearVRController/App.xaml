@@ -24,6 +24,7 @@
             <converters:CalibrationStepToForegroundConverter
                 x:Key="CalibrationStepToForegroundConverter" />
             <converters:CalibrationStepToContentConverter x:Key="CalibrationStepToContentConverter" />
+            <converters:NullToBooleanConverter x:Key="NullToBooleanConverter" />
             <!--<local:BoolToVisibilityConverter
             x:Key="BoolToVisibilityConverter"/>-->
         </ResourceDictionary>

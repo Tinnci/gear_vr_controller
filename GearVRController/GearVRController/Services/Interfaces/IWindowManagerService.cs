@@ -5,13 +5,6 @@ namespace GearVRController.Services.Interfaces
 {
     public interface IWindowManagerService
     {
-        /// <summary>
-        /// 打开触控板校准窗口。
-        /// </summary>
-        void OpenTouchpadCalibrationWindow();
-        /// <summary>
-        /// 关闭触控板校准窗口。
-        /// </summary>
-        void CloseTouchpadCalibrationWindow();
+        // Removed OpenTouchpadCalibrationWindow and CloseTouchpadCalibrationWindow as calibration is now a page
     }
 }

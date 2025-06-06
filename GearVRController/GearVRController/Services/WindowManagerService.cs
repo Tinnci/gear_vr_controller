@@ -16,12 +16,9 @@ namespace GearVRController.Services
         /// </summary>
         private readonly IServiceProvider _serviceProvider;
         /// <summary>
-        /// 触控板校准窗口实例。如果窗口未打开，则为 null。
-        /// </summary>
-        private TouchpadCalibrationWindow? _calibrationWindow;
-        /// <summary>
         /// 触控板可视化工具窗口实例。如果窗口未打开，则为 null。
         /// </summary>
+        // private TouchpadCalibrationWindow? _calibrationWindow;
         // private TouchpadVisualizerWindow? _visualizerWindow;
 
         /// <summary>
@@ -31,33 +28,6 @@ namespace GearVRController.Services
         public WindowManagerService(IServiceProvider serviceProvider)
         {
             _serviceProvider = serviceProvider;
-        }
-
-        /// <summary>
-        /// 打开触控板校准窗口。如果窗口已打开，则激活现有窗口。
-        /// </summary>
-        public void OpenTouchpadCalibrationWindow()
-        {
-            if (_calibrationWindow == null)
-            {
-                // Resolve TouchpadCalibrationViewModel and the window from DI
-                var calibrationViewModel = _serviceProvider.GetRequiredService<TouchpadCalibrationViewModel>();
-                _calibrationWindow = new TouchpadCalibrationWindow(calibrationViewModel);
-                _calibrationWindow.Closed += (s, e) => _calibrationWindow = null;
-                _calibrationWindow.Activate();
-            }
-            else
-            {
-                _calibrationWindow.Activate();
-            }
-        }
-
-        /// <summary>
-        /// 关闭触控板校准窗口。
-        /// </summary>
-        public void CloseTouchpadCalibrationWindow()
-        {
-            _calibrationWindow?.Close();
         }
 
         /// <summary>

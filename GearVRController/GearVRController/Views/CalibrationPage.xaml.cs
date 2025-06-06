@@ -2,7 +2,6 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
 using GearVRController.ViewModels;
-using GearVRController.Services.Interfaces;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace GearVRController.Views
@@ -10,7 +9,7 @@ namespace GearVRController.Views
     public sealed partial class CalibrationPage : Page
     {
         public MainViewModel? ViewModel { get; set; }
-        private IWindowManagerService? _windowManagerService;
+        private TouchpadCalibrationViewModel? _touchpadCalibrationViewModel;
 
         public CalibrationPage()
         {
@@ -25,13 +24,16 @@ namespace GearVRController.Views
                 ViewModel = viewModel;
                 this.DataContext = ViewModel;
             }
-            _windowManagerService = App.ServiceProvider!.GetRequiredService<IWindowManagerService>();
+            _touchpadCalibrationViewModel = App.ServiceProvider!.GetRequiredService<TouchpadCalibrationViewModel>();
         }
 
         private void StartCalibrationButton_Click(object sender, RoutedEventArgs e)
         {
             ViewModel?.StartManualCalibration();
-            _windowManagerService?.OpenTouchpadCalibrationWindow();
+            if (Frame != null && _touchpadCalibrationViewModel != null)
+            {
+                Frame.Navigate(typeof(TouchpadCalibrationPage), _touchpadCalibrationViewModel);
+            }
         }
     }
 }

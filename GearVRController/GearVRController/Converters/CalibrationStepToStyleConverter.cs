@@ -33,7 +33,7 @@ namespace GearVRController.Converters
                     else if (currentStep > targetStep)
                     {
                         // 已完成的步骤：显示成功颜色
-                        return new SolidColorBrush(Green);
+                        return (SolidColorBrush)Application.Current.Resources["SystemControlSuccessBrush"];
                     }
                     else
                     {

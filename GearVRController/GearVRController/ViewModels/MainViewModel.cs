@@ -10,6 +10,7 @@ using System.Collections.Generic;
 using GearVRController.Enums;
 using EnumsNS = GearVRController.Enums; // 添加命名空间别名
 using GearVRController.Events; // Add this
+using Microsoft.UI.Xaml.Controls; // Add this for InfoBarSeverity
 
 namespace GearVRController.ViewModels
 {
@@ -31,7 +32,9 @@ namespace GearVRController.ViewModels
         private readonly ILogger _logger;
         private readonly ConnectionViewModel _connectionViewModel;
         private readonly IInputOrchestratorService _inputOrchestratorService;
-        private string _statusMessage = string.Empty; // Re-introduce settable status message
+        private StatusInfo? _statusMessage; // Changed from string to StatusInfo?
+        private bool _isStatusOpen; // Added for InfoBar visibility
+        private string _title = "Gear VR Controller"; // Added for Window Title Bar
         private ControllerData _lastControllerData = new ControllerData();
         private const int NumberOfWheelPositions = 64;
 
@@ -107,10 +110,46 @@ namespace GearVRController.ViewModels
         /// <summary>
         /// 获取或设置应用程序当前的状态消息，用于 UI 显示。
         /// </summary>
-        public string StatusMessage
+        public StatusInfo? StatusMessage
         {
             get => _statusMessage;
-            set => SetProperty(ref _statusMessage, value);
+            set
+            {
+                if (SetProperty(ref _statusMessage, value))
+                {
+                    OnPropertyChanged(nameof(StatusTitle)); // Notify for StatusTitle
+                    OnPropertyChanged(nameof(StatusSeverity)); // Notify for StatusSeverity
+                    IsStatusOpen = value != null; // Update IsStatusOpen based on StatusMessage presence
+                }
+            }
+        }
+
+        /// <summary>
+        /// 获取或设置 InfoBar 的打开状态。
+        /// </summary>
+        public bool IsStatusOpen
+        {
+            get => _isStatusOpen;
+            private set => SetProperty(ref _isStatusOpen, value);
+        }
+
+        /// <summary>
+        /// 获取 InfoBar 的标题，对应 StatusMessage 的 Message 属性。
+        /// </summary>
+        public string StatusTitle => _statusMessage?.Message ?? string.Empty;
+
+        /// <summary>
+        /// 获取 InfoBar 的严重级别，对应 StatusMessage 的 Severity 属性。
+        /// </summary>
+        public InfoBarSeverity StatusSeverity => _statusMessage?.Severity ?? InfoBarSeverity.Informational;
+
+        /// <summary>
+        /// 获取应用程序的标题。
+        /// </summary>
+        public string Title
+        {
+            get => _title;
+            set => SetProperty(ref _title, value);
         }
 
         /// <summary>
@@ -337,7 +376,9 @@ namespace GearVRController.ViewModels
             _touchpadProcessor.SetCalibrationData(_calibrationData);
 
             // Initial status message
-            StatusMessage = "准备就绪";
+            StatusMessage = new StatusInfo("请连接您的Gear VR控制器。", InfoBarSeverity.Informational);
+
+            UpdateControlState();
 
             // Subscribe to EventAggregator events
             _controllerDataReceivedSubscription = _eventAggregator.Subscribe<ControllerDataReceivedEvent>(OnControllerDataReceived);
@@ -352,6 +393,7 @@ namespace GearVRController.ViewModels
             OnPropertyChanged(nameof(GestureSensitivity));
             OnPropertyChanged(nameof(ShowGestureHints));
             OnPropertyChanged(nameof(IsControlEnabled));
+            OnPropertyChanged(nameof(Title)); // Notify for initial title
         }
 
         private void OnCalibrationCompleted(CalibrationCompletedEvent e)
@@ -444,11 +486,18 @@ namespace GearVRController.ViewModels
         {
             _dispatcherQueue.TryEnqueue(() =>
             {
-                // Update MainViewModel's own properties based on ConnectionViewModel's status
-                OnPropertyChanged(nameof(IsConnected));
                 OnPropertyChanged(nameof(IsConnecting));
-                StatusMessage = e.IsConnected ? "设备已连接" : "设备已断开连接"; // Update MainViewModel's status message
-                UpdateControlState(); // Re-evaluate control state based on connection status
+                OnPropertyChanged(nameof(IsConnected));
+                UpdateControlState(); // Update control state based on connection
+
+                if (e.IsConnected)
+                {
+                    StatusMessage = new StatusInfo("控制器已连接。", InfoBarSeverity.Success);
+                }
+                else
+                {
+                    StatusMessage = new StatusInfo("控制器已断开连接。", InfoBarSeverity.Warning);
+                }
             });
         }
 
@@ -468,8 +517,17 @@ namespace GearVRController.ViewModels
         public void ToggleControl()
         {
             _settingsService.IsControlEnabled = !_settingsService.IsControlEnabled;
+            OnPropertyChanged(nameof(IsControlEnabled));
             UpdateControlState();
-            StatusMessage = _settingsService.IsControlEnabled ? "控制已启用" : "控制已禁用";
+
+            if (_settingsService.IsControlEnabled)
+            {
+                StatusMessage = new StatusInfo("控制已启用。", InfoBarSeverity.Success);
+            }
+            else
+            {
+                StatusMessage = new StatusInfo("控制已禁用。", InfoBarSeverity.Warning);
+            }
         }
 
         public void ResetSettings()
@@ -480,8 +538,10 @@ namespace GearVRController.ViewModels
         public void ApplyCalibrationData(TouchpadCalibrationData calibrationData)
         {
             _calibrationData = calibrationData;
-            _touchpadProcessor.SetCalibrationData(_calibrationData);
-            StatusMessage = "已应用触摸板校准数据";
+            _settingsService.SaveCalibrationData(calibrationData);
+            OnPropertyChanged(nameof(CalibrationData));
+            _touchpadProcessor.SetCalibrationData(calibrationData);
+            StatusMessage = new StatusInfo("触摸板校准数据已保存。", InfoBarSeverity.Success);
         }
 
         private void UpdateControlState()
@@ -513,13 +573,15 @@ namespace GearVRController.ViewModels
         public void StartManualCalibration()
         {
             IsCalibrating = true;
-            StatusMessage = "手动校准已启动，请在触摸板边缘划圈...";
+            // _touchpadProcessor.StartCalibration(); // Removed as calibration is managed by TouchpadCalibrationViewModel
+            StatusMessage = new StatusInfo("开始手动校准触摸板。", InfoBarSeverity.Informational);
         }
 
         public void EndCalibration()
         {
             IsCalibrating = false;
-            StatusMessage = "校准完成";
+            // _touchpadProcessor.EndCalibration(); // Removed as calibration is managed by TouchpadCalibrationViewModel
+            StatusMessage = new StatusInfo("触摸板校准已完成。", InfoBarSeverity.Success);
         }
 
         private void OnGestureExecuted(GestureExecutedEvent e)

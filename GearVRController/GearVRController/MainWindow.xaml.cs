@@ -8,6 +8,7 @@ using GearVRController.Views;
 using Microsoft.UI.Windowing;
 using Microsoft.UI;
 using GearVRController.Services.Interfaces;
+using GearVRController.Models; // 添加此命名空间引用
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -43,6 +44,18 @@ namespace GearVRController
             WindowId windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
             _appWindow = AppWindow.GetFromWindowId(windowId);
 
+            if (AppWindowTitleBar.IsCustomizationSupported())
+            {
+                var titleBar = _appWindow.TitleBar;
+                titleBar.ExtendsContentIntoTitleBar = true;
+                titleBar.ButtonBackgroundColor = Colors.Transparent;
+                titleBar.ButtonInactiveBackgroundColor = Colors.Transparent;
+            }
+            else
+            {
+                // Fallback for systems that do not support custom title bars
+            }
+
             // 初始导航到主页
             MainNavigationView.SelectedItem = MainNavigationView.MenuItems.OfType<NavigationViewItem>().First();
         }
@@ -59,13 +72,19 @@ namespace GearVRController
                 {
                     try
                     {
-                        ViewModel.StatusMessage = $"正在尝试连接到设备 {address.ToString("X")}";
+                        ViewModel.StatusMessage = new StatusInfo(
+                            $"正在尝试连接到设备 {address.ToString("X")}",
+                            InfoBarSeverity.Informational
+                        );
                         await ViewModel.ConnectAsync(address);
 
                         // 如果连接成功，跳出循环
                         if (ViewModel.IsConnected)
                         {
-                            ViewModel.StatusMessage = $"已连接到设备 {address.ToString("X")}";
+                            ViewModel.StatusMessage = new StatusInfo(
+                                $"已连接到设备 {address.ToString("X")}",
+                                InfoBarSeverity.Success
+                            );
                             return;
                         }
                     }
@@ -77,11 +96,17 @@ namespace GearVRController
                 }
 
                 // 如果所有已知地址都连接失败，显示错误消息
-                ViewModel.StatusMessage = "无法连接到任何已知设备，请确保设备已开启并在范围内";
+                ViewModel.StatusMessage = new StatusInfo(
+                    "无法连接到任何已知设备，请确保设备已开启并在范围内",
+                    InfoBarSeverity.Error
+                );
             }
             catch (Exception ex)
             {
-                ViewModel.StatusMessage = $"连接错误: {ex.Message}";
+                ViewModel.StatusMessage = new StatusInfo(
+                    $"连接错误: {ex.Message}",
+                    InfoBarSeverity.Error
+                );
             }
         }
 

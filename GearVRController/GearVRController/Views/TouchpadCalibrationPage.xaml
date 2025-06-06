@@ -1,13 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Window
-    x:Class="GearVRController.Views.TouchpadCalibrationWindow"
+<Page
+    x:Class="GearVRController.Views.TouchpadCalibrationPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:GearVRController.Views"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    mc:Ignorable="d"
-    Title="触摸板校准">
+    mc:Ignorable="d">
 
     <Grid Padding="24">
         <StackPanel Spacing="24">
@@ -200,135 +199,27 @@
                             Width="{Binding Source={StaticResource CALIBRATION_CENTER_DOT_SIZE}, Mode=OneWay}"
                             Height="{Binding Source={StaticResource CALIBRATION_CENTER_DOT_SIZE}, Mode=OneWay}"
                             Fill="{ThemeResource SystemAccentColor}" />
+                        <!-- 触摸点 -->
+                        <Ellipse x:Name="CalibrationTouchDot"
+                            Width="{Binding Source={StaticResource CALIBRATION_TOUCH_DOT_SIZE}, Mode=OneWay}"
+                            Height="{Binding Source={StaticResource CALIBRATION_TOUCH_DOT_SIZE}, Mode=OneWay}"
+                            Fill="Red" />
+                        <!-- 校准历史轨迹 -->
+                        <Polyline x:Name="CalibrationPath"
+                            Stroke="{ThemeResource SystemAccentColor}" StrokeThickness="2" />
                     </Canvas>
                 </Border>
-
-                <!-- 右侧：方向校准进度 -->
-                <StackPanel Grid.Column="1" Spacing="16">
-                    <TextBlock Text="方向校准进度" Style="{StaticResource SubtitleTextBlockStyle}" />
-
-                    <Grid RowSpacing="12">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                        </Grid.RowDefinitions>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-
-                        <TextBlock Grid.Row="0" Grid.Column="0" Text="向上" Margin="0,0,12,0" />
-                        <ProgressBar Grid.Row="0" Grid.Column="1"
-                            Value="{Binding UpDirection.SampleCount}"
-                            Maximum="10" />
-                        <TextBlock Grid.Row="0" Grid.Column="2" Margin="8,0,0,0">
-                            <Run Text="{Binding UpDirection.SampleCount, Mode=OneWay}" />
-                            <Run Text="/10" />
-                        </TextBlock>
-
-                        <TextBlock Grid.Row="1" Grid.Column="0" Text="向下" Margin="0,0,12,0" />
-                        <ProgressBar Grid.Row="1" Grid.Column="1"
-                            Value="{Binding DownDirection.SampleCount}"
-                            Maximum="10" />
-                        <TextBlock Grid.Row="1" Grid.Column="2" Margin="8,0,0,0">
-                            <Run Text="{Binding DownDirection.SampleCount, Mode=OneWay}" />
-                            <Run Text="/10" />
-                        </TextBlock>
-
-                        <TextBlock Grid.Row="2" Grid.Column="0" Text="向左" Margin="0,0,12,0" />
-                        <ProgressBar Grid.Row="2" Grid.Column="1"
-                            Value="{Binding LeftDirection.SampleCount}"
-                            Maximum="10" />
-                        <TextBlock Grid.Row="2" Grid.Column="2" Margin="8,0,0,0">
-                            <Run Text="{Binding LeftDirection.SampleCount, Mode=OneWay}" />
-                            <Run Text="/10" />
-                        </TextBlock>
-
-                        <TextBlock Grid.Row="3" Grid.Column="0" Text="向右" Margin="0,0,12,0" />
-                        <ProgressBar Grid.Row="3" Grid.Column="1"
-                            Value="{Binding RightDirection.SampleCount}"
-                            Maximum="10" />
-                        <TextBlock Grid.Row="3" Grid.Column="2" Margin="8,0,0,0">
-                            <Run Text="{Binding RightDirection.SampleCount, Mode=OneWay}" />
-                            <Run Text="/10" />
-                        </TextBlock>
-                    </Grid>
-                </StackPanel>
             </Grid>
 
-            <!-- 状态消息 -->
-            <InfoBar
-                IsOpen="True"
-                Severity="Informational"
-                Message="{Binding StatusMessage}"
-                IsClosable="False" />
-
-            <!-- 进度条 -->
-            <StackPanel Spacing="4">
-                <Grid>
-                    <ProgressBar Value="{Binding TouchEndProgressValue}"
-                        Maximum="100"
-                        Height="2" />
-                    <TextBlock Text="触摸结束检测"
-                        Style="{StaticResource CaptionTextBlockStyle}"
-                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                        HorizontalAlignment="Right"
-                        Margin="0,8,0,0" />
-                </Grid>
-
-                <Grid>
-                    <ProgressBar Value="{Binding AutoProceedCountdownValue}"
-                        Maximum="100"
-                        Height="4"
-                        Foreground="{ThemeResource SystemAccentColor}" />
-                    <TextBlock Text="自动进入下一步倒计时"
-                        Style="{StaticResource CaptionTextBlockStyle}"
-                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                        HorizontalAlignment="Right"
-                        Margin="0,8,0,0" />
-                </Grid>
+            <!-- 底部操作按钮 -->
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="12"
+                Margin="0,24,0,0">
+                <Button Content="重置校准" Command="{Binding ResetCalibrationCommand}"
+                    Style="{StaticResource AccentButtonStyle}" />
+                <Button Content="手动下一步" Command="{Binding NextStepCommand}" />
+                <Button Content="完成校准" Command="{Binding CompleteCalibrationCommand}"
+                    IsEnabled="{Binding CanCompleteCalibration}" />
             </StackPanel>
-
-            <!-- 按钮区域 -->
-            <Grid HorizontalAlignment="Right" ColumnSpacing="8">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-
-                <Button Grid.Column="0"
-                    Content="重置"
-                    Click="Reset_Click" />
-
-                <Button Grid.Column="1"
-                    Content="下一步"
-                    Click="NextStep_Click"
-                    IsEnabled="{Binding CanProceedToNextStep}" />
-
-                <Button Grid.Column="2"
-                    Content="取消"
-                    Click="Cancel_Click" />
-            </Grid>
         </StackPanel>
-
-        <!-- 校准指导图示 -->
-        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-            BorderThickness="1"
-            Opacity="0.95"
-            Visibility="{Binding IsCalibrating, Converter={StaticResource BooleanToVisibilityConverter}}"
-            HorizontalAlignment="Right"
-            VerticalAlignment="Top"
-            Margin="0,24,0,0"
-            Padding="16"
-            CornerRadius="8">
-            <Image x:Name="CalibrationGuideImage"
-                Width="240"
-                Height="240" />
-        </Border>
     </Grid>
-</Window> 
+</Page> 

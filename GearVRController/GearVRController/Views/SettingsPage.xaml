@@ -10,9 +10,10 @@
     mc:Ignorable="d">
 
     <ScrollViewer VerticalScrollMode="Auto" VerticalScrollBarVisibility="Auto">
-        <StackPanel Padding="12">
-            <!-- 高级设置 -->
-            <Expander Header="高级设置" IsExpanded="True">
+        <StackPanel Padding="12" Spacing="12">
+
+            <!-- 鼠标设置 -->
+            <Expander Header="鼠标设置" IsExpanded="True">
                 <StackPanel Margin="0,12,0,0">
                     <StackPanel Margin="0,0,0,12">
                         <TextBlock Text="鼠标灵敏度" />
@@ -64,14 +65,52 @@
                             IsChecked="{Binding EnableNonLinearCurve, Mode=TwoWay}"
                             IsEnabled="{Binding IsRelativeMode}" />
                     </controls:WrapPanel>
+                </StackPanel>
+            </Expander>
 
-                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
-                        <Button Content="重置设置"
-                            Click="ResetSettingsButton_Click"
-                            Margin="0,0,8,0" />
+            <!-- 手势设置 -->
+            <Expander Header="手势设置" IsExpanded="True">
+                <StackPanel Margin="0,12,0,0">
+                    <ToggleSwitch Header="启用手势模式"
+                        IsOn="{Binding IsGestureMode, Mode=TwoWay}"
+                        OffContent="相对鼠标模式 (推荐)"
+                        OnContent="手势模式" />
+
+                    <StackPanel Margin="0,12,0,12">
+                        <TextBlock Text="手势灵敏度" />
+                        <Slider Minimum="0.1"
+                            Maximum="1.0"
+                            Value="{Binding GestureSensitivity, Mode=TwoWay}"
+                            Width="200"
+                            HorizontalAlignment="Left" />
+                    </StackPanel>
+
+                    <CheckBox Content="显示手势提示"
+                        IsChecked="{Binding ShowGestureHints, Mode=TwoWay}"
+                        Margin="0,0,0,12" />
+
+                    <StackPanel Spacing="8">
+                        <ComboBox Header="向上滑动动作"
+                            ItemsSource="{Binding AvailableGestureActions}"
+                            SelectedItem="{Binding SwipeUpAction, Mode=TwoWay}" />
+                        <ComboBox Header="向下滑动动作"
+                            ItemsSource="{Binding AvailableGestureActions}"
+                            SelectedItem="{Binding SwipeDownAction, Mode=TwoWay}" />
+                        <ComboBox Header="向左滑动动作"
+                            ItemsSource="{Binding AvailableGestureActions}"
+                            SelectedItem="{Binding SwipeLeftAction, Mode=TwoWay}" />
+                        <ComboBox Header="向右滑动动作"
+                            ItemsSource="{Binding AvailableGestureActions}"
+                            SelectedItem="{Binding SwipeRightAction, Mode=TwoWay}" />
                     </StackPanel>
                 </StackPanel>
             </Expander>
+
+            <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                <Button Content="重置设置"
+                    Click="ResetSettingsButton_Click"
+                    Margin="0,0,8,0" />
+            </StackPanel>
         </StackPanel>
     </ScrollViewer>
 </Page> 
