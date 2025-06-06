@@ -29,8 +29,8 @@ namespace GearVRController.ViewModels
         private readonly IEventAggregator _eventAggregator;
         private readonly IActionExecutionService _actionExecutionService;
         private readonly ILogger _logger;
-        private readonly IInputHandlerService _inputHandlerService;
         private readonly ConnectionViewModel _connectionViewModel;
+        private readonly IInputOrchestratorService _inputOrchestratorService;
         private string _statusMessage = string.Empty; // Re-introduce settable status message
         private ControllerData _lastControllerData = new ControllerData();
         private const int NumberOfWheelPositions = 64;
@@ -80,7 +80,6 @@ namespace GearVRController.ViewModels
         }
 
         private bool _isGestureMode;
-        private GestureRecognizer _gestureRecognizer;
         private GestureAction _swipeUpAction = GestureAction.PageUp;
         private GestureAction _swipeDownAction = GestureAction.PageDown;
         private GestureAction _swipeLeftAction = GestureAction.BrowserBack;
@@ -93,6 +92,7 @@ namespace GearVRController.ViewModels
         private IDisposable? _settingsChangedSubscription;
         private IDisposable? _controllerDataReceivedSubscription;
         private IDisposable? _connectionStatusChangedSubscription;
+        private IDisposable? _gestureExecutedSubscription;
 
         /// <summary>
         /// 当 ViewModel 的属性发生变化时触发的事件。
@@ -191,7 +191,6 @@ namespace GearVRController.ViewModels
                 {
                     _settingsService.IsGestureMode = _isGestureMode;
                     OnPropertyChanged(nameof(IsRelativeMode));
-                    _gestureRecognizer.UpdateGestureConfig(_settingsService.GestureConfig);
                 }
             }
         }
@@ -216,7 +215,6 @@ namespace GearVRController.ViewModels
                 if (_settingsService.GestureSensitivity != value)
                 {
                     _settingsService.GestureSensitivity = value;
-                    _gestureRecognizer.UpdateGestureConfig(_settingsService.GestureConfig);
                     OnPropertyChanged();
                 }
             }
@@ -233,7 +231,6 @@ namespace GearVRController.ViewModels
                 if (_settingsService.ShowGestureHints != value)
                 {
                     _settingsService.ShowGestureHints = value;
-                    _gestureRecognizer.UpdateGestureConfig(_settingsService.GestureConfig);
                     OnPropertyChanged();
                 }
             }
@@ -295,9 +292,6 @@ namespace GearVRController.ViewModels
             }
         }
 
-        /// <summary>
-        /// 获取或设置整体控制是否启用。
-        /// </summary>
         public bool IsControlEnabled
         {
             get => _settingsService.IsControlEnabled;
@@ -311,26 +305,8 @@ namespace GearVRController.ViewModels
             }
         }
 
-        /// <summary>
-        /// 获取所有可用的手势动作列表。
-        /// </summary>
         public IEnumerable<GestureAction> AvailableGestureActions => Enum.GetValues<GestureAction>();
 
-        /// <summary>
-        /// MainViewModel 的构造函数。
-        /// 通过依赖注入接收所有必要的服务。
-        /// </summary>
-        /// <param name="bluetoothService">蓝牙服务，用于管理蓝牙连接和数据传输。</param>
-        /// <param name="controllerService">控制器服务，用于处理原始控制器数据并转换为有意义的输入。</param>
-        /// <param name="settingsService">设置服务，用于加载和保存应用程序设置。</param>
-        /// <param name="dispatcherQueue">DispatcherQueue，用于确保 UI 更新在 UI 线程上进行。</param>
-        /// <param name="touchpadProcessor">触摸板处理器，用于对原始触摸板坐标进行校准和归一化。</param>
-        /// <param name="windowManagerService">窗口管理服务，用于打开和关闭其他应用程序窗口（如校准窗口）。</param>
-        /// <param name="eventAggregator">事件聚合器，用于跨组件发布和订阅事件。</param>
-        /// <param name="actionExecutionService">动作执行服务，用于根据手势执行预定义的操作。</param>
-        /// <param name="logger">日志服务，用于记录日志信息。</param>
-        /// <param name="inputHandlerService">输入处理服务，用于处理控制器输入。</param>
-        /// <param name="connectionViewModel">连接视图模型，用于管理连接相关的逻辑。</param>
         public MainViewModel(
             IBluetoothService bluetoothService,
             IControllerService controllerService,
@@ -341,8 +317,8 @@ namespace GearVRController.ViewModels
             IEventAggregator eventAggregator,
             IActionExecutionService actionExecutionService,
             ILogger logger,
-            IInputHandlerService inputHandlerService,
-            ConnectionViewModel connectionViewModel)
+            ConnectionViewModel connectionViewModel,
+            IInputOrchestratorService inputOrchestratorService)
         {
             _bluetoothService = bluetoothService ?? throw new ArgumentNullException(nameof(bluetoothService));
             _controllerService = controllerService ?? throw new ArgumentNullException(nameof(controllerService));
@@ -353,27 +329,29 @@ namespace GearVRController.ViewModels
             _eventAggregator = eventAggregator ?? throw new ArgumentNullException(nameof(eventAggregator));
             _actionExecutionService = actionExecutionService ?? throw new ArgumentNullException(nameof(actionExecutionService));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _inputHandlerService = inputHandlerService ?? throw new ArgumentNullException(nameof(inputHandlerService));
             _connectionViewModel = connectionViewModel ?? throw new ArgumentNullException(nameof(connectionViewModel));
-
-            // Remove direct BluetoothService subscriptions
-            // _bluetoothService.DataReceived += BluetoothService_DataReceived;
-            // _bluetoothService.ConnectionStatusChanged += BluetoothService_ConnectionStatusChanged;
-
-            // Subscribe to events from EventAggregator that ConnectionViewModel now publishes
-            _controllerDataReceivedSubscription = _eventAggregator.Subscribe<ControllerDataReceivedEvent>(OnControllerDataReceived);
-            _connectionStatusChangedSubscription = _eventAggregator.Subscribe<ConnectionStatusChangedEvent>(OnConnectionStatusChanged);
-            _calibrationCompletedSubscription = _eventAggregator.Subscribe<CalibrationCompletedEvent>(OnCalibrationCompleted);
-            _settingsChangedSubscription = _eventAggregator.Subscribe<SettingsChangedEvent>(OnSettingsChanged);
+            _inputOrchestratorService = inputOrchestratorService ?? throw new ArgumentNullException(nameof(inputOrchestratorService));
 
             LoadCalibrationFromSettings();
-            _gestureRecognizer = new GestureRecognizer(_settingsService, _dispatcherQueue);
-            _gestureRecognizer.GestureDetected += OnGestureDetected;
             RegisterHotKeys();
             _touchpadProcessor.SetCalibrationData(_calibrationData);
 
             // Initial status message
             StatusMessage = "准备就绪";
+
+            // Subscribe to EventAggregator events
+            _controllerDataReceivedSubscription = _eventAggregator.Subscribe<ControllerDataReceivedEvent>(OnControllerDataReceived);
+            _connectionStatusChangedSubscription = _eventAggregator.Subscribe<ConnectionStatusChangedEvent>(OnConnectionStatusChanged);
+            _calibrationCompletedSubscription = _eventAggregator.Subscribe<CalibrationCompletedEvent>(OnCalibrationCompleted);
+            _settingsChangedSubscription = _eventAggregator.Subscribe<SettingsChangedEvent>(OnSettingsChanged);
+            _gestureExecutedSubscription = _eventAggregator.Subscribe<GestureExecutedEvent>(OnGestureExecuted); // Subscribe to new event
+
+            // Initialize UI related properties
+            _isGestureMode = _settingsService.IsGestureMode;
+            OnPropertyChanged(nameof(IsRelativeMode));
+            OnPropertyChanged(nameof(GestureSensitivity));
+            OnPropertyChanged(nameof(ShowGestureHints));
+            OnPropertyChanged(nameof(IsControlEnabled));
         }
 
         private void OnCalibrationCompleted(CalibrationCompletedEvent e)
@@ -413,7 +391,7 @@ namespace GearVRController.ViewModels
             // For example, if you have a property for ShowTouchpadVisualizer in MainViewModel
             // OnPropertyChanged(nameof(ShowTouchpadVisualizer)); 
             // And update GestureRecognizer config based on updated settings
-            _gestureRecognizer.UpdateGestureConfig(_settingsService.GestureConfig);
+            // _gestureRecognizer.UpdateGestureConfig(_settingsService.GestureConfig);
         }
 
         private void RegisterHotKeys()
@@ -450,36 +428,15 @@ namespace GearVRController.ViewModels
             {
                 LastControllerData = e.Data;
 
-                if (_settingsService.IsControlEnabled && !_isCalibrating)
-                {
-                    if (IsGestureMode)
-                    {
-                        _gestureRecognizer.ProcessTouchpadPoint(new TouchpadPoint
-                        {
-                            X = e.Data.TouchpadX,
-                            Y = e.Data.TouchpadY,
-                            IsTouched = e.Data.TouchpadTouched
-                        });
-                    }
-                    else // Relative mode (mouse simulation and button input)
-                    {
-                        _inputHandlerService.ProcessInput(e.Data);
-                    }
+                _inputOrchestratorService.ProcessControllerData(e.Data, _isCalibrating, _settingsService.IsControlEnabled);
 
-                    if (_settingsService.ShowTouchpadVisualizer)
-                    {
-                        RecordTouchpadHistory(e.Data.TouchpadX, e.Data.TouchpadY, e.Data.TouchpadTouched);
-                    }
+                if (_settingsService.ShowTouchpadVisualizer)
+                {
+                    RecordTouchpadHistory(e.Data.TouchpadX, e.Data.TouchpadY, e.Data.TouchpadTouched);
                 }
 
                 ProcessedTouchpadX = e.Data.ProcessedTouchpadX;
                 ProcessedTouchpadY = e.Data.ProcessedTouchpadY;
-
-                // Button handling is now delegated to InputHandlerService.ProcessInput(e.Data)
-                // if (_settingsService.IsControlEnabled)
-                // {
-                //     _inputHandlerService.HandleButtonInput(e.Data.ButtonState);
-                // }
             });
         }
 
@@ -553,49 +510,6 @@ namespace GearVRController.ViewModels
             LastGesture = EnumsNS.TouchpadGesture.None;
         }
 
-        private void OnGestureDetected(object? sender, GestureDirection direction)
-        {
-            // 只有控制启用、非校准状态下处理手势
-            // 在手势模式下，IsKeyboardEnabled 不影响鼠标移动手势的识别和处理。
-            if (!_settingsService.IsControlEnabled || _isCalibrating) return;
-
-            if (_settingsService.IsGestureMode)
-            {
-                // 手势模式：根据识别到的方向执行预定义动作
-                GestureAction action = GestureAction.None;
-                switch (direction)
-                {
-                    case GestureDirection.Up:
-                        action = _settingsService.SwipeUpAction;
-                        break;
-                    case GestureDirection.Down:
-                        action = _settingsService.SwipeDownAction;
-                        break;
-                    case GestureDirection.Left:
-                        action = _settingsService.SwipeLeftAction;
-                        break;
-                    case GestureDirection.Right:
-                        action = _settingsService.SwipeRightAction;
-                        break;
-                }
-                ExecuteGestureAction(action);
-
-                // 更新LastGesture以供可视化
-                LastGesture = (EnumsNS.TouchpadGesture)(int)direction;
-
-                System.Diagnostics.Debug.WriteLine($"[MainViewModel] Gesture Mode: Discrete Swipe gesture detected ({{direction}}), executing action.");
-            }
-            else // 相对模式，不在这里执行手势动作
-            {
-                System.Diagnostics.Debug.WriteLine($"[MainViewModel] Relative Mode: Gesture detected ({{direction}}), no action executed here as continuous movement is handled by ControllerService.");
-            }
-        }
-
-        private void ExecuteGestureAction(GestureAction action)
-        {
-            _actionExecutionService.ExecuteAction(action);
-        }
-
         public void StartManualCalibration()
         {
             IsCalibrating = true;
@@ -608,23 +522,24 @@ namespace GearVRController.ViewModels
             StatusMessage = "校准完成";
         }
 
+        private void OnGestureExecuted(GestureExecutedEvent e)
+        {
+            _dispatcherQueue.TryEnqueue(() =>
+            {
+                LastGesture = (EnumsNS.TouchpadGesture)(int)e.DetectedDirection;
+            });
+        }
+
         protected virtual void Dispose(bool disposing)
         {
             if (disposing)
             {
-                // ... existing code ...
-
                 // Unsubscribe from EventAggregator subscriptions
                 _controllerDataReceivedSubscription?.Dispose();
                 _connectionStatusChangedSubscription?.Dispose();
                 _calibrationCompletedSubscription?.Dispose();
                 _settingsChangedSubscription?.Dispose();
-
-                if (_gestureRecognizer != null)
-                {
-                    _gestureRecognizer.GestureDetected -= OnGestureDetected;
-                }
-                // ... existing code ...
+                _gestureExecutedSubscription?.Dispose(); // Dispose new subscription
             }
         }
 
