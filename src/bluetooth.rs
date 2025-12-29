@@ -1,4 +1,4 @@
-use crate::models::ControllerData;
+use crate::models::{AppEvent, ConnectionStatus, ControllerData};
 use anyhow::Result;
 use log::{debug, info, warn};
 use tokio::sync::mpsc;
@@ -19,11 +19,11 @@ const CONTROLLER_COMMAND_CHARACTERISTIC_UUID: &str = "c8c51726-81bc-483b-a052-f7
 pub struct BluetoothService {
     device: Option<BluetoothLEDevice>,
     data_characteristic: Option<GattCharacteristic>,
-    data_sender: mpsc::UnboundedSender<ControllerData>,
+    data_sender: mpsc::UnboundedSender<AppEvent>,
 }
 
 impl BluetoothService {
-    pub fn new(data_sender: mpsc::UnboundedSender<ControllerData>) -> Self {
+    pub fn new(data_sender: mpsc::UnboundedSender<AppEvent>) -> Self {
         Self {
             device: None,
             data_characteristic: None,
@@ -101,7 +101,7 @@ impl BluetoothService {
                 if let Some(args) = args.as_ref() {
                     if let Ok(value) = args.CharacteristicValue() {
                         if let Ok(data) = Self::parse_controller_data(&value) {
-                            let _ = sender.send(data);
+                            let _ = sender.send(AppEvent::ControllerData(data));
                         }
                     }
                 }
@@ -131,6 +131,10 @@ impl BluetoothService {
 
         self.device = Some(device);
         self.data_characteristic = Some(data_characteristic);
+
+        let _ = self
+            .data_sender
+            .send(AppEvent::ConnectionStatus(ConnectionStatus::Connected));
 
         Ok(())
     }
@@ -204,36 +208,25 @@ impl BluetoothService {
         reader.ReadBytes(&mut bytes)?;
 
         // Parse the 60-byte data packet (Gear VR Controller protocol)
-        let mut data = ControllerData::default();
-
-        // Timestamp (bytes 0-3, little-endian)
-        data.timestamp = i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as i64;
-
-        // Accelerometer (bytes 4-15, 3x f32 little-endian)
-        data.accel_x = f32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
-        data.accel_y = f32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]);
-        data.accel_z = f32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]);
-
-        // Gyroscope (bytes 16-27, 3x f32 little-endian)
-        data.gyro_x = f32::from_le_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]);
-        data.gyro_y = f32::from_le_bytes([bytes[20], bytes[21], bytes[22], bytes[23]]);
-        data.gyro_z = f32::from_le_bytes([bytes[24], bytes[25], bytes[26], bytes[27]]);
-
-        // Touchpad coordinates (bytes 54-57, 2x u16 little-endian)
-        data.touchpad_x = u16::from_le_bytes([bytes[54], bytes[55]]);
-        data.touchpad_y = u16::from_le_bytes([bytes[56], bytes[57]]);
-
-        // Button states (byte 58, bit flags)
-        let buttons = bytes[58];
-        data.trigger_button = (buttons & 0x01) != 0;
-        data.touchpad_button = (buttons & 0x02) != 0;
-        data.back_button = (buttons & 0x04) != 0;
-        data.home_button = (buttons & 0x08) != 0;
-        data.volume_up_button = (buttons & 0x10) != 0;
-        data.volume_down_button = (buttons & 0x20) != 0;
-
-        // Touch state (byte 59)
-        data.touchpad_touched = bytes[59] != 0;
+        let data = ControllerData {
+            timestamp: i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as i64,
+            accel_x: f32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]),
+            accel_y: f32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]),
+            accel_z: f32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]),
+            gyro_x: f32::from_le_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]),
+            gyro_y: f32::from_le_bytes([bytes[20], bytes[21], bytes[22], bytes[23]]),
+            gyro_z: f32::from_le_bytes([bytes[24], bytes[25], bytes[26], bytes[27]]),
+            touchpad_x: u16::from_le_bytes([bytes[54], bytes[55]]),
+            touchpad_y: u16::from_le_bytes([bytes[56], bytes[57]]),
+            trigger_button: (bytes[58] & 0x01) != 0,
+            touchpad_button: (bytes[58] & 0x02) != 0,
+            back_button: (bytes[58] & 0x04) != 0,
+            home_button: (bytes[58] & 0x08) != 0,
+            volume_up_button: (bytes[58] & 0x10) != 0,
+            volume_down_button: (bytes[58] & 0x20) != 0,
+            touchpad_touched: bytes[59] != 0,
+            ..Default::default()
+        };
 
         Ok(data)
     }

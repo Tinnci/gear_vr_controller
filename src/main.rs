@@ -6,7 +6,7 @@ mod settings;
 mod ui;
 
 use eframe::egui;
-use env_logger;
+
 use log::info;
 
 fn main() -> Result<(), eframe::Error> {
@@ -26,4 +26,3 @@ fn main() -> Result<(), eframe::Error> {
         Box::new(|cc| Ok(Box::new(ui::GearVRApp::new(cc)))),
     )
 }
-

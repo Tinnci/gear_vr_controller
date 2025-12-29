@@ -2,7 +2,7 @@ use crate::bluetooth::BluetoothService;
 use crate::controller::TouchpadProcessor;
 use crate::input_simulator::InputSimulator;
 use crate::models::{
-    ConnectionStatus, ControllerData, MessageSeverity, StatusMessage, TouchpadCalibration,
+    AppEvent, ConnectionStatus, ControllerData, MessageSeverity, StatusMessage, TouchpadCalibration,
 };
 use crate::settings::SettingsService;
 use eframe::egui;
@@ -19,7 +19,7 @@ pub struct GearVRApp {
 
     // Bluetooth
     bluetooth_tx: mpsc::UnboundedSender<BluetoothCommand>,
-    controller_data_rx: mpsc::UnboundedReceiver<ControllerData>,
+    controller_data_rx: mpsc::UnboundedReceiver<AppEvent>,
 
     // State
     connection_status: ConnectionStatus,
@@ -58,8 +58,6 @@ struct CalibrationData {
     max_x: u16,
     min_y: u16,
     max_y: u16,
-    center_x: u16,
-    center_y: u16,
     samples: Vec<(u16, u16)>,
 }
 
@@ -144,6 +142,14 @@ impl GearVRApp {
         // Handle back button (ESC key)
         if data.back_button {
             let _ = self.input_simulator.key_press(VK_ESCAPE);
+        }
+
+        // Handle volume buttons (Scroll)
+        if data.volume_up_button {
+            let _ = self.input_simulator.mouse_wheel(1);
+        }
+        if data.volume_down_button {
+            let _ = self.input_simulator.mouse_wheel(-1);
         }
 
         // Update calibration if active
@@ -357,8 +363,20 @@ impl GearVRApp {
 impl eframe::App for GearVRApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Process incoming controller data
-        while let Ok(data) = self.controller_data_rx.try_recv() {
-            self.process_controller_data(data);
+        while let Ok(event) = self.controller_data_rx.try_recv() {
+            match event {
+                AppEvent::ControllerData(data) => self.process_controller_data(data),
+                AppEvent::ConnectionStatus(status) => {
+                    self.connection_status = status;
+                    if let ConnectionStatus::Connected = status {
+                        self.status_message = Some(StatusMessage {
+                            message: "Connected to Gear VR Controller".to_string(),
+                            severity: MessageSeverity::Success,
+                        });
+                    }
+                }
+                AppEvent::LogMessage(msg) => self.status_message = Some(msg),
+            }
         }
 
         // Request continuous repaint

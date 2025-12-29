@@ -2,10 +2,6 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default)]
 pub struct ControllerData {
-    // Axis data
-    pub axis_x: i32,
-    pub axis_y: i32,
-
     // Accelerometer data
     pub accel_x: f32,
     pub accel_y: f32,
@@ -18,7 +14,6 @@ pub struct ControllerData {
 
     // Button states
     pub trigger_button: bool,
-    pub trigger_pressed: bool,
     pub home_button: bool,
     pub back_button: bool,
     pub touchpad_button: bool,
@@ -36,6 +31,13 @@ pub struct ControllerData {
 
     // Timestamp (Unix milliseconds)
     pub timestamp: i64,
+}
+
+#[derive(Debug, Clone)]
+pub enum AppEvent {
+    ControllerData(ControllerData),
+    ConnectionStatus(ConnectionStatus),
+    LogMessage(StatusMessage),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
