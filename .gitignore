@@ -104,3 +104,7 @@ Desktop.ini
 # Windows 应用程序打包项目
 *.pfx
 *.appxmanifest.bak 
+
+# Added by cargo
+
+/target
