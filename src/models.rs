@@ -34,10 +34,18 @@ pub struct ControllerData {
 }
 
 #[derive(Debug, Clone)]
+pub struct ScannedDevice {
+    pub name: String,
+    pub address: u64,
+    pub signal_strength: i16,
+}
+
+#[derive(Debug, Clone)]
 pub enum AppEvent {
     ControllerData(ControllerData),
     ConnectionStatus(ConnectionStatus),
     LogMessage(StatusMessage),
+    DeviceFound(ScannedDevice),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

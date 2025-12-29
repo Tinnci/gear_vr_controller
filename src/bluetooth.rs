@@ -1,8 +1,12 @@
-use crate::models::{AppEvent, ConnectionStatus, ControllerData};
+use crate::models::{AppEvent, ConnectionStatus, ControllerData, ScannedDevice};
 use anyhow::Result;
 use log::{debug, info, warn};
 use tokio::sync::mpsc;
 use windows::core::GUID;
+use windows::Devices::Bluetooth::Advertisement::{
+    BluetoothLEAdvertisementReceivedEventArgs, BluetoothLEAdvertisementWatcher,
+    BluetoothLEScanningMode,
+};
 use windows::Devices::Bluetooth::GenericAttributeProfile::{
     GattCharacteristic, GattClientCharacteristicConfigurationDescriptorValue,
     GattCommunicationStatus, GattDeviceService, GattValueChangedEventArgs,
@@ -20,6 +24,7 @@ pub struct BluetoothService {
     device: Option<BluetoothLEDevice>,
     data_characteristic: Option<GattCharacteristic>,
     data_sender: mpsc::UnboundedSender<AppEvent>,
+    watcher: Option<BluetoothLEAdvertisementWatcher>,
 }
 
 impl BluetoothService {
@@ -28,6 +33,7 @@ impl BluetoothService {
             device: None,
             data_characteristic: None,
             data_sender,
+            watcher: None,
         }
     }
 
@@ -129,6 +135,26 @@ impl BluetoothService {
             warn!("Failed to send start command: {}", e);
         }
 
+        // 9. Register connection status change handler
+        let sender = self.data_sender.clone();
+        device.ConnectionStatusChanged(&TypedEventHandler::new(
+            move |dev: windows::core::Ref<BluetoothLEDevice>, _| {
+                if let Some(dev) = dev.as_ref() {
+                    if let Ok(status) = dev.ConnectionStatus() {
+                        let app_status = match status {
+                            BluetoothConnectionStatus::Connected => ConnectionStatus::Connected,
+                            BluetoothConnectionStatus::Disconnected => {
+                                ConnectionStatus::Disconnected
+                            }
+                            _ => ConnectionStatus::Error,
+                        };
+                        let _ = sender.send(AppEvent::ConnectionStatus(app_status));
+                    }
+                }
+                Ok(())
+            },
+        ))?;
+
         self.device = Some(device);
         self.data_characteristic = Some(data_characteristic);
 
@@ -136,6 +162,69 @@ impl BluetoothService {
             .data_sender
             .send(AppEvent::ConnectionStatus(ConnectionStatus::Connected));
 
+        Ok(())
+    }
+
+    pub fn start_scan(&mut self) -> Result<()> {
+        if self.watcher.is_some() {
+            self.stop_scan()?;
+        }
+
+        info!("Starting Bluetooth LE scan...");
+        let watcher = BluetoothLEAdvertisementWatcher::new()?;
+        watcher.SetScanningMode(BluetoothLEScanningMode::Active)?;
+
+        let sender = self.data_sender.clone();
+        let service_uuid = parse_uuid(CONTROLLER_SERVICE_UUID)?;
+
+        let handler = TypedEventHandler::new(
+            move |_: windows::core::Ref<BluetoothLEAdvertisementWatcher>,
+                  args: windows::core::Ref<BluetoothLEAdvertisementReceivedEventArgs>| {
+                if let Some(args) = args.as_ref() {
+                    let adv = args.Advertisement()?;
+                    let service_uuids = adv.ServiceUuids()?;
+
+                    let mut found = false;
+                    for i in 0..service_uuids.Size()? {
+                        if service_uuids.GetAt(i)? == service_uuid {
+                            found = true;
+                            break;
+                        }
+                    }
+
+                    if found {
+                        let name = adv.LocalName()?.to_string();
+                        let address = args.BluetoothAddress()?;
+                        let rssi = args.RawSignalStrengthInDBm()?;
+
+                        let device = ScannedDevice {
+                            name: if name.is_empty() {
+                                "Unknown".to_string()
+                            } else {
+                                name
+                            },
+                            address,
+                            signal_strength: rssi,
+                        };
+
+                        let _ = sender.send(AppEvent::DeviceFound(device));
+                    }
+                }
+                Ok(())
+            },
+        );
+
+        watcher.Received(&handler)?;
+        watcher.Start()?;
+        self.watcher = Some(watcher);
+        Ok(())
+    }
+
+    pub fn stop_scan(&mut self) -> Result<()> {
+        if let Some(watcher) = self.watcher.take() {
+            info!("Stopping Bluetooth LE scan...");
+            watcher.Stop()?;
+        }
         Ok(())
     }
 
@@ -160,20 +249,29 @@ impl BluetoothService {
         }
 
         if let Some(cmd_characteristic) = cmd_char {
-            // 发送启动命令
-            let writer = DataWriter::new()?;
-            // Gear VR 控制器的启动命令序列
-            let command: [u8; 6] = [0x83, 0x00, 0x03, 0x00, 0x00, 0x00];
-            writer.WriteBytes(&command)?;
+            // Helper to send bytes
+            // Note: C# code sends these 4 init commands + optimize command
+            let commands: [&[u8]; 5] = [
+                &[0x01, 0x00], // CmdInit1
+                &[0x06, 0x00], // CmdInit2
+                &[0x07, 0x00], // CmdInit3
+                &[0x08, 0x00], // CmdInit4
+                &[0x0A, 0x02], // CmdOptimizeConnection
+            ];
 
-            let buffer = writer.DetachBuffer()?;
-            let status = cmd_characteristic.WriteValueAsync(&buffer)?.await?;
+            for cmd in commands {
+                let writer = DataWriter::new()?;
+                writer.WriteBytes(cmd)?;
+                let buffer = writer.DetachBuffer()?;
+                // Write without response or with? C# uses WriteValueAsync which usually defaults to WithResponse if property set,
+                // but here we just await it.
+                let _ = cmd_characteristic.WriteValueAsync(&buffer)?.await?;
 
-            if status == GattCommunicationStatus::Success {
-                info!("Start command sent successfully");
-            } else {
-                warn!("Failed to send start command");
+                // C# uses 50ms delay
+                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
             }
+
+            info!("Initialization sequence completed successfully");
         }
 
         Ok(())

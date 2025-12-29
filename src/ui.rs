@@ -2,12 +2,14 @@ use crate::bluetooth::BluetoothService;
 use crate::controller::TouchpadProcessor;
 use crate::input_simulator::InputSimulator;
 use crate::models::{
-    AppEvent, ConnectionStatus, ControllerData, MessageSeverity, StatusMessage, TouchpadCalibration,
+    AppEvent, ConnectionStatus, ControllerData, MessageSeverity, ScannedDevice, StatusMessage,
+    TouchpadCalibration,
 };
 use crate::settings::SettingsService;
 use eframe::egui;
 use log::error;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use windows::Win32::UI::Input::KeyboardAndMouse::VK_ESCAPE;
 
@@ -37,6 +39,15 @@ pub struct GearVRApp {
     // Button states (for edge detection)
     last_trigger_state: bool,
     last_touchpad_button_state: bool,
+
+    // Scanning
+    is_scanning: bool,
+    scanned_devices: Vec<ScannedDevice>,
+
+    // Reconnection
+    auto_reconnect: bool,
+    last_connected_address: Option<u64>,
+    reconnect_timer: Option<Instant>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -50,6 +61,8 @@ enum Tab {
 enum BluetoothCommand {
     Connect(u64),
     Disconnect,
+    StartScan,
+    StopScan,
 }
 
 #[derive(Default)]
@@ -78,6 +91,7 @@ impl GearVRApp {
                 .expect("Failed to create tokio runtime for Bluetooth");
 
             rt.block_on(async move {
+                let tx_clone = data_tx.clone();
                 let mut bt_service = BluetoothService::new(data_tx);
 
                 while let Some(cmd) = bt_cmd_rx.recv().await {
@@ -85,10 +99,23 @@ impl GearVRApp {
                         BluetoothCommand::Connect(address) => {
                             if let Err(e) = bt_service.connect(address).await {
                                 error!("Connection failed: {}", e);
+                                let _ = tx_clone.send(AppEvent::ConnectionStatus(
+                                    ConnectionStatus::Disconnected,
+                                ));
                             }
                         }
                         BluetoothCommand::Disconnect => {
                             bt_service.disconnect();
+                        }
+                        BluetoothCommand::StartScan => {
+                            if let Err(e) = bt_service.start_scan() {
+                                error!("Failed to start scan: {}", e);
+                            }
+                        }
+                        BluetoothCommand::StopScan => {
+                            if let Err(e) = bt_service.stop_scan() {
+                                error!("Failed to stop scan: {}", e);
+                            }
                         }
                     }
                 }
@@ -111,7 +138,13 @@ impl GearVRApp {
             is_calibrating: false,
             calibration_data: CalibrationData::default(),
             last_trigger_state: false,
+
             last_touchpad_button_state: false,
+            is_scanning: false,
+            scanned_devices: Vec::new(),
+            auto_reconnect: false,
+            last_connected_address: None,
+            reconnect_timer: None,
         }
     }
 
@@ -196,6 +229,9 @@ impl GearVRApp {
                         u64::from_str_radix(&self.bluetooth_address_input.replace(":", ""), 16)
                     {
                         self.connection_status = ConnectionStatus::Connecting;
+                        self.auto_reconnect = true;
+                        self.last_connected_address = Some(address);
+                        self.reconnect_timer = None;
                         let _ = self.bluetooth_tx.send(BluetoothCommand::Connect(address));
                     } else {
                         self.status_message = Some(StatusMessage {
@@ -206,10 +242,58 @@ impl GearVRApp {
                 }
 
                 if ui.button("Disconnect").clicked() {
+                    self.auto_reconnect = false;
+                    self.last_connected_address = None;
+                    self.reconnect_timer = None;
                     let _ = self.bluetooth_tx.send(BluetoothCommand::Disconnect);
                     self.connection_status = ConnectionStatus::Disconnected;
                 }
             });
+
+            ui.horizontal(|ui| {
+                if self.is_scanning {
+                    if ui.button("Stop Scan").clicked() {
+                        self.is_scanning = false;
+                        let _ = self.bluetooth_tx.send(BluetoothCommand::StopScan);
+                    }
+                    ui.spinner();
+                } else {
+                    if ui.button("Scan for Devices").clicked() {
+                        self.is_scanning = true;
+                        self.scanned_devices.clear();
+                        let _ = self.bluetooth_tx.send(BluetoothCommand::StartScan);
+                    }
+                }
+            });
+
+            if !self.scanned_devices.is_empty() {
+                ui.separator();
+                ui.label("Discovered Devices:");
+                egui::ScrollArea::vertical()
+                    .id_salt("scan_results")
+                    .show(ui, |ui| {
+                        for device in &self.scanned_devices {
+                            ui.horizontal(|ui| {
+                                ui.label(format!(
+                                    "{} ({} dBm)",
+                                    device.name, device.signal_strength
+                                ));
+                                if ui.button("Connect").clicked() {
+                                    self.bluetooth_address_input = format!("{:X}", device.address);
+                                    self.connection_status = ConnectionStatus::Connecting;
+                                    self.is_scanning = false;
+                                    self.auto_reconnect = true;
+                                    self.last_connected_address = Some(device.address);
+                                    self.reconnect_timer = None;
+                                    let _ = self.bluetooth_tx.send(BluetoothCommand::StopScan);
+                                    let _ = self
+                                        .bluetooth_tx
+                                        .send(BluetoothCommand::Connect(device.address));
+                                }
+                            });
+                        }
+                    });
+            }
         });
 
         ui.add_space(10.0);
@@ -362,6 +446,19 @@ impl GearVRApp {
 
 impl eframe::App for GearVRApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Handle auto-reconnect timer
+        if let Some(time) = self.reconnect_timer {
+            if Instant::now() >= time {
+                self.reconnect_timer = None;
+                if let Some(address) = self.last_connected_address {
+                    self.connection_status = ConnectionStatus::Connecting;
+                    let _ = self.bluetooth_tx.send(BluetoothCommand::Connect(address));
+                }
+            } else {
+                ctx.request_repaint_after(Duration::from_millis(100));
+            }
+        }
+
         // Process incoming controller data
         while let Ok(event) = self.controller_data_rx.try_recv() {
             match event {
@@ -373,9 +470,31 @@ impl eframe::App for GearVRApp {
                             message: "Connected to Gear VR Controller".to_string(),
                             severity: MessageSeverity::Success,
                         });
+                        self.reconnect_timer = None;
+                    } else if let ConnectionStatus::Disconnected = status {
+                        if self.auto_reconnect {
+                            self.reconnect_timer =
+                                Some(Instant::now() + Duration::from_millis(2000));
+                            self.status_message = Some(StatusMessage {
+                                message: "Disconnected. Reconnecting in 2s...".to_string(),
+                                severity: MessageSeverity::Warning,
+                            });
+                        }
                     }
                 }
                 AppEvent::LogMessage(msg) => self.status_message = Some(msg),
+                AppEvent::DeviceFound(device) => {
+                    // Update existing or add new
+                    if let Some(existing) = self
+                        .scanned_devices
+                        .iter_mut()
+                        .find(|d| d.address == device.address)
+                    {
+                        existing.signal_strength = device.signal_strength;
+                    } else {
+                        self.scanned_devices.push(device);
+                    }
+                }
             }
         }
 
