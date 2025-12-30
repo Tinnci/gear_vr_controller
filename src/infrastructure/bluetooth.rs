@@ -207,7 +207,7 @@ impl BluetoothService {
 
         if !notify_enabled {
             error!("Failed to enable notifications after 3 attempts");
-            anyhow::bail!("Failed to enable notifications. Device may need to be paired in Windows Settings first.");
+            anyhow::bail!("Failed to enable notifications. Try removing the device from Windows Bluetooth settings and reconnect.");
         }
 
         info!("Notifications enabled successfully");
@@ -444,8 +444,15 @@ impl BluetoothService {
         let reader = DataReader::FromBuffer(buffer)?;
         let length = reader.UnconsumedBufferLength()? as usize;
 
+        // 2-byte packets are command responses, not sensor data - ignore silently
+        if length == 2 {
+            return Err(anyhow::anyhow!(
+                "Command response packet (2 bytes), not sensor data"
+            ));
+        }
+
         if length != 60 {
-            debug!("Unexpected data length: {}", length);
+            debug!("Unexpected data length: {} (expected 60)", length);
             return Err(anyhow::anyhow!("Invalid data packet size: {}", length));
         }
 

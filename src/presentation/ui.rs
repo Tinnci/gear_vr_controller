@@ -123,6 +123,10 @@ impl GearVRApp {
                         BluetoothCommand::Connect(address) => {
                             if let Err(e) = bt_service.connect(address).await {
                                 error!("Connection failed: {}", e);
+                                let _ = tx_clone.send(AppEvent::LogMessage(StatusMessage {
+                                    message: format!("Connection failed: {}", e),
+                                    severity: MessageSeverity::Error,
+                                }));
                                 let _ = tx_clone.send(AppEvent::ConnectionStatus(
                                     ConnectionStatus::Disconnected,
                                 ));
