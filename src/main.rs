@@ -1,3 +1,5 @@
+mod admin_client;
+mod admin_worker;
 mod application;
 mod domain;
 mod infrastructure;
@@ -6,6 +8,15 @@ mod presentation;
 use eframe::egui;
 
 fn main() -> Result<(), eframe::Error> {
+    // Check for admin worker mode
+    let args: Vec<String> = std::env::args().collect();
+    if args.contains(&"--admin-worker".to_string()) {
+        if let Err(e) = admin_worker::run_admin_worker() {
+            eprintln!("Admin worker failed: {}", e);
+        }
+        return Ok(());
+    }
+
     // We will initialize logging later after loading settings, or initialize a default one first.
     // For now, let's just set up a basic subscriber that might be reloaded or just simple init.
     // Actually, the requirement is to use "most standardized modern rust logging system" and "expose fields".

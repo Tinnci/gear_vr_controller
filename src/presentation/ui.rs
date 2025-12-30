@@ -59,6 +59,9 @@ pub struct GearVRApp {
     volume_up_debounce: Option<Instant>,
     volume_down_debounce: Option<Instant>,
 
+    // Admin Client for elevated tasks
+    admin_client: crate::admin_client::AdminClient,
+
     // Logging guard
     _logging_guard: Option<crate::infrastructure::logging::LoggingGuard>,
 }
@@ -153,6 +156,8 @@ impl GearVRApp {
         let touchpad_processor = Some(TouchpadProcessor::new(settings.clone()));
         let gesture_recognizer = Some(GestureRecognizer::new(settings.clone()));
 
+        let last_connected_address = settings.lock().unwrap().get().last_connected_address;
+
         Self {
             settings,
             input_simulator: InputSimulator::new(),
@@ -174,13 +179,16 @@ impl GearVRApp {
             is_scanning: false,
             scanned_devices: Vec::new(),
             auto_reconnect: false,
-            last_connected_address: None,
+            last_connected_address,
             reconnect_timer: None,
+
             trigger_debounce: None,
             touchpad_btn_debounce: None,
             back_btn_debounce: None,
             volume_up_debounce: None,
             volume_down_debounce: None,
+
+            admin_client: crate::admin_client::AdminClient::new(),
             _logging_guard: logging_guard,
         }
     }
@@ -359,51 +367,81 @@ impl GearVRApp {
 
         // Connection section
         ui.group(|ui| {
-            ui.label("Connection");
+            ui.heading("Connection");
+            ui.add_space(5.0);
 
-            ui.horizontal(|ui| {
-                ui.label("Status:");
-                let (text, color) = match self.connection_status {
-                    ConnectionStatus::Connected => ("Connected", egui::Color32::GREEN),
-                    ConnectionStatus::Connecting => ("Connecting...", egui::Color32::YELLOW),
-                    ConnectionStatus::Disconnected => ("Disconnected", egui::Color32::GRAY),
-                    ConnectionStatus::Error => ("Error", egui::Color32::RED),
-                };
-                ui.colored_label(color, text);
-            });
+            // Status Banner
+            let (status_text, bg_color, text_color) = match self.connection_status {
+                ConnectionStatus::Connected => {
+                    ("Connected", egui::Color32::DARK_GREEN, egui::Color32::WHITE)
+                }
+                ConnectionStatus::Connecting => (
+                    "Connecting...",
+                    egui::Color32::from_rgb(200, 150, 0),
+                    egui::Color32::BLACK,
+                ),
+                ConnectionStatus::Disconnected => (
+                    "Disconnected",
+                    egui::Color32::DARK_GRAY,
+                    egui::Color32::WHITE,
+                ),
+                ConnectionStatus::Error => (
+                    "Connection Error",
+                    egui::Color32::DARK_RED,
+                    egui::Color32::WHITE,
+                ),
+            };
 
+            ui.add_sized(
+                [ui.available_width(), 40.0],
+                egui::Label::new(
+                    egui::RichText::new(status_text)
+                        .color(text_color)
+                        .background_color(bg_color)
+                        .size(18.0)
+                        .strong(),
+                )
+                .wrap_mode(egui::TextWrapMode::Extend),
+            );
+
+            ui.add_space(10.0);
+
+            // Input & Controls
             ui.horizontal(|ui| {
                 ui.label("Bluetooth Address:");
                 ui.text_edit_singleline(&mut self.bluetooth_address_input);
             });
 
             ui.horizontal(|ui| {
-                if ui.button("Connect").clicked() {
-                    if let Ok(address) =
-                        u64::from_str_radix(&self.bluetooth_address_input.replace(":", ""), 16)
-                    {
-                        self.connection_status = ConnectionStatus::Connecting;
-                        self.auto_reconnect = true;
-                        self.last_connected_address = Some(address);
+                if self.connection_status == ConnectionStatus::Connected {
+                    if ui.button("Disconnect").clicked() {
+                        self.auto_reconnect = false;
+                        self.last_connected_address = None;
                         self.reconnect_timer = None;
-                        let _ = self.bluetooth_tx.send(BluetoothCommand::Connect(address));
-                    } else {
-                        self.status_message = Some(StatusMessage {
-                            message: "Invalid Bluetooth address".to_string(),
-                            severity: MessageSeverity::Error,
-                        });
+                        let _ = self.bluetooth_tx.send(BluetoothCommand::Disconnect);
+                        self.connection_status = ConnectionStatus::Disconnected;
                     }
-                }
-
-                if ui.button("Disconnect").clicked() {
-                    self.auto_reconnect = false;
-                    self.last_connected_address = None;
-                    self.reconnect_timer = None;
-                    let _ = self.bluetooth_tx.send(BluetoothCommand::Disconnect);
-                    self.connection_status = ConnectionStatus::Disconnected;
+                } else {
+                    if ui.button("Connect").clicked() {
+                        if let Ok(address) =
+                            u64::from_str_radix(&self.bluetooth_address_input.replace(":", ""), 16)
+                        {
+                            self.connection_status = ConnectionStatus::Connecting;
+                            self.auto_reconnect = true;
+                            self.last_connected_address = Some(address);
+                            self.reconnect_timer = None;
+                            let _ = self.bluetooth_tx.send(BluetoothCommand::Connect(address));
+                        } else {
+                            self.status_message = Some(StatusMessage {
+                                message: "Invalid Bluetooth address".to_string(),
+                                severity: MessageSeverity::Error,
+                            });
+                        }
+                    }
                 }
             });
 
+            // Scanner Controls
             ui.horizontal(|ui| {
                 if self.is_scanning {
                     if ui.button("Stop Scan").clicked() {
@@ -411,6 +449,7 @@ impl GearVRApp {
                         let _ = self.bluetooth_tx.send(BluetoothCommand::StopScan);
                     }
                     ui.spinner();
+                    ui.label("Scanning...");
                 } else {
                     if ui.button("Scan for Devices").clicked() {
                         self.is_scanning = true;
@@ -420,11 +459,13 @@ impl GearVRApp {
                 }
             });
 
+            // Scan Results
             if !self.scanned_devices.is_empty() {
                 ui.separator();
                 ui.label("Discovered Devices:");
                 egui::ScrollArea::vertical()
                     .id_salt("scan_results")
+                    .max_height(150.0)
                     .show(ui, |ui| {
                         for device in &self.scanned_devices {
                             ui.horizontal(|ui| {
@@ -483,15 +524,91 @@ impl GearVRApp {
 
         ui.add_space(10.0);
 
-        // Status message
-        if let Some(msg) = &self.status_message {
-            let color = match msg.severity {
-                MessageSeverity::Info => egui::Color32::LIGHT_BLUE,
-                MessageSeverity::Success => egui::Color32::GREEN,
-                MessageSeverity::Warning => egui::Color32::YELLOW,
-                MessageSeverity::Error => egui::Color32::RED,
-            };
-            ui.colored_label(color, &msg.message);
+        // Status & Troubleshooting
+        let current_msg = self.status_message.clone();
+        if let Some(msg) = &current_msg {
+            ui.group(|ui| {
+                let color = match msg.severity {
+                    MessageSeverity::Info => egui::Color32::LIGHT_BLUE,
+                    MessageSeverity::Success => egui::Color32::GREEN,
+                    MessageSeverity::Warning => egui::Color32::YELLOW,
+                    MessageSeverity::Error => egui::Color32::RED,
+                };
+
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::Label::new(egui::RichText::new(&msg.message).color(color).strong())
+                            .wrap_mode(egui::TextWrapMode::Extend),
+                    );
+                });
+
+                // Ghost Buster Special UI
+                if msg.message.contains("幽灵设备") || msg.message.contains("残留配对") {
+                    ui.separator();
+                    ui.label(
+                        egui::RichText::new("🛠️ 正在修复系统配对问题...")
+                            .color(egui::Color32::YELLOW),
+                    );
+
+                    if ui
+                        .button("⚠️ 点击此处执行强力清理 (需管理员权限)")
+                        .clicked()
+                    {
+                        if let Err(e) = self.admin_client.launch_worker() {
+                            error!("Failed to launch admin worker: {}", e);
+                        } else {
+                            self.status_message = Some(StatusMessage {
+                                message: "管理员服务已请求...请批准UAC弹窗后再次点击连接。"
+                                    .to_string(),
+                                severity: MessageSeverity::Info,
+                            });
+                        }
+                    }
+                }
+
+                // General Troubleshooting for Errors
+                if msg.severity == MessageSeverity::Error {
+                    ui.separator();
+                    ui.label("Troubleshooting:");
+
+                    ui.horizontal(|ui| {
+                        if ui.button("Open Windows Bluetooth Settings").clicked() {
+                            let _ = std::process::Command::new("explorer")
+                                .arg("ms-settings:bluetooth")
+                                .spawn();
+                        }
+
+                        // Restart Stack Button
+                        if ui
+                            .button("🛡️ Restart Bluetooth Stack")
+                            .on_hover_text("Restarts Windows Bluetooth Service (requires Admin)")
+                            .clicked()
+                        {
+                            let _ = self.admin_client.launch_worker();
+                            std::thread::sleep(std::time::Duration::from_millis(1000));
+                            match self.admin_client.restart_bluetooth_service() {
+                                Ok(msg) => {
+                                    self.status_message = Some(StatusMessage {
+                                        message: msg,
+                                        severity: MessageSeverity::Success,
+                                    })
+                                }
+                                Err(e) => {
+                                    self.status_message = Some(StatusMessage {
+                                        message: format!(
+                                            "请先批准UAC弹窗，然后再次点击此按钮。\n({})",
+                                            e
+                                        ),
+                                        severity: MessageSeverity::Warning,
+                                    })
+                                }
+                            }
+                        }
+                    });
+
+                    ui.label("Tip: Try removing the device manually if auto-fix fails.");
+                }
+            });
         }
 
         ui.add_space(10.0);

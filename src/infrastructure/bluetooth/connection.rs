@@ -86,10 +86,13 @@ impl BleConnection {
         }
 
         // Step 2.5: Verify system pairing status (Windows PnP Database check)
-        let system_paired = self
+        // We now get the actual DeviceInformation object if found, to allow "ghost busting"
+        let system_device_info = self
             .check_system_paired_status(address)
             .await
-            .unwrap_or(false);
+            .unwrap_or(None);
+        let system_paired = system_device_info.is_some();
+
         if system_paired {
             info!("System database confirms device is PAIRED");
         } else {
@@ -99,12 +102,46 @@ impl BleConnection {
         // Step 3: Handle pairing
         let was_paired = self.handle_pairing(&device).await?;
 
-        // Diagnosis: Match check
+        // Diagnosis & Auto-Fix: Ghost Device Detection
+        // If system thinks it's paired, but our current handle thinks it's NOT,
+        // we have a "Ghost Device" situation. The system holds a stale record that blocks connection.
         if system_paired && !was_paired {
-            let ghost_msg =
-                "警告：系统认为设备已配对，但连接句柄显示未配对（系统 Bug）。建议强制解除配对。";
+            let ghost_msg = "检测到残留配对信息（幽灵设备），正在尝试自动清理...";
             warn!("{}", ghost_msg);
             self.send_log(ghost_msg, MessageSeverity::Warning);
+
+            // Ghost Busting!
+            if let Some(ghost_info) = system_device_info {
+                info!("Ghost Buster: Attempting to unpair system record for device");
+                match ghost_info.Pairing()?.UnpairAsync()?.await {
+                    Ok(result) => {
+                        let status = result.Status()?;
+                        info!("Ghost Buster Result: {:?}", status);
+                        if status == DeviceUnpairingResultStatus::Unpaired
+                            || status == DeviceUnpairingResultStatus::AlreadyUnpaired
+                        {
+                            self.send_log(
+                                "残留配对已清除！请立刻重试连接。",
+                                MessageSeverity::Success,
+                            );
+                            // We could auto-retry here, but asking user to click once is safer for now
+                            anyhow::bail!("已清除残留系统配对。请点击‘连接’重试。");
+                        } else {
+                            self.send_log(
+                                "自动清理失败，请在Windows设置中手动删除设备。",
+                                MessageSeverity::Error,
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        error!("Ghost Buster Failed: {:?}", e);
+                        self.send_log(
+                            "自动清理出错，请手动检查Windows设置。",
+                            MessageSeverity::Error,
+                        );
+                    }
+                }
+            }
         }
 
         // Step 4: Get GATT services and characteristics
@@ -205,8 +242,11 @@ impl BleConnection {
     }
 
     /// Check system-wide paired status via Windows PnP database
-    /// This is more reliable for detecting "ghost" pairing states
-    pub async fn check_system_paired_status(&self, target_address: u64) -> Result<bool> {
+    /// Returns the DeviceInformation of the paired device if found, allowing for unpairing.
+    pub async fn check_system_paired_status(
+        &self,
+        target_address: u64,
+    ) -> Result<Option<DeviceInformation>> {
         // 1. Get AQS filter for paired BLE devices
         let aqs_filter = BluetoothLEDevice::GetDeviceSelectorFromPairingState(true)?;
 
@@ -214,16 +254,18 @@ impl BleConnection {
         let devices = DeviceInformation::FindAllAsyncAqsFilter(&aqs_filter.into())?.await?;
 
         for device_info in devices {
-            // Extracts Bluetooth address from ID if possible to avoid full device creation if not needed
-            // But for reliability with Gear VR, creating a lightweight object is safer
+            // We need to check if this device_info matches our target address.
+            // Creating a BluetoothLEDevice from ID confirms the address.
             if let Ok(le_device) = BluetoothLEDevice::FromIdAsync(&device_info.Id()?)?.await {
                 if le_device.BluetoothAddress()? == target_address {
-                    return Ok(true);
+                    // Match found! Return the DeviceInformation (the "system record")
+                    // NOT the BluetoothLEDevice, because we want to operate on the PnP record itself
+                    return Ok(Some(device_info));
                 }
             }
         }
 
-        Ok(false)
+        Ok(None)
     }
 
     /// Attempt to unpair the device

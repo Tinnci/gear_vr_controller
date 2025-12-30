@@ -68,6 +68,7 @@ pub struct Settings {
     pub mouse_sensitivity: f64,
     pub touchpad_calibration: TouchpadCalibration,
     pub known_bluetooth_addresses: Vec<u64>,
+    pub last_connected_address: Option<u64>,
     pub enable_touchpad: bool,
     pub enable_buttons: bool,
 
@@ -109,6 +110,7 @@ impl Default for Settings {
             mouse_sensitivity: 2.0,
             touchpad_calibration: TouchpadCalibration::default(),
             known_bluetooth_addresses: Vec::new(),
+            last_connected_address: None,
             enable_touchpad: true,
             enable_buttons: true,
             log_settings: LogSettings::default(),

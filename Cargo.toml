@@ -32,3 +32,4 @@ dirs = "5.0"
 egui_extras = "0.29"
 windows-future = "0.3.2"
 windows = { version = "0.62.2", features = ["Win32_Devices_Bluetooth", "Win32_Foundation", "Win32_System_Com", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging", "Devices_Bluetooth", "Devices_Bluetooth_Advertisement", "Devices_Bluetooth_GenericAttributeProfile", "Devices_Enumeration", "Storage_Streams", "Foundation", "Foundation_Collections"] }
+interprocess = "2.2.3"
