@@ -548,17 +548,91 @@ impl GearVRApp {
         if let Ok(mut settings) = self.settings.lock() {
             let settings_mut = settings.get_mut();
 
-            ui.horizontal(|ui| {
-                ui.label("Mouse Sensitivity:");
-                ui.add(egui::Slider::new(
-                    &mut settings_mut.mouse_sensitivity,
-                    0.1..=10.0,
-                ));
+            ui.heading("Input Configuration");
+            ui.group(|ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Mouse Sensitivity:");
+                    ui.add(egui::Slider::new(
+                        &mut settings_mut.mouse_sensitivity,
+                        0.1..=10.0,
+                    ));
+                });
+                ui.checkbox(&mut settings_mut.enable_touchpad, "Enable Touchpad");
+                ui.checkbox(&mut settings_mut.enable_buttons, "Enable Buttons");
+
+                ui.separator();
+                ui.label(egui::RichText::new("Advanced Input Processing").strong());
+
+                // Dead Zone
+                ui.horizontal(|ui| {
+                    ui.label("Dead Zone:");
+                    ui.add(
+                        egui::Slider::new(&mut settings_mut.dead_zone, 0.0..=0.5)
+                            .text("Normalized Radius"),
+                    )
+                    .on_hover_text("Ignore small touches near the center to prevent drift.");
+                });
+
+                // Smoothing
+                ui.checkbox(
+                    &mut settings_mut.enable_smoothing,
+                    "Enable Motion Smoothing",
+                )
+                .on_hover_text("Average multiple samples to reduce jitter.");
+                if settings_mut.enable_smoothing {
+                    ui.indent("smoothing_indent", |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label("Smoothing Samples:");
+                            ui.add(egui::Slider::new(
+                                &mut settings_mut.smoothing_factor,
+                                1..=20,
+                            ));
+                        });
+                    });
+                }
+
+                // Acceleration
+                ui.checkbox(
+                    &mut settings_mut.enable_acceleration,
+                    "Enable Mouse Acceleration",
+                )
+                .on_hover_text("Move cursor faster with faster swipes.");
+                if settings_mut.enable_acceleration {
+                    ui.indent("accel_indent", |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label("Acceleration Power:");
+                            ui.add(egui::Slider::new(
+                                &mut settings_mut.acceleration_power,
+                                1.0..=5.0,
+                            ));
+                        });
+                    });
+                }
             });
 
-            ui.checkbox(&mut settings_mut.enable_touchpad, "Enable Touchpad");
-            ui.checkbox(&mut settings_mut.enable_buttons, "Enable Buttons");
+            ui.add_space(10.0);
 
+            ui.collapsing("Advanced Bluetooth Configuration", |ui| {
+                ui.label(
+                    egui::RichText::new("Warning: Changing these values may prevent connection.")
+                        .color(egui::Color32::YELLOW),
+                );
+
+                ui.horizontal(|ui| {
+                    ui.label("Service UUID:");
+                    ui.text_edit_singleline(&mut settings_mut.ble_service_uuid);
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Data Characteristic:");
+                    ui.text_edit_singleline(&mut settings_mut.ble_data_char_uuid);
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Command Characteristic:");
+                    ui.text_edit_singleline(&mut settings_mut.ble_command_char_uuid);
+                });
+            });
+
+            ui.add_space(10.0);
             ui.separator();
             ui.heading("Logging");
 
@@ -717,9 +791,63 @@ impl GearVRApp {
         ui.heading("Debug Information");
         ui.separator();
 
+        // Connection Info
+        ui.group(|ui| {
+            ui.label(egui::RichText::new("Connection Status").strong());
+            ui.horizontal(|ui| {
+                ui.label("Status:");
+                let status_text = format!("{:?}", self.connection_status);
+                let color = match self.connection_status {
+                    ConnectionStatus::Connected => egui::Color32::GREEN,
+                    ConnectionStatus::Disconnected => egui::Color32::RED,
+                    _ => egui::Color32::YELLOW,
+                };
+                ui.colored_label(color, status_text);
+            });
+
+            if let Some(addr) = self.last_connected_address {
+                ui.horizontal(|ui| {
+                    ui.label("Last Address:");
+                    ui.monospace(format!("{:#X}", addr));
+                });
+            }
+        });
+
+        ui.add_space(5.0);
+
+        // Scanner Info
+        ui.group(|ui| {
+            ui.label(egui::RichText::new("Scanner State").strong());
+            if self.is_scanning {
+                ui.colored_label(egui::Color32::GREEN, "Scanning Active");
+            } else {
+                ui.label("Scanner Idle");
+            }
+
+            if !self.scanned_devices.is_empty() {
+                ui.separator();
+                ui.label("Found Devices:");
+                egui::ScrollArea::vertical()
+                    .max_height(100.0)
+                    .show(ui, |ui| {
+                        for device in &self.scanned_devices {
+                            ui.horizontal(|ui| {
+                                ui.label(&device.name);
+                                ui.monospace(format!("[{:#X}]", device.address));
+                                ui.label(format!("RSSI: {} dBm", device.signal_strength));
+                            });
+                        }
+                    });
+            } else if self.is_scanning {
+                ui.label("No devices found yet...");
+            }
+        });
+
+        ui.add_space(5.0);
+
         if let Some(data) = &self.latest_controller_data {
             ui.group(|ui| {
-                ui.label("Raw Sensor Data");
+                ui.label(egui::RichText::new("Raw Sensor Data").strong());
                 ui.separator();
 
                 ui.label(format!(
@@ -730,9 +858,39 @@ impl GearVRApp {
                     "Gyroscope: ({:.2}, {:.2}, {:.2})",
                     data.gyro_x, data.gyro_y, data.gyro_z
                 ));
+                ui.label(format!(
+                    "Touchpad: ({}, {})",
+                    data.touchpad_x, data.touchpad_y
+                ));
+                ui.label(format!(
+                    "Buttons: T:{}, H:{}, B:{}",
+                    data.trigger_button, data.home_button, data.back_button
+                ));
                 ui.label(format!("Timestamp: {}", data.timestamp));
             });
         }
+
+        ui.add_space(5.0);
+
+        ui.group(|ui| {
+            ui.label(egui::RichText::new("Input Simulator Test").strong());
+            ui.horizontal(|ui| {
+                if ui.button("Left Click").clicked() {
+                    let _ = self.input_simulator.mouse_left_click();
+                }
+                if ui.button("Right Click").clicked() {
+                    let _ = self.input_simulator.mouse_right_click();
+                }
+            });
+            ui.horizontal(|ui| {
+                if ui.button("Move to (500, 500)").clicked() {
+                    let _ = self.input_simulator.set_cursor_pos(500, 500);
+                }
+                if let Ok((x, y)) = self.input_simulator.get_cursor_pos() {
+                    ui.label(format!("Current Pos: ({}, {})", x, y));
+                }
+            });
+        });
     }
 }
 

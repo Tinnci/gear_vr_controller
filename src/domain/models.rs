@@ -44,7 +44,7 @@ pub struct ScannedDevice {
 pub enum AppEvent {
     ControllerData(ControllerData),
     ConnectionStatus(ConnectionStatus),
-    LogMessage(StatusMessage),
+        LogMessage(StatusMessage),
     DeviceFound(ScannedDevice),
 }
 
