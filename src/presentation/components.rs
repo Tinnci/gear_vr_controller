@@ -3,6 +3,18 @@ use eframe::egui;
 pub struct Components;
 
 impl Components {
+    pub fn heading(ui: &mut egui::Ui, text: &str) {
+        let fg = ui.visuals().widgets.noninteractive.fg_stroke.color;
+        ui.vertical_centered(|ui| {
+            ui.label(egui::RichText::new(text).strong().size(28.0).color(fg));
+        });
+    }
+
+    pub fn sub_heading(ui: &mut egui::Ui, text: &str) {
+        let fg = ui.visuals().widgets.noninteractive.fg_stroke.color;
+        ui.label(egui::RichText::new(text).strong().size(16.0).color(fg));
+    }
+
     pub fn brutalist_card<R>(
         ui: &mut egui::Ui,
         title: &str,
@@ -17,7 +29,13 @@ impl Components {
             .fill(bg)
             .show(ui, |ui| {
                 ui.vertical(|ui| {
-                    ui.label(egui::RichText::new(title).strong().size(18.0));
+                    let title_color = ui.visuals().widgets.noninteractive.fg_stroke.color;
+                    ui.label(
+                        egui::RichText::new(title)
+                            .strong()
+                            .size(18.0)
+                            .color(title_color),
+                    );
                     ui.add_space(8.0);
                     add_contents(ui)
                 })

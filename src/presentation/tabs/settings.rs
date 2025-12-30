@@ -3,9 +3,7 @@ use crate::presentation::components::Components;
 use eframe::egui;
 
 pub fn render(app: &mut GearVRApp, ui: &mut egui::Ui) {
-    ui.vertical_centered(|ui| {
-        ui.heading("Global Settings");
-    });
+    Components::heading(ui, "Global Settings");
     ui.add_space(20.0);
 
     if let Ok(mut settings) = app.settings.lock() {
@@ -23,7 +21,7 @@ pub fn render(app: &mut GearVRApp, ui: &mut egui::Ui) {
             ui.checkbox(&mut settings_mut.enable_buttons, "Enable Button Mapping");
 
             ui.separator();
-            ui.label(egui::RichText::new("Precision Processing").strong());
+            Components::sub_heading(ui, "Precision Processing");
 
             ui.horizontal(|ui| {
                 ui.label("Dead Zone:");

@@ -4,9 +4,7 @@ use crate::presentation::components::Components;
 use eframe::egui;
 
 pub fn render(app: &mut GearVRApp, ui: &mut egui::Ui) {
-    ui.vertical_centered(|ui| {
-        ui.heading("Debug & Internal State");
-    });
+    Components::heading(ui, "Debug & Internal State");
     ui.add_space(20.0);
 
     Components::brutalist_card(ui, "Bluetooth Engine Status", |ui| {

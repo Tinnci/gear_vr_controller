@@ -6,9 +6,7 @@ use crate::presentation::components::Components;
 use eframe::egui;
 
 pub fn render(app: &mut GearVRApp, ui: &mut egui::Ui) {
-    ui.vertical_centered(|ui| {
-        ui.heading("Touchpad Calibration");
-    });
+    Components::heading(ui, "Touchpad Calibration");
     ui.add_space(20.0);
 
     Components::brutalist_card(ui, "Manual Calibration Process", |ui| {

@@ -4,9 +4,7 @@ use crate::presentation::components::Components;
 use eframe::egui;
 
 pub fn render(app: &mut GearVRApp, ui: &mut egui::Ui) {
-    ui.vertical_centered(|ui| {
-        ui.heading("Gear VR Controller");
-    });
+    Components::heading(ui, "Gear VR Controller");
     ui.add_space(20.0);
 
     ui_connection_panel(app, ui);
