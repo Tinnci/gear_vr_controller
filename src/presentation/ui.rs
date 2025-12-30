@@ -62,6 +62,9 @@ pub struct GearVRApp {
     // Admin Client for elevated tasks
     admin_client: crate::admin_client::AdminClient,
 
+    // UI Options
+    is_dark_mode: bool,
+
     // Logging guard
     _logging_guard: Option<crate::infrastructure::logging::LoggingGuard>,
 }
@@ -91,7 +94,10 @@ struct CalibrationData {
 }
 
 impl GearVRApp {
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        // Apply Neubrutalism Style (default Light)
+        configure_neubrutalism(&cc.egui_ctx, false);
+
         let settings_service = SettingsService::new().expect("Failed to load settings");
 
         // Initialize logging
@@ -189,6 +195,7 @@ impl GearVRApp {
             volume_down_debounce: None,
 
             admin_client: crate::admin_client::AdminClient::new(),
+            is_dark_mode: false,
             _logging_guard: logging_guard,
         }
     }
@@ -362,43 +369,76 @@ impl GearVRApp {
     }
 
     fn render_home_tab(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Gear VR Controller");
-        ui.separator();
+        ui.vertical_centered(|ui| {
+            ui.heading("Gear VR Controller");
+        });
+        ui.add_space(20.0);
 
-        // Connection section
-        ui.group(|ui| {
-            ui.heading("Connection");
-            ui.add_space(5.0);
+        Self::ui_connection_panel(self, ui);
+        ui.add_space(15.0);
 
-            // Status Banner
+        Self::ui_status_panel(self, ui);
+        ui.add_space(15.0);
+
+        Self::ui_controller_data_panel(self, ui);
+    }
+
+    fn brutalist_card<R>(
+        ui: &mut egui::Ui,
+        title: &str,
+        add_contents: impl FnOnce(&mut egui::Ui) -> R,
+    ) -> R {
+        let stroke = ui.style().visuals.widgets.noninteractive.bg_stroke;
+        let bg = ui.style().visuals.widgets.noninteractive.bg_fill;
+
+        egui::Frame::none()
+            .inner_margin(egui::Margin::same(15.0))
+            .stroke(stroke)
+            .fill(bg)
+            .show(ui, |ui| {
+                ui.vertical(|ui| {
+                    ui.label(egui::RichText::new(title).strong().size(18.0));
+                    ui.add_space(8.0);
+                    add_contents(ui)
+                })
+                .inner
+            })
+            .inner
+    }
+
+    fn ui_connection_panel(&mut self, ui: &mut egui::Ui) {
+        Self::brutalist_card(ui, "Connection Control", |ui| {
+            // Status Banner (Adaptive)
             let (status_text, bg_color, text_color) = match self.connection_status {
-                ConnectionStatus::Connected => {
-                    ("Connected", egui::Color32::DARK_GREEN, egui::Color32::WHITE)
-                }
+                ConnectionStatus::Connected => (
+                    "CONNECTED",
+                    egui::Color32::from_rgb(0, 200, 0),
+                    egui::Color32::BLACK,
+                ),
                 ConnectionStatus::Connecting => (
-                    "Connecting...",
-                    egui::Color32::from_rgb(200, 150, 0),
+                    "CONNECTING...",
+                    egui::Color32::from_rgb(255, 200, 0),
                     egui::Color32::BLACK,
                 ),
                 ConnectionStatus::Disconnected => (
-                    "Disconnected",
-                    egui::Color32::DARK_GRAY,
+                    "DISCONNECTED",
+                    egui::Color32::from_gray(100),
                     egui::Color32::WHITE,
                 ),
                 ConnectionStatus::Error => (
-                    "Connection Error",
-                    egui::Color32::DARK_RED,
+                    "ERROR",
+                    egui::Color32::from_rgb(255, 50, 50),
                     egui::Color32::WHITE,
                 ),
             };
 
             ui.add_sized(
-                [ui.available_width(), 40.0],
+                [ui.available_width(), 35.0],
                 egui::Label::new(
                     egui::RichText::new(status_text)
                         .color(text_color)
                         .background_color(bg_color)
-                        .size(18.0)
+                        .size(16.0)
                         .strong(),
                 )
                 .wrap_mode(egui::TextWrapMode::Extend),
@@ -406,52 +446,38 @@ impl GearVRApp {
 
             ui.add_space(10.0);
 
-            // Input & Controls
             ui.horizontal(|ui| {
-                ui.label("Bluetooth Address:");
+                ui.label("Address:");
                 ui.text_edit_singleline(&mut self.bluetooth_address_input);
             });
 
             ui.horizontal(|ui| {
                 if self.connection_status == ConnectionStatus::Connected {
-                    if ui.button("Disconnect").clicked() {
+                    if ui.button("Disconnect Instance").clicked() {
                         self.auto_reconnect = false;
-                        self.last_connected_address = None;
-                        self.reconnect_timer = None;
                         let _ = self.bluetooth_tx.send(BluetoothCommand::Disconnect);
-                        self.connection_status = ConnectionStatus::Disconnected;
                     }
                 } else {
-                    if ui.button("Connect").clicked() {
+                    if ui.button("🚀 Establish Connection").clicked() {
                         if let Ok(address) =
                             u64::from_str_radix(&self.bluetooth_address_input.replace(":", ""), 16)
                         {
                             self.connection_status = ConnectionStatus::Connecting;
                             self.auto_reconnect = true;
                             self.last_connected_address = Some(address);
-                            self.reconnect_timer = None;
                             let _ = self.bluetooth_tx.send(BluetoothCommand::Connect(address));
-                        } else {
-                            self.status_message = Some(StatusMessage {
-                                message: "Invalid Bluetooth address".to_string(),
-                                severity: MessageSeverity::Error,
-                            });
                         }
                     }
                 }
-            });
 
-            // Scanner Controls
-            ui.horizontal(|ui| {
                 if self.is_scanning {
                     if ui.button("Stop Scan").clicked() {
                         self.is_scanning = false;
                         let _ = self.bluetooth_tx.send(BluetoothCommand::StopScan);
                     }
                     ui.spinner();
-                    ui.label("Scanning...");
                 } else {
-                    if ui.button("Scan for Devices").clicked() {
+                    if ui.button("🔍 Scan for Gear VR").clicked() {
                         self.is_scanning = true;
                         self.scanned_devices.clear();
                         let _ = self.bluetooth_tx.send(BluetoothCommand::StartScan);
@@ -459,13 +485,12 @@ impl GearVRApp {
                 }
             });
 
-            // Scan Results
             if !self.scanned_devices.is_empty() {
                 ui.separator();
-                ui.label("Discovered Devices:");
+                ui.label("Nearby Controllers:");
                 egui::ScrollArea::vertical()
                     .id_salt("scan_results")
-                    .max_height(150.0)
+                    .max_height(120.0)
                     .show(ui, |ui| {
                         for device in &self.scanned_devices {
                             ui.horizontal(|ui| {
@@ -473,268 +498,183 @@ impl GearVRApp {
                                     "{} ({} dBm)",
                                     device.name, device.signal_strength
                                 ));
-                                if ui.button("Connect").clicked() {
+                                if ui.button("Pick").clicked() {
                                     self.bluetooth_address_input = format!("{:X}", device.address);
-                                    self.connection_status = ConnectionStatus::Connecting;
-                                    self.is_scanning = false;
-                                    self.auto_reconnect = true;
-                                    self.last_connected_address = Some(device.address);
-                                    self.reconnect_timer = None;
-                                    let _ = self.bluetooth_tx.send(BluetoothCommand::StopScan);
-                                    let _ = self
-                                        .bluetooth_tx
-                                        .send(BluetoothCommand::Connect(device.address));
-                                }
-                            });
-                        }
-                    });
-            }
-
-            // Recently Connected Devices
-            let known_addresses = if let Ok(settings) = self.settings.lock() {
-                settings.get().known_bluetooth_addresses.clone()
-            } else {
-                Vec::new()
-            };
-
-            if !known_addresses.is_empty() {
-                ui.separator();
-                ui.label("Recently Connected:");
-                egui::ScrollArea::vertical()
-                    .id_salt("known_devices")
-                    .max_height(100.0)
-                    .show(ui, |ui| {
-                        for address in known_addresses {
-                            ui.horizontal(|ui| {
-                                ui.label(format!("{:X}", address));
-                                if ui.button("Connect").clicked() {
-                                    self.bluetooth_address_input = format!("{:X}", address);
-                                    self.connection_status = ConnectionStatus::Connecting;
-                                    self.auto_reconnect = true;
-                                    self.last_connected_address = Some(address);
-                                    self.reconnect_timer = None;
-                                    let _ =
-                                        self.bluetooth_tx.send(BluetoothCommand::Connect(address));
                                 }
                             });
                         }
                     });
             }
         });
+    }
 
-        ui.add_space(10.0);
-
-        // Status & Troubleshooting
+    fn ui_status_panel(&mut self, ui: &mut egui::Ui) {
         let current_msg = self.status_message.clone();
-        if let Some(msg) = &current_msg {
-            ui.group(|ui| {
+        if let Some(msg) = current_msg {
+            Self::brutalist_card(ui, "System Status", |ui| {
                 let color = match msg.severity {
-                    MessageSeverity::Info => egui::Color32::LIGHT_BLUE,
-                    MessageSeverity::Success => egui::Color32::GREEN,
-                    MessageSeverity::Warning => egui::Color32::YELLOW,
+                    MessageSeverity::Info => egui::Color32::BLUE,
+                    MessageSeverity::Success => egui::Color32::from_rgb(0, 150, 0),
+                    MessageSeverity::Warning => egui::Color32::from_rgb(200, 150, 0),
                     MessageSeverity::Error => egui::Color32::RED,
                 };
 
-                ui.horizontal(|ui| {
-                    ui.add(
-                        egui::Label::new(egui::RichText::new(&msg.message).color(color).strong())
-                            .wrap_mode(egui::TextWrapMode::Extend),
-                    );
-                });
+                ui.label(egui::RichText::new(&msg.message).color(color).strong());
 
-                // Ghost Buster Special UI
-                if msg.message.contains("幽灵设备") || msg.message.contains("残留配对") {
-                    ui.separator();
-                    ui.label(
-                        egui::RichText::new("🛠️ 正在修复系统配对问题...")
-                            .color(egui::Color32::YELLOW),
-                    );
-
-                    if ui
-                        .button("⚠️ 点击此处执行强力清理 (需管理员权限)")
-                        .clicked()
-                    {
-                        if let Err(e) = self.admin_client.launch_worker() {
-                            error!("Failed to launch admin worker: {}", e);
-                        } else {
-                            self.status_message = Some(StatusMessage {
-                                message: "管理员服务已请求...请批准UAC弹窗后再次点击连接。"
-                                    .to_string(),
-                                severity: MessageSeverity::Info,
-                            });
-                        }
-                    }
-                }
-
-                // General Troubleshooting for Errors
-                if msg.severity == MessageSeverity::Error {
-                    ui.separator();
-                    ui.label("Troubleshooting:");
-
+                // Admin Actions
+                if msg.message.contains("幽灵设备") || msg.severity == MessageSeverity::Error {
+                    ui.add_space(10.0);
                     ui.horizontal(|ui| {
-                        if ui.button("Open Windows Bluetooth Settings").clicked() {
+                        if ui.button("🛠️ Fix Bluetooth Service").clicked() {
+                            let _ = self.admin_client.launch_worker();
+                            std::thread::sleep(std::time::Duration::from_millis(800));
+                            let _ = self.admin_client.restart_bluetooth_service();
+                        }
+                        if ui.button("⚙ Windows Settings").clicked() {
                             let _ = std::process::Command::new("explorer")
                                 .arg("ms-settings:bluetooth")
                                 .spawn();
                         }
-
-                        // Restart Stack Button
-                        if ui
-                            .button("🛡️ Restart Bluetooth Stack")
-                            .on_hover_text("Restarts Windows Bluetooth Service (requires Admin)")
-                            .clicked()
-                        {
-                            let _ = self.admin_client.launch_worker();
-                            std::thread::sleep(std::time::Duration::from_millis(1000));
-                            match self.admin_client.restart_bluetooth_service() {
-                                Ok(msg) => {
-                                    self.status_message = Some(StatusMessage {
-                                        message: msg,
-                                        severity: MessageSeverity::Success,
-                                    })
-                                }
-                                Err(e) => {
-                                    self.status_message = Some(StatusMessage {
-                                        message: format!(
-                                            "请先批准UAC弹窗，然后再次点击此按钮。\n({})",
-                                            e
-                                        ),
-                                        severity: MessageSeverity::Warning,
-                                    })
-                                }
-                            }
-                        }
                     });
-
-                    ui.label("Tip: Try removing the device manually if auto-fix fails.");
                 }
             });
         }
+    }
 
-        ui.add_space(10.0);
-
-        // Controller data display
+    fn ui_controller_data_panel(&mut self, ui: &mut egui::Ui) {
         if let Some(data) = &self.latest_controller_data {
-            ui.group(|ui| {
-                ui.label("Controller Data");
-                ui.separator();
+            Self::brutalist_card(ui, "Live Controller Data", |ui| {
+                egui::Grid::new("data_grid")
+                    .spacing([40.0, 8.0])
+                    .show(ui, |ui| {
+                        ui.label("Touchpad:");
+                        ui.label(format!("({:.0}, {:.0})", data.touchpad_x, data.touchpad_y));
+                        ui.end_row();
 
-                ui.label(format!(
-                    "Touchpad: ({}, {})",
-                    data.touchpad_x, data.touchpad_y
-                ));
-                ui.label(format!(
-                    "Processed: ({:.2}, {:.2})",
-                    data.processed_touchpad_x, data.processed_touchpad_y
-                ));
-                ui.label(format!("Touched: {}", data.touchpad_touched));
-                ui.label(format!("Trigger: {}", data.trigger_button));
-                ui.label(format!("Back: {}", data.back_button));
-                ui.label(format!("Home: {}", data.home_button));
+                        ui.label("Buttons:");
+                        ui.horizontal(|ui| {
+                            if data.trigger_button {
+                                ui.label(
+                                    egui::RichText::new(" TRIGGER ")
+                                        .background_color(egui::Color32::from_rgb(0, 255, 100)),
+                                );
+                            }
+                            if data.back_button {
+                                ui.label(
+                                    egui::RichText::new(" BACK ")
+                                        .background_color(egui::Color32::from_rgb(255, 200, 0)),
+                                );
+                            }
+                        });
+                        ui.end_row();
+
+                        ui.label("Battery:");
+                        ui.label(format!("{}%", 100)); // Placeholder for now
+                        ui.end_row();
+                    });
             });
         }
     }
 
     fn render_calibration_tab(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Touchpad Calibration");
-        ui.separator();
+        ui.vertical_centered(|ui| {
+            ui.heading("Touchpad Calibration");
+        });
+        ui.add_space(20.0);
 
-        ui.label("Move your finger around the entire touchpad surface to calibrate.");
-        ui.add_space(10.0);
-
-        if !self.is_calibrating {
-            if ui.button("Start Calibration").clicked() {
-                self.is_calibrating = true;
-                self.calibration_data = CalibrationData {
-                    min_x: u16::MAX,
-                    max_x: 0,
-                    min_y: u16::MAX,
-                    max_y: 0,
-                    ..Default::default()
-                };
-            }
-        } else {
-            ui.label(format!(
-                "Samples collected: {}",
-                self.calibration_data.samples.len()
-            ));
-            ui.label(format!(
-                "X Range: {} - {}",
-                self.calibration_data.min_x, self.calibration_data.max_x
-            ));
-            ui.label(format!(
-                "Y Range: {} - {}",
-                self.calibration_data.min_y, self.calibration_data.max_y
-            ));
-
+        Self::brutalist_card(ui, "Manual Calibration Process", |ui| {
+            ui.label("Move your finger slowly across the entire touchpad to map the boundaries.");
             ui.add_space(10.0);
 
-            if ui.button("Finish Calibration").clicked() {
-                self.is_calibrating = false;
+            if !self.is_calibrating {
+                if ui.button("▶ Start Mapping Process").clicked() {
+                    self.is_calibrating = true;
+                    self.calibration_data = CalibrationData {
+                        min_x: u16::MAX,
+                        max_x: 0,
+                        min_y: u16::MAX,
+                        max_y: 0,
+                        ..Default::default()
+                    };
+                }
+            } else {
+                ui.label(format!(
+                    "Data Points Collected: {}",
+                    self.calibration_data.samples.len()
+                ));
 
-                let calibration = TouchpadCalibration {
-                    min_x: self.calibration_data.min_x,
-                    max_x: self.calibration_data.max_x,
-                    min_y: self.calibration_data.min_y,
-                    max_y: self.calibration_data.max_y,
-                    center_x: (self.calibration_data.min_x + self.calibration_data.max_x) / 2,
-                    center_y: (self.calibration_data.min_y + self.calibration_data.max_y) / 2,
-                };
+                // Visual Progress Bar (Mock)
+                let progress = (self.calibration_data.samples.len() as f32 / 100.0).min(1.0);
+                ui.add(egui::ProgressBar::new(progress).text("Mapping Profile..."));
 
-                if let Ok(mut settings) = self.settings.lock() {
-                    tracing::info!("Calibration saved: {:?}", calibration);
-                    let _ = settings.update_calibration(calibration);
-                    self.status_message = Some(StatusMessage {
-                        message: "Calibration saved!".to_string(),
-                        severity: MessageSeverity::Success,
-                    });
+                ui.end_row();
+                ui.label(format!(
+                    "Boundary: [{}, {}] x [{}, {}]",
+                    self.calibration_data.min_x,
+                    self.calibration_data.max_x,
+                    self.calibration_data.min_y,
+                    self.calibration_data.max_y
+                ));
+
+                ui.add_space(15.0);
+
+                if ui.button("✅ Save & Apply Profile").clicked() {
+                    self.is_calibrating = false;
+
+                    let calibration = TouchpadCalibration {
+                        min_x: self.calibration_data.min_x,
+                        max_x: self.calibration_data.max_x,
+                        min_y: self.calibration_data.min_y,
+                        max_y: self.calibration_data.max_y,
+                        center_x: (self.calibration_data.min_x + self.calibration_data.max_x) / 2,
+                        center_y: (self.calibration_data.min_y + self.calibration_data.max_y) / 2,
+                    };
+
+                    if let Ok(mut settings) = self.settings.lock() {
+                        let _ = settings.update_calibration(calibration);
+                        self.status_message = Some(StatusMessage {
+                            message: "Touchpad profile saved!".to_string(),
+                            severity: MessageSeverity::Success,
+                        });
+                    }
                 }
             }
-        }
+        });
     }
 
     fn render_settings_tab(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Settings");
-        ui.separator();
+        ui.vertical_centered(|ui| {
+            ui.heading("Global Settings");
+        });
+        ui.add_space(20.0);
 
         if let Ok(mut settings) = self.settings.lock() {
             let settings_mut = settings.get_mut();
 
-            ui.heading("Input Configuration");
-            ui.group(|ui| {
+            Self::brutalist_card(ui, "Input Engine", |ui| {
                 ui.horizontal(|ui| {
-                    ui.label("Mouse Sensitivity:");
+                    ui.label("Global Sensitivity:");
                     ui.add(egui::Slider::new(
                         &mut settings_mut.mouse_sensitivity,
                         0.1..=10.0,
                     ));
                 });
-                ui.checkbox(&mut settings_mut.enable_touchpad, "Enable Touchpad");
-                ui.checkbox(&mut settings_mut.enable_buttons, "Enable Buttons");
+                ui.checkbox(&mut settings_mut.enable_touchpad, "Enable Trackpad Input");
+                ui.checkbox(&mut settings_mut.enable_buttons, "Enable Button Mapping");
 
                 ui.separator();
-                ui.label(egui::RichText::new("Advanced Input Processing").strong());
+                ui.label(egui::RichText::new("Precision Processing").strong());
 
-                // Dead Zone
                 ui.horizontal(|ui| {
                     ui.label("Dead Zone:");
-                    ui.add(
-                        egui::Slider::new(&mut settings_mut.dead_zone, 0.0..=0.5)
-                            .text("Normalized Radius"),
-                    )
-                    .on_hover_text("Ignore small touches near the center to prevent drift.");
+                    ui.add(egui::Slider::new(&mut settings_mut.dead_zone, 0.0..=0.5));
                 });
 
-                // Smoothing
-                ui.checkbox(
-                    &mut settings_mut.enable_smoothing,
-                    "Enable Motion Smoothing",
-                )
-                .on_hover_text("Average multiple samples to reduce jitter.");
+                ui.checkbox(&mut settings_mut.enable_smoothing, "Motion Smoothing");
                 if settings_mut.enable_smoothing {
                     ui.indent("smoothing_indent", |ui| {
                         ui.horizontal(|ui| {
-                            ui.label("Smoothing Samples:");
+                            ui.label("Sample Window:");
                             ui.add(egui::Slider::new(
                                 &mut settings_mut.smoothing_factor,
                                 1..=20,
@@ -743,16 +683,14 @@ impl GearVRApp {
                     });
                 }
 
-                // Acceleration
                 ui.checkbox(
                     &mut settings_mut.enable_acceleration,
-                    "Enable Mouse Acceleration",
-                )
-                .on_hover_text("Move cursor faster with faster swipes.");
+                    "Pointer Acceleration",
+                );
                 if settings_mut.enable_acceleration {
                     ui.indent("accel_indent", |ui| {
                         ui.horizontal(|ui| {
-                            ui.label("Acceleration Power:");
+                            ui.label("Power Curve:");
                             ui.add(egui::Slider::new(
                                 &mut settings_mut.acceleration_power,
                                 1.0..=5.0,
@@ -764,286 +702,150 @@ impl GearVRApp {
 
             ui.add_space(10.0);
 
-            ui.collapsing("Advanced Bluetooth Configuration", |ui| {
-                ui.label(
-                    egui::RichText::new("Warning: Changing these values may prevent connection.")
-                        .color(egui::Color32::YELLOW),
-                );
-
-                ui.horizontal(|ui| {
-                    ui.label("Service UUID:");
-                    ui.text_edit_singleline(&mut settings_mut.ble_service_uuid);
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Data Characteristic:");
-                    ui.text_edit_singleline(&mut settings_mut.ble_data_char_uuid);
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Command Characteristic:");
-                    ui.text_edit_singleline(&mut settings_mut.ble_command_char_uuid);
-                });
+            Self::brutalist_card(ui, "Bluetooth Protocol", |ui| {
                 ui.checkbox(
                     &mut settings_mut.debug_show_all_devices,
-                    "Debug: Show All Devices (Ignore UUID)",
+                    "Verbose Device Scanning (Debug mode)",
                 );
+
+                ui.collapsing("Override Service UUIDs", |ui| {
+                    ui.label(
+                        egui::RichText::new(
+                            "⚠️ Warning: Altering these may break device discovery.",
+                        )
+                        .color(egui::Color32::from_rgb(255, 200, 0)),
+                    );
+
+                    egui::Grid::new("ble_uuids")
+                        .spacing([10.0, 10.0])
+                        .show(ui, |ui| {
+                            ui.label("Service:");
+                            ui.text_edit_singleline(&mut settings_mut.ble_service_uuid);
+                            ui.end_row();
+                            ui.label("Data:");
+                            ui.text_edit_singleline(&mut settings_mut.ble_data_char_uuid);
+                            ui.end_row();
+                        });
+                });
             });
 
             ui.add_space(10.0);
-            ui.separator();
-            ui.heading("Logging");
 
-            ui.horizontal(|ui| {
-                ui.label("Log Level:");
-                egui::ComboBox::from_id_salt("log_level")
-                    .selected_text(&settings_mut.log_settings.level)
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(
-                            &mut settings_mut.log_settings.level,
-                            "trace".to_string(),
-                            "Trace",
-                        );
-                        ui.selectable_value(
-                            &mut settings_mut.log_settings.level,
-                            "debug".to_string(),
-                            "Debug",
-                        );
-                        ui.selectable_value(
-                            &mut settings_mut.log_settings.level,
-                            "info".to_string(),
-                            "Info",
-                        );
-                        ui.selectable_value(
-                            &mut settings_mut.log_settings.level,
-                            "warn".to_string(),
-                            "Warn",
-                        );
-                        ui.selectable_value(
-                            &mut settings_mut.log_settings.level,
-                            "error".to_string(),
-                            "Error",
-                        );
-                    });
-            });
-            ui.checkbox(
-                &mut settings_mut.log_settings.console_logging_enabled,
-                "Enable Console Logging",
-            );
-            ui.checkbox(
-                &mut settings_mut.log_settings.file_logging_enabled,
-                "Enable File Logging",
-            );
-
-            if settings_mut.log_settings.file_logging_enabled {
+            Self::brutalist_card(ui, "Logging & Debug", |ui| {
                 ui.horizontal(|ui| {
-                    ui.label("Log Directory:");
-                    ui.text_edit_singleline(&mut settings_mut.log_settings.log_dir);
-                });
-                ui.horizontal(|ui| {
-                    ui.label("File Name Prefix:");
-                    ui.text_edit_singleline(&mut settings_mut.log_settings.file_name_prefix);
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Rotation Strategy:");
-                    egui::ComboBox::from_id_salt("log_rotation")
-                        .selected_text(&settings_mut.log_settings.rotation)
+                    ui.label("Verbosity Level:");
+                    egui::ComboBox::from_id_salt("log_level")
+                        .selected_text(&settings_mut.log_settings.level)
                         .show_ui(ui, |ui| {
-                            ui.selectable_value(
-                                &mut settings_mut.log_settings.rotation,
-                                "daily".to_string(),
-                                "Daily",
-                            );
-                            ui.selectable_value(
-                                &mut settings_mut.log_settings.rotation,
-                                "hourly".to_string(),
-                                "Hourly",
-                            );
-                            ui.selectable_value(
-                                &mut settings_mut.log_settings.rotation,
-                                "minutely".to_string(),
-                                "Minutely",
-                            );
-                            ui.selectable_value(
-                                &mut settings_mut.log_settings.rotation,
-                                "never".to_string(),
-                                "Never",
-                            );
+                            for level in &["trace", "debug", "info", "warn", "error"] {
+                                ui.selectable_value(
+                                    &mut settings_mut.log_settings.level,
+                                    level.to_string(),
+                                    *level,
+                                );
+                            }
                         });
                 });
-                ui.label(
-                    egui::RichText::new(
-                        "To apply logging changes, please restart the application.",
-                    )
-                    .color(egui::Color32::YELLOW),
-                );
-            }
 
-            ui.collapsing("Advanced Logging Formatting", |ui| {
                 ui.checkbox(
-                    &mut settings_mut.log_settings.show_file_line,
-                    "Show File & Line",
+                    &mut settings_mut.log_settings.console_logging_enabled,
+                    "Standard Console Logs",
                 );
                 ui.checkbox(
-                    &mut settings_mut.log_settings.show_thread_ids,
-                    "Show Thread IDs",
+                    &mut settings_mut.log_settings.file_logging_enabled,
+                    "Persistent File Logs",
                 );
-                ui.checkbox(
-                    &mut settings_mut.log_settings.show_target,
-                    "Show Target (Module)",
-                );
-                ui.checkbox(
-                    &mut settings_mut.log_settings.ansi_colors,
-                    "ANSI Colors (Console)",
-                );
-            });
 
-            ui.separator();
-            ui.heading("Input Polish");
-
-            ui.horizontal(|ui| {
-                ui.label("Dead Zone:");
-                // Range 0.0 to 1.0 normalized? Or 0.0 to 20.0 "percent"?
-                // In controller.rs we use settings.dead_zone / 100.0.
-                // So if user selects 1.0 here, it means 0.01 normalized threshold.
-                ui.add(egui::Slider::new(&mut settings_mut.dead_zone, 0.0..=10.0).text("%"));
-            });
-
-            ui.checkbox(&mut settings_mut.enable_smoothing, "Enable Smoothing");
-            if settings_mut.enable_smoothing {
-                ui.horizontal(|ui| {
-                    ui.label("Smoothing Factor:");
-                    ui.add(egui::Slider::new(
-                        &mut settings_mut.smoothing_factor,
-                        2..=10,
-                    ));
-                });
-            }
-
-            ui.checkbox(&mut settings_mut.enable_acceleration, "Enable Acceleration");
-            if settings_mut.enable_acceleration {
-                ui.horizontal(|ui| {
-                    ui.label("Acceleration Power:");
-                    ui.add(egui::Slider::new(
-                        &mut settings_mut.acceleration_power,
-                        1.0..=3.0,
-                    ));
-                });
-            }
-            ui.separator();
-
-            if ui.button("Save Settings").clicked() {
-                if let Err(e) = settings.save() {
-                    error!("Failed to save settings: {}", e);
-                } else {
-                    self.status_message = Some(StatusMessage {
-                        message: "Settings saved!".to_string(),
-                        severity: MessageSeverity::Success,
+                if settings_mut.log_settings.file_logging_enabled {
+                    ui.indent("file_logs", |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label("Save Path:");
+                            ui.text_edit_singleline(&mut settings_mut.log_settings.log_dir);
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Rotation:");
+                            egui::ComboBox::from_id_salt("log_rot")
+                                .selected_text(&settings_mut.log_settings.rotation)
+                                .show_ui(ui, |ui| {
+                                    for rot in &["daily", "hourly", "never"] {
+                                        ui.selectable_value(
+                                            &mut settings_mut.log_settings.rotation,
+                                            rot.to_string(),
+                                            *rot,
+                                        );
+                                    }
+                                });
+                        });
                     });
+                    ui.label(
+                        egui::RichText::new("Restart required for log changes.")
+                            .italics()
+                            .size(12.0),
+                    );
                 }
-            }
+            });
         }
     }
 
     fn render_debug_tab(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Debug Information");
-        ui.separator();
+        ui.vertical_centered(|ui| {
+            ui.heading("Debug & Internal State");
+        });
+        ui.add_space(20.0);
 
-        // Connection Info
-        ui.group(|ui| {
-            ui.label(egui::RichText::new("Connection Status").strong());
+        Self::brutalist_card(ui, "Bluetooth Engine Status", |ui| {
             ui.horizontal(|ui| {
-                ui.label("Status:");
-                let status_text = format!("{:?}", self.connection_status);
-                let color = match self.connection_status {
-                    ConnectionStatus::Connected => egui::Color32::GREEN,
-                    ConnectionStatus::Disconnected => egui::Color32::RED,
-                    _ => egui::Color32::YELLOW,
+                ui.label("State:");
+                let (text, color) = match self.connection_status {
+                    ConnectionStatus::Connected => {
+                        ("STREAMING", egui::Color32::from_rgb(0, 255, 100))
+                    }
+                    ConnectionStatus::Disconnected => ("IDLE", egui::Color32::from_gray(150)),
+                    _ => ("TRANSITIONING", egui::Color32::from_rgb(255, 200, 0)),
                 };
-                ui.colored_label(color, status_text);
+                ui.label(egui::RichText::new(text).color(color).strong());
             });
 
             if let Some(addr) = self.last_connected_address {
-                ui.horizontal(|ui| {
-                    ui.label("Last Address:");
-                    ui.monospace(format!("{:#X}", addr));
-                });
+                ui.label(format!("Endpoint: {:#X}", addr));
             }
         });
 
-        ui.add_space(5.0);
-
-        // Scanner Info
-        ui.group(|ui| {
-            ui.label(egui::RichText::new("Scanner State").strong());
-            if self.is_scanning {
-                ui.colored_label(egui::Color32::GREEN, "Scanning Active");
-            } else {
-                ui.label("Scanner Idle");
-            }
-
-            if !self.scanned_devices.is_empty() {
-                ui.separator();
-                ui.label("Found Devices:");
-                egui::ScrollArea::vertical()
-                    .max_height(100.0)
-                    .show(ui, |ui| {
-                        for device in &self.scanned_devices {
-                            ui.horizontal(|ui| {
-                                ui.label(&device.name);
-                                ui.monospace(format!("[{:#X}]", device.address));
-                                ui.label(format!("RSSI: {} dBm", device.signal_strength));
-                            });
-                        }
-                    });
-            } else if self.is_scanning {
-                ui.label("No devices found yet...");
-            }
-        });
-
-        ui.add_space(5.0);
+        ui.add_space(10.0);
 
         if let Some(data) = &self.latest_controller_data {
-            ui.group(|ui| {
-                ui.label(egui::RichText::new("Raw Sensor Data").strong());
-                ui.separator();
-
-                ui.label(format!(
-                    "Accelerometer: ({:.2}, {:.2}, {:.2})",
-                    data.accel_x, data.accel_y, data.accel_z
-                ));
-                ui.label(format!(
-                    "Gyroscope: ({:.2}, {:.2}, {:.2})",
-                    data.gyro_x, data.gyro_y, data.gyro_z
-                ));
-                ui.label(format!(
-                    "Touchpad: ({}, {})",
-                    data.touchpad_x, data.touchpad_y
-                ));
-                ui.label(format!(
-                    "Buttons: T:{}, H:{}, B:{}",
-                    data.trigger_button, data.home_button, data.back_button
-                ));
-                ui.label(format!("Timestamp: {}", data.timestamp));
+            Self::brutalist_card(ui, "Raw Telemetry", |ui| {
+                egui::Grid::new("debug_grid")
+                    .spacing([20.0, 5.0])
+                    .show(ui, |ui| {
+                        ui.label("Accel:");
+                        ui.label(format!(
+                            "{:.2}, {:.2}, {:.2}",
+                            data.accel_x, data.accel_y, data.accel_z
+                        ));
+                        ui.end_row();
+                        ui.label("Gyro:");
+                        ui.label(format!(
+                            "{:.2}, {:.2}, {:.2}",
+                            data.gyro_x, data.gyro_y, data.gyro_z
+                        ));
+                        ui.end_row();
+                        ui.label("Packets:");
+                        ui.label(format!("{}", data.timestamp));
+                        ui.end_row();
+                    });
             });
         }
 
-        ui.add_space(5.0);
+        ui.add_space(10.0);
 
-        ui.group(|ui| {
-            ui.label(egui::RichText::new("Input Simulator Test").strong());
+        Self::brutalist_card(ui, "Input Injection Test", |ui| {
             ui.horizontal(|ui| {
-                if ui.button("Left Click").clicked() {
+                if ui.button("Trigger Left-Click").clicked() {
                     let _ = self.input_simulator.mouse_left_click();
                 }
-                if ui.button("Right Click").clicked() {
+                if ui.button("Trigger Right-Click").clicked() {
                     let _ = self.input_simulator.mouse_right_click();
-                }
-            });
-            ui.horizontal(|ui| {
-                if ui.button("Move to (500, 500)").clicked() {
-                    let _ = self.input_simulator.set_cursor_pos(500, 500);
-                }
-                if let Ok((x, y)) = self.input_simulator.get_cursor_pos() {
-                    ui.label(format!("Current Pos: ({}, {})", x, y));
                 }
             });
         });
@@ -1120,14 +922,133 @@ impl eframe::App for GearVRApp {
                 ui.selectable_value(&mut self.selected_tab, Tab::Calibration, "Calibration");
                 ui.selectable_value(&mut self.selected_tab, Tab::Settings, "Settings");
                 ui.selectable_value(&mut self.selected_tab, Tab::Debug, "Debug");
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .button(if self.is_dark_mode {
+                            "☀ Light"
+                        } else {
+                            "🌙 Dark"
+                        })
+                        .clicked()
+                    {
+                        self.is_dark_mode = !self.is_dark_mode;
+                        configure_neubrutalism(ctx, self.is_dark_mode);
+                    }
+                });
             });
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| match self.selected_tab {
-            Tab::Home => self.render_home_tab(ui),
-            Tab::Calibration => self.render_calibration_tab(ui),
-            Tab::Settings => self.render_settings_tab(ui),
-            Tab::Debug => self.render_debug_tab(ui),
+        egui::CentralPanel::default().show(ctx, |ui| {
+            // Adaptive Layout Wrapper
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.set_max_width(800.0); // Readability limit for wide monitors
+                    ui.add_space(20.0); // Top padding
+
+                    match self.selected_tab {
+                        Tab::Home => self.render_home_tab(ui),
+                        Tab::Calibration => self.render_calibration_tab(ui),
+                        Tab::Settings => self.render_settings_tab(ui),
+                        Tab::Debug => self.render_debug_tab(ui),
+                    }
+
+                    ui.add_space(50.0); // Bottom padding
+                });
+            });
         });
     }
+}
+
+// Neubrutalism Style Configuration
+fn configure_neubrutalism(ctx: &egui::Context, is_dark: bool) {
+    let mut style = (*ctx.style()).clone();
+
+    // Define Palette
+    let (bg_color, fg_color, stroke_color, accent_yellow, accent_green, accent_cyan) = if is_dark {
+        (
+            egui::Color32::from_rgb(25, 25, 25),  // Dark BG
+            egui::Color32::WHITE,                 // White Text
+            egui::Color32::WHITE,                 // White Borders
+            egui::Color32::from_rgb(255, 200, 0), // Yellow
+            egui::Color32::from_rgb(0, 255, 127), // Green
+            egui::Color32::from_rgb(0, 255, 255), // Cyan
+        )
+    } else {
+        (
+            egui::Color32::from_rgb(245, 245, 245), // Light BG
+            egui::Color32::BLACK,                   // Black Text
+            egui::Color32::BLACK,                   // Black Borders
+            egui::Color32::from_rgb(255, 220, 0),
+            egui::Color32::from_rgb(0, 255, 100),
+            egui::Color32::from_rgb(0, 200, 255),
+        )
+    };
+
+    // Typography
+    style
+        .text_styles
+        .iter_mut()
+        .for_each(|(text_style, font_id)| {
+            font_id.size = match text_style {
+                egui::TextStyle::Heading => 28.0,
+                egui::TextStyle::Body => 15.0,
+                egui::TextStyle::Button => 15.0,
+                _ => font_id.size,
+            };
+        });
+
+    // Spacing
+    style.spacing.item_spacing = egui::vec2(12.0, 12.0);
+    style.spacing.button_padding = egui::vec2(16.0, 10.0);
+
+    // Visuals
+    // Non-interactive (Labels / Frames)
+    style.visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(2.0, stroke_color);
+    style.visuals.widgets.noninteractive.rounding = egui::Rounding::ZERO;
+    style.visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, fg_color);
+    style.visuals.widgets.noninteractive.bg_fill = bg_color;
+
+    // Inactive (Buttons normal)
+    style.visuals.widgets.inactive.bg_stroke = egui::Stroke::new(2.0, stroke_color);
+    style.visuals.widgets.inactive.rounding = egui::Rounding::ZERO;
+    style.visuals.widgets.inactive.bg_fill = if is_dark {
+        egui::Color32::from_gray(30)
+    } else {
+        egui::Color32::WHITE
+    };
+    style.visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, fg_color);
+
+    // Hovered
+    style.visuals.widgets.hovered.bg_stroke = egui::Stroke::new(2.5, stroke_color);
+    style.visuals.widgets.hovered.rounding = egui::Rounding::ZERO;
+    style.visuals.widgets.hovered.bg_fill = accent_yellow;
+    style.visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, egui::Color32::BLACK); // High contrast black on yellow
+    style.visuals.widgets.hovered.expansion = 2.0;
+
+    // Active
+    style.visuals.widgets.active.bg_stroke = egui::Stroke::new(3.0, stroke_color);
+    style.visuals.widgets.active.rounding = egui::Rounding::ZERO;
+    style.visuals.widgets.active.bg_fill = accent_green;
+    style.visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, egui::Color32::BLACK);
+
+    // Selection
+    style.visuals.selection.stroke = egui::Stroke::new(1.0, stroke_color);
+    style.visuals.selection.bg_fill = accent_cyan;
+
+    // Window
+    style.visuals.window_rounding = egui::Rounding::ZERO;
+    style.visuals.window_stroke = egui::Stroke::new(2.0, stroke_color);
+    style.visuals.window_shadow = egui::Shadow {
+        offset: egui::vec2(8.0, 8.0),
+        blur: 0.0,
+        spread: 0.0,
+        color: stroke_color,
+    };
+    style.visuals.window_fill = bg_color;
+
+    style.visuals.panel_fill = bg_color;
+    style.visuals.override_text_color = Some(fg_color);
+
+    ctx.set_style(style);
 }
