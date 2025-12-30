@@ -7,7 +7,8 @@ use crate::domain::models::{
 use crate::domain::settings::SettingsService;
 use crate::infrastructure::bluetooth::BluetoothService;
 use crate::infrastructure::input_simulator::InputSimulator;
-use eframe::egui;
+use crate::presentation::radial_menu::{ControlMode, RadialMenu};
+use eframe::egui::{self, Pos2};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
@@ -67,6 +68,11 @@ pub struct GearVRApp {
 
     // Logging guard
     pub(crate) _logging_guard: Option<crate::infrastructure::logging::LoggingGuard>,
+
+    // Radial Menu
+    pub(crate) radial_menu: RadialMenu,
+    pub(crate) current_control_mode: ControlMode,
+    pub(crate) trigger_hold_start: Option<Instant>,
 }
 
 impl GearVRApp {
@@ -164,6 +170,9 @@ impl GearVRApp {
             admin_client: crate::admin_client::AdminClient::new(),
             is_dark_mode: false,
             _logging_guard: logging_guard,
+            radial_menu: RadialMenu::new(),
+            current_control_mode: ControlMode::default(),
+            trigger_hold_start: None,
         }
     }
 
@@ -178,16 +187,20 @@ impl GearVRApp {
             )
         };
 
+        // Skip normal touchpad/gesture processing when radial menu is active
+        let menu_active = self.radial_menu.is_visible;
+        let input_disabled = self.current_control_mode == ControlMode::Disabled;
+
         if let Some(processor) = &mut self.touchpad_processor {
             processor.process(&mut data);
-            if enable_tp && data.touchpad_touched {
+            if enable_tp && data.touchpad_touched && !menu_active && !input_disabled {
                 if let Some((dx, dy)) = processor.calculate_mouse_delta(&data) {
                     let _ = self.input_simulator.move_mouse(dx, dy);
                 }
             }
         }
 
-        if enable_gestures {
+        if enable_gestures && !menu_active && !input_disabled {
             if let Some(recognizer) = &mut self.gesture_recognizer {
                 if let Some(direction) = recognizer.process(&data) {
                     let msg = format!("Gesture Detected: {:?}", direction);
@@ -217,21 +230,64 @@ impl GearVRApp {
 
         let now = Instant::now();
         let debounce_duration = Duration::from_millis(50);
+        let menu_hold_threshold = Duration::from_millis(300);
 
         if enable_btns {
-            if data.trigger_button != self.last_trigger_state {
-                if self
-                    .trigger_debounce
-                    .map_or(true, |last| now.duration_since(last) > debounce_duration)
-                {
-                    self.last_trigger_state = data.trigger_button;
-                    self.trigger_debounce = Some(now);
-                    if data.trigger_button {
-                        let _ = self.input_simulator.mouse_left_down();
-                    } else {
-                        let _ = self.input_simulator.mouse_left_up();
+            // Radial Menu Trigger Logic
+            if data.trigger_button {
+                if self.trigger_hold_start.is_none() {
+                    // Trigger just pressed
+                    self.trigger_hold_start = Some(now);
+                } else if let Some(start_time) = self.trigger_hold_start {
+                    // Trigger being held
+                    if now.duration_since(start_time) >= menu_hold_threshold
+                        && !self.radial_menu.is_visible
+                    {
+                        // Show radial menu at current cursor position
+                        if let Ok((x, y)) = self.input_simulator.get_cursor_pos() {
+                            self.radial_menu.show(Pos2::new(x as f32, y as f32));
+                        }
+                    }
+
+                    // Update menu selection based on touchpad
+                    if self.radial_menu.is_visible && data.touchpad_touched {
+                        self.radial_menu
+                            .update_selection(data.processed_touchpad_x, data.processed_touchpad_y);
                     }
                 }
+            } else {
+                // Trigger released
+                if let Some(start_time) = self.trigger_hold_start {
+                    let hold_duration = now.duration_since(start_time);
+
+                    if self.radial_menu.is_visible {
+                        // Was showing radial menu - handle selection
+                        if let Some(selected_mode) = self.radial_menu.hide() {
+                            self.current_control_mode = selected_mode;
+                            self.status_message = Some(StatusMessage {
+                                message: format!(
+                                    "Mode: {} - {}",
+                                    selected_mode.name(),
+                                    selected_mode.description()
+                                ),
+                                severity: MessageSeverity::Success,
+                            });
+                        }
+                    } else if hold_duration < menu_hold_threshold {
+                        // Quick tap - normal click behavior
+                        if self
+                            .trigger_debounce
+                            .map_or(true, |last| now.duration_since(last) > debounce_duration)
+                        {
+                            // Send click (down then up)
+                            let _ = self.input_simulator.mouse_left_click();
+                            self.trigger_debounce = Some(now);
+                        }
+                    }
+
+                    self.trigger_hold_start = None;
+                }
+                self.last_trigger_state = false;
             }
 
             if data.touchpad_button != self.last_touchpad_button_state {
@@ -412,5 +468,8 @@ impl eframe::App for GearVRApp {
                 });
             });
         });
+
+        // Render radial menu overlay (on top of everything)
+        self.radial_menu.render(ctx);
     }
 }
