@@ -317,10 +317,20 @@ impl eframe::App for GearVRApp {
                         if self.auto_reconnect {
                             self.reconnect_timer =
                                 Some(Instant::now() + Duration::from_millis(2000));
-                            self.status_message = Some(StatusMessage {
-                                message: "Disconnected. Reconnecting in 2s...".to_string(),
-                                severity: MessageSeverity::Warning,
-                            });
+
+                            // Optimization: Only set "Reconnecting" message if there is no current Error message
+                            // This prevents hiding critical diagnostic buttons that help fix the root cause.
+                            let should_update_msg = self
+                                .status_message
+                                .as_ref()
+                                .map_or(true, |m| m.severity != MessageSeverity::Error);
+
+                            if should_update_msg {
+                                self.status_message = Some(StatusMessage {
+                                    message: "Disconnected. Reconnecting in 2s...".to_string(),
+                                    severity: MessageSeverity::Warning,
+                                });
+                            }
                         }
                     }
                 }

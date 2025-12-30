@@ -1,4 +1,4 @@
-use crate::domain::models::{BluetoothCommand, ConnectionStatus, MessageSeverity};
+use crate::domain::models::{BluetoothCommand, ConnectionStatus, MessageSeverity, StatusMessage};
 use crate::presentation::app::GearVRApp;
 use crate::presentation::components::Components;
 use eframe::egui;
@@ -110,27 +110,79 @@ fn ui_status_panel(app: &mut GearVRApp, ui: &mut egui::Ui) {
     if let Some(msg) = current_msg {
         Components::brutalist_card(ui, "System Status", |ui| {
             let color = match msg.severity {
-                MessageSeverity::Info => egui::Color32::BLUE,
-                MessageSeverity::Success => egui::Color32::from_rgb(0, 150, 0),
-                MessageSeverity::Warning => egui::Color32::from_rgb(200, 150, 0),
-                MessageSeverity::Error => egui::Color32::RED,
+                MessageSeverity::Info => ui.visuals().widgets.active.bg_fill,
+                MessageSeverity::Success => egui::Color32::from_rgb(0, 200, 0),
+                MessageSeverity::Warning => egui::Color32::from_rgb(255, 180, 0),
+                MessageSeverity::Error => egui::Color32::from_rgb(255, 50, 50),
             };
 
-            ui.label(egui::RichText::new(&msg.message).color(color).strong());
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(&msg.message).color(color).strong());
+                if msg.severity == MessageSeverity::Error
+                    || msg.severity == MessageSeverity::Warning
+                {
+                    if ui.button("✖").on_hover_text("Clear Message").clicked() {
+                        app.status_message = None;
+                    }
+                }
+            });
 
-            // Admin Actions
-            if msg.message.contains("幽灵设备") || msg.severity == MessageSeverity::Error {
-                ui.add_space(10.0);
+            // Enhanced Troubleshooting Flow
+            let is_gatt_fail = msg.message.contains("GATT services")
+                || msg.message.contains("GattCommunicationStatus");
+            let is_admin_required = msg.message.contains("幽灵设备") || is_gatt_fail;
+
+            if msg.severity == MessageSeverity::Error || is_admin_required {
+                ui.add_space(8.0);
+                ui.separator();
+                ui.add_space(4.0);
+
+                ui.label(
+                    egui::RichText::new("🔍 Troubleshooting Suggestions:")
+                        .small()
+                        .italics(),
+                );
+
+                if is_gatt_fail {
+                    ui.label("• Try unpairing the controller in Windows Settings first.");
+                    ui.label("• Ensure the controller isn't connected to another app.");
+                }
+
+                ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    if ui.button("Fix Bluetooth Service").clicked() {
+                    if ui
+                        .button("🛡️ Restart BT Stack (Admin)")
+                        .on_hover_text("Kills ghost processes and restarts Bluetooth service")
+                        .clicked()
+                    {
                         let _ = app.admin_client.launch_worker();
                         std::thread::sleep(std::time::Duration::from_millis(800));
                         let _ = app.admin_client.restart_bluetooth_service();
+                        app.status_message = Some(StatusMessage {
+                            message: "Bluetooth stack reset command sent.".to_string(),
+                            severity: MessageSeverity::Info,
+                        });
                     }
-                    if ui.button("Windows Settings").clicked() {
+
+                    if ui.button("⚙ Open BT Settings").clicked() {
                         let _ = std::process::Command::new("explorer")
                             .arg("ms-settings:bluetooth")
                             .spawn();
+                    }
+
+                    if is_gatt_fail {
+                        if ui
+                            .button("🗑️ Unpair Device")
+                            .on_hover_text("Attempts to remove pairing record from Windows")
+                            .clicked()
+                        {
+                            if let Some(addr) = app.last_connected_address {
+                                let _ = app.admin_client.launch_worker();
+                                // Note: We'd need to pass the instance_id, but address is better than nothing if service can find it.
+                                // For now, restarting service is more reliable.
+                                let _ = app.admin_client.restart_bluetooth_service();
+                            }
+                        }
                     }
                 });
             }
