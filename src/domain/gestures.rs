@@ -3,6 +3,7 @@ use crate::domain::settings::SettingsService;
 use std::collections::VecDeque;
 use std::f64::consts::PI;
 use std::sync::{Arc, Mutex};
+use tracing::{debug, trace};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GestureDirection {
@@ -78,6 +79,7 @@ impl GestureRecognizer {
     }
 
     fn start_gesture(&mut self, point: TouchpadPoint) {
+        trace!("Gesture started at ({:.2}, {:.2})", point.x, point.y);
         self.start_point = Some(point);
         self.points.clear();
         self.points.push_back(point);
@@ -101,6 +103,12 @@ impl GestureRecognizer {
                     result = self.calculate_direction(start, *end);
                 }
             }
+        }
+
+        if result != GestureDirection::None {
+            debug!("Gesture recognized: {:?}", result);
+        } else {
+            trace!("Gesture ended without recognition (too short or unclear)");
         }
 
         self.is_gesture_in_progress = false;
@@ -133,6 +141,11 @@ impl GestureRecognizer {
         let threshold = self.get_recognition_threshold();
 
         if distance < threshold {
+            trace!(
+                "Gesture rejected: distance {:.2} < threshold {:.2}",
+                distance,
+                threshold
+            );
             return GestureDirection::None;
         }
 
@@ -143,22 +156,9 @@ impl GestureRecognizer {
             degrees += 360.0;
         }
 
-        // Top is -1 (start) -> 1 (end)? No.
-        // UP: Swipe UP. Finger moves from Bottom (1) to Top (-1). dy < 0.
-        // atan2(-1, 0) -> -90 deg -> 270 deg. Correct.
-
-        // DOWN: Swipe DOWN. Finger moves from Top to Bottom. dy > 0.
-        // atan2(1, 0) -> 90 deg. Correct.
-
-        // RIGHT: Swipe RIGHT. Left to Right. dx > 0.
-        // atan2(0, 1) -> 0 deg. Correct.
-
-        // LEFT: Swipe LEFT. Right to Left. dx < 0.
-        // atan2(0, -1) -> 180 deg. Correct.
-
         let tolerance = 30.0; // +/- 30 degrees (total 60 degree cone)
 
-        if degrees >= (360.0 - tolerance) || degrees < tolerance {
+        let direction = if degrees >= (360.0 - tolerance) || degrees < tolerance {
             GestureDirection::Right
         } else if degrees >= (90.0 - tolerance) && degrees < (90.0 + tolerance) {
             GestureDirection::Down
@@ -168,6 +168,12 @@ impl GestureRecognizer {
             GestureDirection::Up
         } else {
             GestureDirection::None
-        }
+        };
+
+        debug!(
+            "Gesture check: Dist={:.2}, Angle={:.1}°, Result={:?}",
+            distance, degrees, direction
+        );
+        direction
     }
 }
