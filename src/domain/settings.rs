@@ -1,7 +1,28 @@
-use crate::models::TouchpadCalibration;
+use crate::domain::models::TouchpadCalibration;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogSettings {
+    pub level: String, // "trace", "debug", "info", "warn", "error"
+    pub file_logging_enabled: bool,
+    pub console_logging_enabled: bool,
+    pub log_dir: String,
+    pub file_name_prefix: String,
+}
+
+impl Default for LogSettings {
+    fn default() -> Self {
+        Self {
+            level: "info".to_string(),
+            file_logging_enabled: true,
+            console_logging_enabled: true,
+            log_dir: "logs".to_string(),
+            file_name_prefix: "gear_vr_controller".to_string(),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
@@ -10,6 +31,10 @@ pub struct Settings {
     pub known_bluetooth_addresses: Vec<u64>,
     pub enable_touchpad: bool,
     pub enable_buttons: bool,
+
+    // Logging Settings
+    #[serde(default)]
+    pub log_settings: LogSettings,
 
     // Phase 2: Input Polish Settings
     pub dead_zone: f64,
@@ -27,6 +52,7 @@ impl Default for Settings {
             known_bluetooth_addresses: Vec::new(),
             enable_touchpad: true,
             enable_buttons: true,
+            log_settings: LogSettings::default(),
             // Defaults based on C# implementation
             dead_zone: 0.1, // 10%
             enable_smoothing: true,

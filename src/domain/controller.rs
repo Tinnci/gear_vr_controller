@@ -1,5 +1,5 @@
-use crate::models::ControllerData;
-use crate::settings::SettingsService;
+use crate::domain::models::ControllerData;
+use crate::domain::settings::SettingsService;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 

@@ -1,7 +1,7 @@
-use crate::models::{AppEvent, ConnectionStatus, ControllerData, ScannedDevice};
+use crate::domain::models::{AppEvent, ConnectionStatus, ControllerData, ScannedDevice};
 use anyhow::Result;
-use log::{debug, info, warn};
 use tokio::sync::mpsc;
+use tracing::{debug, info, warn};
 use windows::core::GUID;
 use windows::Devices::Bluetooth::Advertisement::{
     BluetoothLEAdvertisementReceivedEventArgs, BluetoothLEAdvertisementWatcher,

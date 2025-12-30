@@ -1,18 +1,23 @@
-mod bluetooth;
-mod controller;
-mod gestures;
-mod input_simulator;
-mod models;
-mod settings;
-mod ui;
+mod application;
+mod domain;
+mod infrastructure;
+mod presentation;
 
 use eframe::egui;
 
-use log::info;
-
 fn main() -> Result<(), eframe::Error> {
-    env_logger::init();
-    info!("Starting Gear VR Controller Application");
+    // We will initialize logging later after loading settings, or initialize a default one first.
+    // For now, let's just set up a basic subscriber that might be reloaded or just simple init.
+    // Actually, the requirement is to use "most standardized modern rust logging system" and "expose fields".
+    // So we should load settings first, then init logging.
+
+    // However, we might want to log startup even before settings are loaded.
+    // Let's rely on the UI or Infrastructure layer to set this up.
+    // For this step, I will just update the mods and keep the structure clean.
+
+    // Temporary basic init to catch early logs if needed, or we can delegate to the App::new
+    // But since we want to be "modern" and "compliant", let's do it right.
+    // We'll call a setup function.
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -24,6 +29,6 @@ fn main() -> Result<(), eframe::Error> {
     eframe::run_native(
         "Gear VR Controller",
         options,
-        Box::new(|cc| Ok(Box::new(ui::GearVRApp::new(cc)))),
+        Box::new(|cc| Ok(Box::new(presentation::ui::GearVRApp::new(cc)))),
     )
 }

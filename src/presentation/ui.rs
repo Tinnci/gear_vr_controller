@@ -1,17 +1,17 @@
-use crate::bluetooth::BluetoothService;
-use crate::controller::TouchpadProcessor;
-use crate::gestures::{GestureDirection, GestureRecognizer};
-use crate::input_simulator::InputSimulator;
-use crate::models::{
+use crate::domain::controller::TouchpadProcessor;
+use crate::domain::gestures::{GestureDirection, GestureRecognizer};
+use crate::domain::models::{
     AppEvent, ConnectionStatus, ControllerData, MessageSeverity, ScannedDevice, StatusMessage,
     TouchpadCalibration,
 };
-use crate::settings::SettingsService;
+use crate::domain::settings::SettingsService;
+use crate::infrastructure::bluetooth::BluetoothService;
+use crate::infrastructure::input_simulator::InputSimulator;
 use eframe::egui;
-use log::error;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
+use tracing::error;
 use windows::Win32::UI::Input::KeyboardAndMouse::VK_ESCAPE;
 
 pub struct GearVRApp {
@@ -58,6 +58,9 @@ pub struct GearVRApp {
     back_btn_debounce: Option<Instant>,
     volume_up_debounce: Option<Instant>,
     volume_down_debounce: Option<Instant>,
+
+    // Logging guard
+    _logging_guard: Option<crate::infrastructure::logging::LoggingGuard>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -86,9 +89,17 @@ struct CalibrationData {
 
 impl GearVRApp {
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
-        let settings = Arc::new(Mutex::new(
-            SettingsService::new().expect("Failed to load settings"),
-        ));
+        let settings_service = SettingsService::new().expect("Failed to load settings");
+
+        // Initialize logging
+        let logging_guard =
+            crate::infrastructure::logging::init_logger(&settings_service.get().log_settings)
+                .map_err(|e| eprintln!("Failed to initialize logging: {}", e))
+                .ok();
+
+        tracing::info!("Starting Gear VR Controller Application");
+
+        let settings = Arc::new(Mutex::new(settings_service));
 
         let (data_tx, data_rx) = mpsc::unbounded_channel();
         let (bt_cmd_tx, mut bt_cmd_rx) = mpsc::unbounded_channel();
@@ -163,6 +174,7 @@ impl GearVRApp {
             back_btn_debounce: None,
             volume_up_debounce: None,
             volume_down_debounce: None,
+            _logging_guard: logging_guard,
         }
     }
 
@@ -541,6 +553,67 @@ impl GearVRApp {
 
             ui.checkbox(&mut settings_mut.enable_touchpad, "Enable Touchpad");
             ui.checkbox(&mut settings_mut.enable_buttons, "Enable Buttons");
+
+            ui.separator();
+            ui.heading("Logging");
+
+            ui.horizontal(|ui| {
+                ui.label("Log Level:");
+                egui::ComboBox::from_id_salt("log_level")
+                    .selected_text(&settings_mut.log_settings.level)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut settings_mut.log_settings.level,
+                            "trace".to_string(),
+                            "Trace",
+                        );
+                        ui.selectable_value(
+                            &mut settings_mut.log_settings.level,
+                            "debug".to_string(),
+                            "Debug",
+                        );
+                        ui.selectable_value(
+                            &mut settings_mut.log_settings.level,
+                            "info".to_string(),
+                            "Info",
+                        );
+                        ui.selectable_value(
+                            &mut settings_mut.log_settings.level,
+                            "warn".to_string(),
+                            "Warn",
+                        );
+                        ui.selectable_value(
+                            &mut settings_mut.log_settings.level,
+                            "error".to_string(),
+                            "Error",
+                        );
+                    });
+            });
+            ui.checkbox(
+                &mut settings_mut.log_settings.console_logging_enabled,
+                "Enable Console Logging",
+            );
+            ui.checkbox(
+                &mut settings_mut.log_settings.file_logging_enabled,
+                "Enable File Logging",
+            );
+
+            if settings_mut.log_settings.file_logging_enabled {
+                ui.horizontal(|ui| {
+                    ui.label("Log Directory:");
+                    ui.text_edit_singleline(&mut settings_mut.log_settings.log_dir);
+                });
+                ui.horizontal(|ui| {
+                    ui.label("File Name Prefix:");
+                    ui.text_edit_singleline(&mut settings_mut.log_settings.file_name_prefix);
+                });
+                ui.label(
+                    egui::RichText::new(
+                        "To apply logging changes, please restart the application.",
+                    )
+                    .color(egui::Color32::YELLOW),
+                );
+            }
 
             ui.separator();
             ui.heading("Input Polish");
