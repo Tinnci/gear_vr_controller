@@ -108,3 +108,4 @@ Desktop.ini
 # Added by cargo
 
 /target
+logs\gear_vr_controller.*

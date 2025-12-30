@@ -48,6 +48,10 @@ impl BluetoothService {
 
     pub async fn connect(&mut self, address: u64) -> Result<()> {
         info!("Connecting to Bluetooth device: {:#X}", address);
+        let _ = self.data_sender.send(AppEvent::LogMessage(StatusMessage {
+            message: format!("Connecting to device {:#X}...", address),
+            severity: MessageSeverity::Info,
+        }));
 
         // Fetch UUIDs from settings
         let (service_uuid_str, data_uuid_str) = {
@@ -79,6 +83,10 @@ impl BluetoothService {
         let service = {
             let services = services_result.Services()?;
             info!("Found {} services", services.Size()?);
+            let _ = self.data_sender.send(AppEvent::LogMessage(StatusMessage {
+                message: "Services discovered. Looking for controller service...".to_string(),
+                severity: MessageSeverity::Info,
+            }));
 
             let service_uuid = parse_uuid(&service_uuid_str)?;
             let mut target_service = None;
@@ -151,6 +159,10 @@ impl BluetoothService {
         }
 
         info!("Notifications enabled successfully");
+        let _ = self.data_sender.send(AppEvent::LogMessage(StatusMessage {
+            message: "Notifications enabled. Handshake complete.".to_string(),
+            severity: MessageSeverity::Info,
+        }));
 
         // 8. 可选：发送启动命令
         if let Err(e) = self.send_start_command(&service).await {
@@ -205,6 +217,10 @@ impl BluetoothService {
             "Starting Bluetooth LE scan for service UUID: {}",
             service_uuid_str
         );
+        let _ = self.data_sender.send(AppEvent::LogMessage(StatusMessage {
+            message: "Scanning for Gear VR Controller...".to_string(),
+            severity: MessageSeverity::Info,
+        }));
 
         let watcher = BluetoothLEAdvertisementWatcher::new()?;
         watcher.SetScanningMode(BluetoothLEScanningMode::Active)?;
@@ -258,6 +274,10 @@ impl BluetoothService {
     pub fn stop_scan(&mut self) -> Result<()> {
         if let Some(watcher) = self.watcher.take() {
             info!("Stopping Bluetooth LE scan...");
+            let _ = self.data_sender.send(AppEvent::LogMessage(StatusMessage {
+                message: "Scan stopped.".to_string(),
+                severity: MessageSeverity::Info,
+            }));
             watcher.Stop()?;
         }
         Ok(())
