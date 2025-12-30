@@ -1,4 +1,6 @@
-use crate::domain::models::{AppEvent, ConnectionStatus, ControllerData, ScannedDevice};
+use crate::domain::models::{
+    AppEvent, ConnectionStatus, ControllerData, MessageSeverity, ScannedDevice, StatusMessage,
+};
 use anyhow::Result;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
@@ -16,9 +18,8 @@ use windows::Foundation::TypedEventHandler;
 use windows::Storage::Streams::{DataReader, DataWriter, IBuffer};
 
 // Gear VR Controller BLE Service and Characteristic UUIDs
-const CONTROLLER_SERVICE_UUID: &str = "4f63756c-7573-2054-6872-65656d6f7465";
-const CONTROLLER_DATA_CHARACTERISTIC_UUID: &str = "c8c51726-81bc-483b-a052-f7a14ea3d281";
-const CONTROLLER_COMMAND_CHARACTERISTIC_UUID: &str = "c8c51726-81bc-483b-a052-f7a14ea3d282";
+// Constants representing the Gear VR Controller UUIDs are now loaded from Settings.
+// Default values are in domain/settings.rs
 
 use crate::domain::settings::SettingsService;
 use std::sync::{Arc, Mutex};
@@ -191,12 +192,6 @@ impl BluetoothService {
             self.stop_scan()?;
         }
 
-        info!("Starting Bluetooth LE scan...");
-        let watcher = BluetoothLEAdvertisementWatcher::new()?;
-        watcher.SetScanningMode(BluetoothLEScanningMode::Active)?;
-
-        let sender = self.data_sender.clone();
-
         // Fetch UUID from settings
         let service_uuid_str = {
             let settings_guard = self
@@ -205,6 +200,16 @@ impl BluetoothService {
                 .map_err(|_| anyhow::anyhow!("Failed to lock settings"))?;
             settings_guard.get().ble_service_uuid.clone()
         };
+
+        info!(
+            "Starting Bluetooth LE scan for service UUID: {}",
+            service_uuid_str
+        );
+
+        let watcher = BluetoothLEAdvertisementWatcher::new()?;
+        watcher.SetScanningMode(BluetoothLEScanningMode::Active)?;
+
+        let sender = self.data_sender.clone();
         let service_uuid = parse_uuid(&service_uuid_str)?;
 
         let handler = TypedEventHandler::new(
@@ -309,20 +314,31 @@ impl BluetoothService {
             }
 
             info!("Initialization sequence completed successfully");
+            let _ = self.data_sender.send(AppEvent::LogMessage(StatusMessage {
+                message: "Ready to use".to_string(),
+                severity: MessageSeverity::Success,
+            }));
         }
 
         Ok(())
     }
 
     pub fn disconnect(&mut self) {
+        if !self.is_connected() {
+            return;
+        }
+
         if let Some(device) = self.device.take() {
             let _ = device.Close();
         }
         self.data_characteristic = None;
         info!("Disconnected from device");
+        let _ = self.data_sender.send(AppEvent::LogMessage(StatusMessage {
+            message: "Disconnected from device".to_string(),
+            severity: MessageSeverity::Info,
+        }));
     }
 
-    #[allow(dead_code)]
     pub fn is_connected(&self) -> bool {
         self.device
             .as_ref()

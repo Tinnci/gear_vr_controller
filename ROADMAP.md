@@ -2,45 +2,65 @@
 
 This roadmap outlines the path to full parity with the original C# implementation, focusing on stability, input quality, and user experience.
 
-## Phase 1: Connection & Protocol Stability (Current Priority)
+## Phase 1: Connection & Protocol Stability (Completed)
 **Goal:** Ensure robust device connection and full protocol compliance.
 
-- [ ] **UUID-Based Device Discovery (Auto-Connect)**
-    - *Current State:* Requires manual Bluetooth Address input.
-    - *Plan:* Implement `BluetoothLEAdvertisementWatcher` to scan for devices broadcasting the specific service UUID:
-      > `4f63756c-7573-2054-6872-65656d6f7465`
-    - User simplifies connection by just clicking "Scan & Connect" instead of typing addresses.
-- [ ] **Complete Initialization Sequence**
-    - *Current State:* Sends only partial start command.
-    - *Plan:* Port the full 4-step initialization handshake + connection parameter optimization command from C# to ensure compatibility with all controller firmware versions.
-- [ ] **Auto-Reconnection Mechanism**
-    - *Current State:* No auto-reconnect on disconnect.
-    - *Plan:* Implement a background monitor that attempts to reconnect when the link is lost, with configurable retry intervals.
+- [x] **UUID-Based Device Discovery (Auto-Connect)**
+    - Implemented `BluetoothLEAdvertisementWatcher` to scan for specific service UUIDs.
+    - Added "Known Devices" listing and auto-save of successful connections.
+- [x] **Complete Initialization Sequence**
+    - Ported full 4-step initialization handshake + connection parameter optimization.
+- [x] **Auto-Reconnection Mechanism**
+    - Background task monitors connection status and attempts reconnection.
+- [x] **Configurable BLE Settings**
+    - Exposed UUIDs (Service, Data, Command) in UI.
 
-## Phase 2: Input Experience Polish
+## Phase 2: Input Experience Polish (Completed)
 **Goal:** Match the smooth, responsive feel of the original driver.
 
-- [ ] **Touchpad Smoothing (Moving Average)**
-    - *Plan:* Implement a ring buffer to smooth out raw sensor noise from the touchpad X/Y coordinates.
-- [ ] **Dead Zone Implementation**
-    - *Plan:* Add configurable dead zones (center and edges) to prevent cursor drift when the finger is stationary but slightly trembly.
-- [ ] **Non-Linear Sensitivity Curve**
-    - *Plan:* Implement "Mouse Acceleration" logic (Power Curve) so slow movements are precise, but fast swipes cover large distances.
+- [x] **Touchpad Smoothing (Moving Average)**
+    - Configurable sample count ring buffer.
+- [x] **Dead Zone Implementation**
+    - Configurable center/edge dead zones.
+- [x] **Non-Linear Sensitivity Curve**
+    - Implemented Mouse Acceleration (Power Curve).
+- [x] **Input Configuration UI**
+    - Dedicated settings group with tooltips and progressive disclosure.
 - [ ] **Input Debouncing**
     - *Plan:* Add software debouncing (approx. 50ms) for physical buttons to prevent double-clicks.
+- [ ] **Invert Y-Axis & Natural Scrolling**
+    - *Plan:* Add options to invert touchpad Y-axis and scroll direction to match user preference.
 
-## Phase 3: Advanced Interaction & Gestures
-**Goal:** Restore advanced control capabilities.
+## Phase 3: Advanced Interaction & Gestures (In Progress)
+**Goal:** Restore advanced control capabilities and customizability.
 
-- [ ] **Gesture Recognition Engine**
-    - *Plan:* Port `GestureRecognizer.cs` logic.
-    - Support: Swipe Up, Swipe Down, Swipe Left, Swipe Right.
-- [ ] **Key Mapping Customization**
-    - *Plan:* Allow remapping:
-        - Volume Keys (currently hardcoded to Scroll) -> System Volume / Custom.
-        - Back Button (currently ESC) -> Browser Back / Custom.
-        - Gestures -> Custom Actions.
+- [x] **Gesture Recognition Engine**
+    - Implemented `GestureRecognizer` for Swipes (Up, Down, Left, Right).
+    - Integrated logic into main loop with configurable thresholds.
+- [ ] **Key Mapping System (Next Priority)**
+    - *Goal:* Allow remapping Buttons and Gestures to specific Keyboard/Mouse actions.
+    - *Plan:* Create a `InputMapper` struct and a UI to bind events (e.g., "Trigger" -> "Mouse Left", "Swipe Up" -> "Scroll Up").
+- [ ] **Media Control Support**
+    - *Goal:* Support Volume Up/Down, Play/Pause, Next/Prev Track actions.
+- [ ] **Macro Support**
+    - *Goal:* Record and playback sequence of actions.
 
-## Phase 4: UI & System Integration
-- [ ] **Settings Persistence**: Ensure all new calibration and sensitivity settings are saved/loaded correctly.
-- [ ] **System Tray Icon**: Allow the app to run in the background without an open window.
+## Phase 4: UI & System Integration (Partial)
+- [x] **Settings Persistence**
+    - JSON-based saving/loading of all configurations.
+- [x] **Advanced Logging System**
+    - Configurable log levels, file rotation, and format (Thread IDs, Source Lines).
+- [ ] **System Tray Support**
+    - *Plan:* Allow the app to run in the background (hidden window) with a tray icon for status/exit.
+- [ ] **Battery Level Monitoring**
+    - *Plan:* Parse battery level from BLE characteristics (Standard Battery Service or proprietary).
+- [ ] **Dark/Light Mode Theme**
+    - *Plan:* Polish the UI aesthetics further.
+
+## Phase 5: Visuals & Extras (Planned)
+- [ ] **3D Controller Visualization**
+    - *Plan:* Render a real-time 3D model of the controller using IMU (Gyro/Accel) data to verify sensor fusion.
+- [ ] **Haptic Feedback**
+    - *Plan:* Investigate and implement vibration commands.
+- [ ] **Firmware Information**
+    - display Device Information (Model, Firmware Version, Serial).
