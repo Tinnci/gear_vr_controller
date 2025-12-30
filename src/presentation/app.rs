@@ -334,7 +334,15 @@ impl eframe::App for GearVRApp {
                         }
                     }
                 }
-                AppEvent::LogMessage(msg) => self.status_message = Some(msg),
+                AppEvent::LogMessage(msg) => {
+                    // Optimization: If a critical error occurs, stop auto-reconnecting
+                    // to give the user time to use diagnostic tools.
+                    if msg.severity == MessageSeverity::Error {
+                        self.auto_reconnect = false;
+                        self.reconnect_timer = None;
+                    }
+                    self.status_message = Some(msg);
+                }
                 AppEvent::DeviceFound(device) => {
                     if let Some(existing) = self
                         .scanned_devices

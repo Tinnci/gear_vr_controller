@@ -176,7 +176,7 @@ fn ui_status_panel(app: &mut GearVRApp, ui: &mut egui::Ui) {
                             .on_hover_text("Attempts to remove pairing record from Windows")
                             .clicked()
                         {
-                            if let Some(addr) = app.last_connected_address {
+                            if let Some(_addr) = app.last_connected_address {
                                 let _ = app.admin_client.launch_worker();
                                 // Note: We'd need to pass the instance_id, but address is better than nothing if service can find it.
                                 // For now, restarting service is more reliable.
