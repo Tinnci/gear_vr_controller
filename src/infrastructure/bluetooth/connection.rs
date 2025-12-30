@@ -14,7 +14,7 @@ use windows::Devices::Bluetooth::GenericAttributeProfile::{
 use windows::Devices::Bluetooth::{
     BluetoothCacheMode, BluetoothConnectionStatus, BluetoothLEDevice,
 };
-use windows::Devices::Enumeration::DeviceUnpairingResultStatus;
+use windows::Devices::Enumeration::{DeviceInformation, DeviceUnpairingResultStatus};
 use windows::Storage::Streams::DataWriter;
 
 /// Configuration for connection behavior
@@ -85,8 +85,27 @@ impl BleConnection {
             warn!("Failed to create GattSession, continuing anyway...");
         }
 
+        // Step 2.5: Verify system pairing status (Windows PnP Database check)
+        let system_paired = self
+            .check_system_paired_status(address)
+            .await
+            .unwrap_or(false);
+        if system_paired {
+            info!("System database confirms device is PAIRED");
+        } else {
+            info!("System database confirms device is NOT PAIRED");
+        }
+
         // Step 3: Handle pairing
         let was_paired = self.handle_pairing(&device).await?;
+
+        // Diagnosis: Match check
+        if system_paired && !was_paired {
+            let ghost_msg =
+                "警告：系统认为设备已配对，但连接句柄显示未配对（系统 Bug）。建议强制解除配对。";
+            warn!("{}", ghost_msg);
+            self.send_log(ghost_msg, MessageSeverity::Warning);
+        }
 
         // Step 4: Get GATT services and characteristics
         let (data_char, cmd_char) = self.get_characteristics(&device).await?;
@@ -166,11 +185,11 @@ impl BleConnection {
         let pairing = device_info.Pairing()?;
         let is_paired = pairing.IsPaired()?;
 
-        info!("Device pairing status - IsPaired: {}", is_paired);
+        info!("Device reports pairing status - IsPaired: {}", is_paired);
 
         if is_paired {
-            info!("Device already paired");
-            self.send_log("Device already paired", MessageSeverity::Info);
+            info!("Device already paired according to handle");
+            self.send_log("Device reports as paired", MessageSeverity::Info);
         } else {
             // For BLE devices like Gear VR Controller, we often don't need traditional pairing
             // The device uses "Just Works" pairing or no pairing at all
@@ -183,6 +202,28 @@ impl BleConnection {
         }
 
         Ok(is_paired)
+    }
+
+    /// Check system-wide paired status via Windows PnP database
+    /// This is more reliable for detecting "ghost" pairing states
+    pub async fn check_system_paired_status(&self, target_address: u64) -> Result<bool> {
+        // 1. Get AQS filter for paired BLE devices
+        let aqs_filter = BluetoothLEDevice::GetDeviceSelectorFromPairingState(true)?;
+
+        // 2. Search system database
+        let devices = DeviceInformation::FindAllAsyncAqsFilter(&aqs_filter.into())?.await?;
+
+        for device_info in devices {
+            // Extracts Bluetooth address from ID if possible to avoid full device creation if not needed
+            // But for reliability with Gear VR, creating a lightweight object is safer
+            if let Ok(le_device) = BluetoothLEDevice::FromIdAsync(&device_info.Id()?)?.await {
+                if le_device.BluetoothAddress()? == target_address {
+                    return Ok(true);
+                }
+            }
+        }
+
+        Ok(false)
     }
 
     /// Attempt to unpair the device
