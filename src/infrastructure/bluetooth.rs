@@ -3,7 +3,7 @@ use crate::domain::models::{
 };
 use anyhow::Result;
 use tokio::sync::mpsc;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 use windows::core::GUID;
 use windows::Devices::Bluetooth::Advertisement::{
     BluetoothLEAdvertisementReceivedEventArgs, BluetoothLEAdvertisementWatcher,
@@ -120,6 +120,8 @@ impl BluetoothService {
         for i in 0..characteristics.Size()? {
             let characteristic = characteristics.GetAt(i)?;
             if characteristic.Uuid()? == char_uuid {
+                let props = characteristic.CharacteristicProperties()?;
+                info!("Found data characteristic with properties: {:?}", props);
                 data_char = Some(characteristic);
                 break;
             }
@@ -155,7 +157,8 @@ impl BluetoothService {
             .await?;
 
         if status != GattCommunicationStatus::Success {
-            anyhow::bail!("Failed to enable notifications");
+            error!("Failed to enable notifications. Status: {:?}", status);
+            anyhow::bail!("Failed to enable notifications with status: {:?}", status);
         }
 
         info!("Notifications enabled successfully");
@@ -204,13 +207,14 @@ impl BluetoothService {
             self.stop_scan()?;
         }
 
-        // Fetch UUID from settings
-        let service_uuid_str = {
+        // Fetch UUID and Debug setting from settings
+        let (service_uuid_str, debug_show_all) = {
             let settings_guard = self
                 .settings
                 .lock()
                 .map_err(|_| anyhow::anyhow!("Failed to lock settings"))?;
-            settings_guard.get().ble_service_uuid.clone()
+            let s = settings_guard.get();
+            (s.ble_service_uuid.clone(), s.debug_show_all_devices)
         };
 
         info!(
@@ -235,11 +239,13 @@ impl BluetoothService {
                     let adv = args.Advertisement()?;
                     let service_uuids = adv.ServiceUuids()?;
 
-                    let mut found = false;
-                    for i in 0..service_uuids.Size()? {
-                        if service_uuids.GetAt(i)? == service_uuid {
-                            found = true;
-                            break;
+                    let mut found = debug_show_all;
+                    if !found {
+                        for i in 0..service_uuids.Size()? {
+                            if service_uuids.GetAt(i)? == service_uuid {
+                                found = true;
+                                break;
+                            }
                         }
                     }
 

@@ -89,6 +89,8 @@ pub struct Settings {
     pub ble_data_char_uuid: String,
     #[serde(default = "default_command_uuid")]
     pub ble_command_char_uuid: String,
+    #[serde(default = "default_false")]
+    pub debug_show_all_devices: bool,
 }
 
 impl Default for Settings {
@@ -111,6 +113,7 @@ impl Default for Settings {
             ble_service_uuid: default_service_uuid(),
             ble_data_char_uuid: default_data_uuid(),
             ble_command_char_uuid: default_command_uuid(),
+            debug_show_all_devices: false,
         }
     }
 }

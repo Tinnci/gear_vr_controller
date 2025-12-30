@@ -630,6 +630,10 @@ impl GearVRApp {
                     ui.label("Command Characteristic:");
                     ui.text_edit_singleline(&mut settings_mut.ble_command_char_uuid);
                 });
+                ui.checkbox(
+                    &mut settings_mut.debug_show_all_devices,
+                    "Debug: Show All Devices (Ignore UUID)",
+                );
             });
 
             ui.add_space(10.0);
