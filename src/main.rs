@@ -40,6 +40,6 @@ fn main() -> Result<(), eframe::Error> {
     eframe::run_native(
         "Gear VR Controller",
         options,
-        Box::new(|cc| Ok(Box::new(presentation::ui::GearVRApp::new(cc)))),
+        Box::new(|cc| Ok(Box::new(presentation::GearVRApp::new(cc)))),
     )
 }

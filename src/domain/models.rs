@@ -104,3 +104,28 @@ pub enum MessageSeverity {
     Warning,
     Error,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tab {
+    Home,
+    Calibration,
+    Settings,
+    Debug,
+}
+
+#[derive(Debug, Clone)]
+pub enum BluetoothCommand {
+    Connect(u64),
+    Disconnect,
+    StartScan,
+    StopScan,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct CalibrationState {
+    pub min_x: u16,
+    pub max_x: u16,
+    pub min_y: u16,
+    pub max_y: u16,
+    pub samples: Vec<(u16, u16)>,
+}
