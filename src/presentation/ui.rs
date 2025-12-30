@@ -195,6 +195,7 @@ impl GearVRApp {
         if let Some(recognizer) = &mut self.gesture_recognizer {
             if let Some(direction) = recognizer.process(&data) {
                 let msg = format!("Gesture Detected: {:?}", direction);
+                tracing::info!("{}", msg);
                 self.status_message = Some(StatusMessage {
                     message: msg.clone(),
                     severity: MessageSeverity::Info,
@@ -526,6 +527,7 @@ impl GearVRApp {
                 };
 
                 if let Ok(mut settings) = self.settings.lock() {
+                    tracing::info!("Calibration saved: {:?}", calibration);
                     let _ = settings.update_calibration(calibration);
                     self.status_message = Some(StatusMessage {
                         message: "Calibration saved!".to_string(),
@@ -607,6 +609,33 @@ impl GearVRApp {
                     ui.label("File Name Prefix:");
                     ui.text_edit_singleline(&mut settings_mut.log_settings.file_name_prefix);
                 });
+                ui.horizontal(|ui| {
+                    ui.label("Rotation Strategy:");
+                    egui::ComboBox::from_id_salt("log_rotation")
+                        .selected_text(&settings_mut.log_settings.rotation)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut settings_mut.log_settings.rotation,
+                                "daily".to_string(),
+                                "Daily",
+                            );
+                            ui.selectable_value(
+                                &mut settings_mut.log_settings.rotation,
+                                "hourly".to_string(),
+                                "Hourly",
+                            );
+                            ui.selectable_value(
+                                &mut settings_mut.log_settings.rotation,
+                                "minutely".to_string(),
+                                "Minutely",
+                            );
+                            ui.selectable_value(
+                                &mut settings_mut.log_settings.rotation,
+                                "never".to_string(),
+                                "Never",
+                            );
+                        });
+                });
                 ui.label(
                     egui::RichText::new(
                         "To apply logging changes, please restart the application.",
@@ -614,6 +643,25 @@ impl GearVRApp {
                     .color(egui::Color32::YELLOW),
                 );
             }
+
+            ui.collapsing("Advanced Logging Formatting", |ui| {
+                ui.checkbox(
+                    &mut settings_mut.log_settings.show_file_line,
+                    "Show File & Line",
+                );
+                ui.checkbox(
+                    &mut settings_mut.log_settings.show_thread_ids,
+                    "Show Thread IDs",
+                );
+                ui.checkbox(
+                    &mut settings_mut.log_settings.show_target,
+                    "Show Target (Module)",
+                );
+                ui.checkbox(
+                    &mut settings_mut.log_settings.ansi_colors,
+                    "ANSI Colors (Console)",
+                );
+            });
 
             ui.separator();
             ui.heading("Input Polish");

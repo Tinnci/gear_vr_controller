@@ -19,19 +19,43 @@ pub fn init_logger(settings: &LogSettings) -> anyhow::Result<LoggingGuard> {
 
     // Console layer
     let console_layer = if settings.console_logging_enabled {
-        Some(fmt::layer().with_writer(std::io::stdout))
+        Some(
+            fmt::layer()
+                .with_writer(std::io::stdout)
+                .with_file(settings.show_file_line)
+                .with_line_number(settings.show_file_line)
+                .with_thread_ids(settings.show_thread_ids)
+                .with_target(settings.show_target)
+                .with_ansi(settings.ansi_colors),
+        )
     } else {
         None
     };
 
     // File layer
     let file_layer = if settings.file_logging_enabled {
-        let file_appender =
-            tracing_appender::rolling::daily(&settings.log_dir, &settings.file_name_prefix);
+        let rotation = match settings.rotation.to_lowercase().as_str() {
+            "hourly" => tracing_appender::rolling::Rotation::HOURLY,
+            "minutely" => tracing_appender::rolling::Rotation::MINUTELY,
+            "never" => tracing_appender::rolling::Rotation::NEVER,
+            _ => tracing_appender::rolling::Rotation::DAILY,
+        };
+
+        let file_appender = tracing_appender::rolling::RollingFileAppender::new(
+            rotation,
+            &settings.log_dir,
+            &settings.file_name_prefix,
+        );
         let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
         guards.push(guard);
         Some(
-            fmt::layer().with_writer(non_blocking).with_ansi(false), // File logs shouldn't have ANSI colors
+            fmt::layer()
+                .with_writer(non_blocking)
+                .with_ansi(false) // File logs shouldn't have ANSI colors
+                .with_file(settings.show_file_line)
+                .with_line_number(settings.show_file_line)
+                .with_thread_ids(settings.show_thread_ids)
+                .with_target(settings.show_target),
         )
     } else {
         None

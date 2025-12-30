@@ -5,23 +5,62 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogSettings {
+    #[serde(default = "default_level")]
     pub level: String, // "trace", "debug", "info", "warn", "error"
+    #[serde(default = "default_true")]
     pub file_logging_enabled: bool,
+    #[serde(default = "default_true")]
     pub console_logging_enabled: bool,
+    #[serde(default = "default_log_dir")]
     pub log_dir: String,
+    #[serde(default = "default_prefix")]
     pub file_name_prefix: String,
+    #[serde(default = "default_true")]
+    pub show_file_line: bool,
+    #[serde(default = "default_false")]
+    pub show_thread_ids: bool,
+    #[serde(default = "default_true")]
+    pub show_target: bool,
+    #[serde(default = "default_true")]
+    pub ansi_colors: bool,
+    #[serde(default = "default_rotation")]
+    pub rotation: String, // "daily", "hourly", "minutely", "never"
 }
 
 impl Default for LogSettings {
     fn default() -> Self {
         Self {
-            level: "info".to_string(),
-            file_logging_enabled: true,
-            console_logging_enabled: true,
-            log_dir: "logs".to_string(),
-            file_name_prefix: "gear_vr_controller".to_string(),
+            level: default_level(),
+            file_logging_enabled: default_true(),
+            console_logging_enabled: default_true(),
+            log_dir: default_log_dir(),
+            file_name_prefix: default_prefix(),
+            show_file_line: default_true(),
+            show_thread_ids: default_false(),
+            show_target: default_true(),
+            ansi_colors: default_true(),
+            rotation: default_rotation(),
         }
     }
+}
+
+fn default_level() -> String {
+    "info".to_string()
+}
+fn default_true() -> bool {
+    true
+}
+fn default_false() -> bool {
+    false
+}
+fn default_log_dir() -> String {
+    "logs".to_string()
+}
+fn default_prefix() -> String {
+    "gear_vr_controller".to_string()
+}
+fn default_rotation() -> String {
+    "daily".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
