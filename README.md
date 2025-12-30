@@ -1,127 +1,76 @@
-# Gear VR 控制器 Windows 应用程序
+# Gear VR Controller for Windows (Rust Edition)
 
-这是一个用于 Gear VR 控制器的 Windows 应用程序，允许用户将 Gear VR 控制器作为电脑输入设备使用。
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)
+![Status](https://img.shields.io/badge/status-Active-brightgreen.svg)
 
-## 功能特点
+Empower your Samsung Gear VR Controller (SM-R323 / SM-R324 / SM-R325) on Windows with this modern, high-performance driver written in Rust. Experience low-latency input, customizable gestures, and versatile control modes including Air Mouse functionality.
 
-1. **蓝牙连接管理**
+## ✨ Key Features
 
-   - 自动搜索并连接 Gear VR 控制器
-   - 实时显示连接状态
-   - 支持断开连接和重新连接
+- **🚀 High Performance**: Built with Rust for minimal latency and resource usage.
+- **🔌 Seamless Connectivity**: Automatic Bluetooth LE discovery and reconnection.
+- **🖱️ Versatile Control Modes**:
+  - **✈️ Air Mouse**: Wave your controller to move the cursor (using Gyroscope/IMU).
+  - **💻 Touchpad**: Use the controller trackpad like a laptop trackpad.
+  - **📽️ Presenter**: Optimized for PowerPoint presentations and media control.
+- **🎨 Radial Menu**: Quick-access overlay menu to switch modes on the fly (Long press `Back` button).
+- **👆 Gestures**: Configurable touchpad gestures for scrolling and navigation.
+- **⚙️ Customization**: Fine-tune sensitivity, dead zones, and acceleration.
+- **🛡️ Admin Tools**: Built-in tools to manage Bluetooth ghost devices and driver issues.
 
-2. **触摸板控制**
+## 🛠️ Installation
 
-   - 将触摸板映射为鼠标移动
-   - 支持触摸板点击作为鼠标点击
-   - 更精确的触摸板坐标解析
-   - 智能化的触摸板校准功能
-     - 自动化的多步骤校准流程
-     - 实时进度显示和状态反馈
-     - 智能检测和自动进入下一步
-   - 可调节的鼠标灵敏度
+1.  **Download**: Get the latest release from the [Releases](https://github.com/Tinnci/gear_vr_controller/releases) page.
+2.  **Run**: Launch `gear_vr_controller_rust.exe`.
+3.  **Connect**: Press and hold the **Home** button on your controller to enter pairing mode. The app will automatically detect and connect.
 
-3. **按键映射**
+## 🎮 Controls & Modes
 
-   - 支持触发键和返回键的自定义映射
-   - 可配置的按键组合
+Switch modes by **holding the Back button** for 0.5s to open the Radial Menu.
 
-4. **运动控制**
+| Mode | Trigger | Touchpad | Back | Home | Vol +/- |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Air Mouse** (Default) | Left Click | Scroll (Wheel) | Right Click | Win Key | Volume |
+| **Touchpad** | Left Click | Move Cursor | Right Click | Win + D | Scroll |
+| **Presenter** | Next Slide | Play/Pause | Prev Slide | - | Volume |
 
-   - 准确读取陀螺仪和加速度计数据
-   - 实时显示传感器数据
+> **Note**: In Air Mouse mode, hold the controller naturally like a pointer.
 
-5. **用户界面**
-   - 现代化的 WinUI 3 界面
-   - 实时状态显示
-   - 直观的设置界面
-   - 智能校准向导
-     - 清晰的步骤指示器
-     - 双进度条显示（触摸结束检测和自动进入倒计时）
-     - 实时数据可视化
+## 🔧 Building from Source
 
-## 主要功能模块
+Requirements:
+- [Rust Toolchain](https://rustup.rs/) (Stable)
+- Windows 10/11 SDK
 
-### 1. 蓝牙连接 (BluetoothService)
+```powershell
+# Clone the repository
+git clone https://github.com/Tinnci/gear_vr_controller.git
+cd gear_vr_controller
 
-- 处理与 Gear VR 控制器的蓝牙通信
-- 实现健壮且准确的 60 字节数据包解析和处理
-- 管理连接生命周期
+# Build
+cargo build --release
 
-### 2. 输入模拟 (InputSimulator)
+# Run
+cargo run --release
+```
 
-- 模拟鼠标和键盘输入
-- 处理触摸板移动到鼠标移动的转换
-- 实现按键映射功能
+## 🤝 Contributing
 
-### 3. 触摸板校准 (TouchpadCalibrationViewModel)
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-- 全自动化的多步骤校准流程
-  1. 边界校准：通过圆周运动自动检测触摸板边界
-  2. 中心点校准：智能判断中心点位置
-  3. 方向校准：自动采集和验证四个方向的移动数据
-- 智能检测功能
-  - 实时验证移动数据的有效性
-  - 自动过滤无效的触摸点
-  - 智能判断校准完成条件
-- 用户友好的反馈机制
-  - 双进度条显示系统
-  - 实时状态提示
-  - 自动化的步骤转换
+1. Fork the Project
+2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the Branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
 
-### 4. 主界面控制 (MainViewModel)
+## 📄 License
 
-- 管理应用程序状态
-- 处理用户设置
-- 协调各个功能模块
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 使用说明
+## 🙏 Acknowledgements
 
-1. **连接控制器**
-
-   - 启动应用程序
-   - 按住控制器触发键进入配对模式
-   - 点击"连接"按钮
-
-2. **校准触摸板**
-
-   - 点击"校准"按钮，校准窗口会自动开始校准流程
-   - 按照界面提示完成以下步骤：
-     1. 在触摸板边缘划圈，确定边界范围
-     2. 点击触摸板中心位置
-     3. 依次完成上、下、左、右四个方向的滑动校准
-   - 每个步骤完成后会自动进入下一步
-   - 校准完成后自动保存设置
-
-3. **自定义设置**
-   - 调节鼠标灵敏度
-   - 配置按键映射
-   - 启用/禁用特定功能
-
-## 系统要求
-
-- Windows 10 版本 1809 或更高
-- 支持蓝牙 4.0 或更高版本
-- WinUI 3 运行时
-
-## 开发环境
-
-- Visual Studio 2022
-- .NET 6.0 或更高版本
-- Windows App SDK 1.2 或更高版本
-
-## 注意事项
-
-1. 校准过程全自动化，无需手动点击"开始校准"
-2. 确保控制器电量充足
-3. 保持控制器在蓝牙有效范围内
-4. 如遇连接问题，请尝试重启控制器
-
-## 未来计划
-
-1. 添加更多自定义选项
-2. 优化触摸板响应
-3. 支持手势识别
-4. 添加配置文件导入/导出功能
-5. 进一步优化校准算法
-6. 添加校准数据可视化功能
+- Based on reverse engineering of the Gear VR Controller BLE protocol.
+- Built with [egui](https://github.com/emilk/egui) for the UI.
+- Uses [windows-rs](https://github.com/microsoft/windows-rs) for OS integration.
