@@ -20,25 +20,46 @@ const CONTROLLER_SERVICE_UUID: &str = "4f63756c-7573-2054-6872-65656d6f7465";
 const CONTROLLER_DATA_CHARACTERISTIC_UUID: &str = "c8c51726-81bc-483b-a052-f7a14ea3d281";
 const CONTROLLER_COMMAND_CHARACTERISTIC_UUID: &str = "c8c51726-81bc-483b-a052-f7a14ea3d282";
 
+use crate::domain::settings::SettingsService;
+use std::sync::{Arc, Mutex};
+
 pub struct BluetoothService {
     device: Option<BluetoothLEDevice>,
     data_characteristic: Option<GattCharacteristic>,
     data_sender: mpsc::UnboundedSender<AppEvent>,
     watcher: Option<BluetoothLEAdvertisementWatcher>,
+    settings: Arc<Mutex<SettingsService>>,
 }
 
 impl BluetoothService {
-    pub fn new(data_sender: mpsc::UnboundedSender<AppEvent>) -> Self {
+    pub fn new(
+        data_sender: mpsc::UnboundedSender<AppEvent>,
+        settings: Arc<Mutex<SettingsService>>,
+    ) -> Self {
         Self {
             device: None,
             data_characteristic: None,
             data_sender,
             watcher: None,
+            settings,
         }
     }
 
     pub async fn connect(&mut self, address: u64) -> Result<()> {
         info!("Connecting to Bluetooth device: {:#X}", address);
+
+        // Fetch UUIDs from settings
+        let (service_uuid_str, data_uuid_str) = {
+            let settings_guard = self
+                .settings
+                .lock()
+                .map_err(|_| anyhow::anyhow!("Failed to lock settings"))?;
+            let settings = settings_guard.get();
+            (
+                settings.ble_service_uuid.clone(),
+                settings.ble_data_char_uuid.clone(),
+            )
+        };
 
         // 1. 连接到 BLE 设备 (正确使用 WinRT async/await)
         let device_async = BluetoothLEDevice::FromBluetoothAddressAsync(address)?;
@@ -58,7 +79,7 @@ impl BluetoothService {
             let services = services_result.Services()?;
             info!("Found {} services", services.Size()?);
 
-            let service_uuid = parse_uuid(CONTROLLER_SERVICE_UUID)?;
+            let service_uuid = parse_uuid(&service_uuid_str)?;
             let mut target_service = None;
 
             for i in 0..services.Size()? {
@@ -84,7 +105,7 @@ impl BluetoothService {
         info!("Found {} characteristics", characteristics.Size()?);
 
         // 5. 查找数据特征值
-        let char_uuid = parse_uuid(CONTROLLER_DATA_CHARACTERISTIC_UUID)?;
+        let char_uuid = parse_uuid(&data_uuid_str)?;
         let mut data_char = None;
 
         for i in 0..characteristics.Size()? {
@@ -175,7 +196,16 @@ impl BluetoothService {
         watcher.SetScanningMode(BluetoothLEScanningMode::Active)?;
 
         let sender = self.data_sender.clone();
-        let service_uuid = parse_uuid(CONTROLLER_SERVICE_UUID)?;
+
+        // Fetch UUID from settings
+        let service_uuid_str = {
+            let settings_guard = self
+                .settings
+                .lock()
+                .map_err(|_| anyhow::anyhow!("Failed to lock settings"))?;
+            settings_guard.get().ble_service_uuid.clone()
+        };
+        let service_uuid = parse_uuid(&service_uuid_str)?;
 
         let handler = TypedEventHandler::new(
             move |_: windows::core::Ref<BluetoothLEAdvertisementWatcher>,
@@ -230,7 +260,14 @@ impl BluetoothService {
 
     async fn send_start_command(&self, service: &GattDeviceService) -> Result<()> {
         // 查找命令特征值
-        let char_uuid = parse_uuid(CONTROLLER_COMMAND_CHARACTERISTIC_UUID)?;
+        let cmd_uuid_str = {
+            let settings_guard = self
+                .settings
+                .lock()
+                .map_err(|_| anyhow::anyhow!("Failed to lock settings"))?;
+            settings_guard.get().ble_command_char_uuid.clone()
+        };
+        let char_uuid = parse_uuid(&cmd_uuid_str)?;
         let chars_result = service.GetCharacteristicsAsync()?.await?;
 
         if chars_result.Status()? != GattCommunicationStatus::Success {
@@ -285,6 +322,7 @@ impl BluetoothService {
         info!("Disconnected from device");
     }
 
+    #[allow(dead_code)]
     pub fn is_connected(&self) -> bool {
         self.device
             .as_ref()

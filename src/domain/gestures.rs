@@ -43,6 +43,18 @@ impl GestureRecognizer {
         }
     }
 
+    fn get_recognition_threshold(&self) -> f64 {
+        if let Ok(settings_guard) = self.settings.lock() {
+            let settings = settings_guard.get();
+            // Scale threshold inversely with sensitivity
+            // Base sensitivity is 2.0.
+            let scale_factor = settings.mouse_sensitivity.max(0.1) / 2.0;
+            self.min_gesture_distance / scale_factor
+        } else {
+            self.min_gesture_distance
+        }
+    }
+
     pub fn process(&mut self, data: &ControllerData) -> Option<GestureDirection> {
         let point = TouchpadPoint {
             x: data.processed_touchpad_x,
@@ -118,7 +130,7 @@ impl GestureRecognizer {
         let distance = (dx * dx + dy * dy).sqrt();
 
         // TODO: Get sensitivity from settings if needed to scale threshold
-        let threshold = self.min_gesture_distance;
+        let threshold = self.get_recognition_threshold();
 
         if distance < threshold {
             return GestureDirection::None;

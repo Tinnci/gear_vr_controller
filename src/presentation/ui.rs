@@ -104,6 +104,9 @@ impl GearVRApp {
         let (data_tx, data_rx) = mpsc::unbounded_channel();
         let (bt_cmd_tx, mut bt_cmd_rx) = mpsc::unbounded_channel();
 
+        // Create a clone for the Bluetooth thread
+        let bt_settings = settings.clone();
+
         // Spawn bluetooth task on a dedicated thread (Windows COM objects are not Send)
         std::thread::spawn(move || {
             let rt = tokio::runtime::Builder::new_current_thread()
@@ -113,7 +116,7 @@ impl GearVRApp {
 
             rt.block_on(async move {
                 let tx_clone = data_tx.clone();
-                let mut bt_service = BluetoothService::new(data_tx);
+                let mut bt_service = BluetoothService::new(data_tx, bt_settings);
 
                 while let Some(cmd) = bt_cmd_rx.recv().await {
                     match cmd {
@@ -760,6 +763,13 @@ impl eframe::App for GearVRApp {
                             severity: MessageSeverity::Success,
                         });
                         self.reconnect_timer = None;
+
+                        // Save known address
+                        if let Some(addr) = self.last_connected_address {
+                            if let Ok(mut settings) = self.settings.lock() {
+                                let _ = settings.add_known_address(addr);
+                            }
+                        }
                     } else if let ConnectionStatus::Disconnected = status {
                         if self.auto_reconnect {
                             self.reconnect_timer =

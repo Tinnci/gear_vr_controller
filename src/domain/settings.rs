@@ -81,6 +81,14 @@ pub struct Settings {
     pub smoothing_factor: usize,
     pub enable_acceleration: bool,
     pub acceleration_power: f64,
+
+    // Advanced BLE Settings
+    #[serde(default = "default_service_uuid")]
+    pub ble_service_uuid: String,
+    #[serde(default = "default_data_uuid")]
+    pub ble_data_char_uuid: String,
+    #[serde(default = "default_command_uuid")]
+    pub ble_command_char_uuid: String,
 }
 
 impl Default for Settings {
@@ -98,8 +106,23 @@ impl Default for Settings {
             smoothing_factor: 5, // 5 samples
             enable_acceleration: true,
             acceleration_power: 1.5,
+
+            // Advanced BLE Settings
+            ble_service_uuid: default_service_uuid(),
+            ble_data_char_uuid: default_data_uuid(),
+            ble_command_char_uuid: default_command_uuid(),
         }
     }
+}
+
+fn default_service_uuid() -> String {
+    "4f63756c-7573-2054-6872-65656d6f7465".to_string()
+}
+fn default_data_uuid() -> String {
+    "c8c51726-81bc-483b-a052-f7a14ea3d281".to_string()
+}
+fn default_command_uuid() -> String {
+    "c8c51726-81bc-483b-a052-f7a14ea3d282".to_string()
 }
 
 pub struct SettingsService {

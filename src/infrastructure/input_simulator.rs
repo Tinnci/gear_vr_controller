@@ -9,6 +9,7 @@ use windows::Win32::UI::WindowsAndMessaging::{GetCursorPos, SetCursorPos};
 
 const WHEEL_DELTA: i32 = 120;
 
+#[allow(dead_code)]
 pub struct InputSimulator;
 
 impl InputSimulator {
