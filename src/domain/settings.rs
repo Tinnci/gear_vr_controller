@@ -91,6 +91,16 @@ pub struct Settings {
     pub ble_command_char_uuid: String,
     #[serde(default = "default_false")]
     pub debug_show_all_devices: bool,
+
+    // Debug Settings
+    #[serde(default = "default_false")]
+    pub debug_raw_data_logging: bool,
+
+    // Pairing Settings
+    #[serde(default = "default_pairing_max_retries")]
+    pub pairing_max_retries: u32,
+    #[serde(default = "default_pairing_retry_delay_ms")]
+    pub pairing_retry_delay_ms: u64,
 }
 
 impl Default for Settings {
@@ -114,6 +124,13 @@ impl Default for Settings {
             ble_data_char_uuid: default_data_uuid(),
             ble_command_char_uuid: default_command_uuid(),
             debug_show_all_devices: false,
+
+            // Debug Settings
+            debug_raw_data_logging: false,
+
+            // Pairing Settings
+            pairing_max_retries: default_pairing_max_retries(),
+            pairing_retry_delay_ms: default_pairing_retry_delay_ms(),
         }
     }
 }
@@ -126,6 +143,12 @@ fn default_data_uuid() -> String {
 }
 fn default_command_uuid() -> String {
     "c8c51726-81bc-483b-a052-f7a14ea3d282".to_string()
+}
+fn default_pairing_max_retries() -> u32 {
+    3
+}
+fn default_pairing_retry_delay_ms() -> u64 {
+    1000
 }
 
 pub struct SettingsService {

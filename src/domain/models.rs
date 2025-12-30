@@ -2,15 +2,20 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default)]
 pub struct ControllerData {
-    // Accelerometer data
+    // Accelerometer data (raw IMU values)
     pub accel_x: f32,
     pub accel_y: f32,
     pub accel_z: f32,
 
-    // Gyroscope data
+    // Gyroscope data (raw IMU values)
     pub gyro_x: f32,
     pub gyro_y: f32,
     pub gyro_z: f32,
+
+    // Magnetometer data (for sensor fusion drift compensation)
+    pub mag_x: f32,
+    pub mag_y: f32,
+    pub mag_z: f32,
 
     // Button states
     pub trigger_button: bool,
@@ -29,8 +34,15 @@ pub struct ControllerData {
     pub processed_touchpad_x: f64,
     pub processed_touchpad_y: f64,
 
-    // Timestamp (Unix milliseconds)
+    // Timestamp (from controller, milliseconds)
     pub timestamp: i64,
+
+    // Temperature sensor (if available)
+    pub temperature: Option<i16>,
+
+    // Debug: raw bytes for protocol analysis
+    #[cfg(debug_assertions)]
+    pub raw_bytes: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone)]
@@ -44,7 +56,7 @@ pub struct ScannedDevice {
 pub enum AppEvent {
     ControllerData(ControllerData),
     ConnectionStatus(ConnectionStatus),
-        LogMessage(StatusMessage),
+    LogMessage(StatusMessage),
     DeviceFound(ScannedDevice),
 }
 
