@@ -19,6 +19,7 @@ pub fn render(app: &mut GearVRApp, ui: &mut egui::Ui) {
             });
             ui.checkbox(&mut settings_mut.enable_touchpad, "Enable Trackpad Input");
             ui.checkbox(&mut settings_mut.enable_buttons, "Enable Button Mapping");
+            ui.checkbox(&mut settings_mut.enable_gestures, "Enable Gesture Commands");
 
             ui.separator();
             Components::sub_heading(ui, "Precision Processing");

@@ -168,37 +168,49 @@ impl GearVRApp {
     }
 
     fn process_controller_data(&mut self, mut data: ControllerData) {
+        let (enable_tp, enable_btns, enable_gestures) = {
+            let s = self.settings.lock().unwrap();
+            let settings = s.get();
+            (
+                settings.enable_touchpad,
+                settings.enable_buttons,
+                settings.enable_gestures,
+            )
+        };
+
         if let Some(processor) = &mut self.touchpad_processor {
             processor.process(&mut data);
-            if data.touchpad_touched {
+            if enable_tp && data.touchpad_touched {
                 if let Some((dx, dy)) = processor.calculate_mouse_delta(&data) {
                     let _ = self.input_simulator.move_mouse(dx, dy);
                 }
             }
         }
 
-        if let Some(recognizer) = &mut self.gesture_recognizer {
-            if let Some(direction) = recognizer.process(&data) {
-                let msg = format!("Gesture Detected: {:?}", direction);
-                tracing::info!("{}", msg);
-                self.status_message = Some(StatusMessage {
-                    message: msg.clone(),
-                    severity: MessageSeverity::Info,
-                });
+        if enable_gestures {
+            if let Some(recognizer) = &mut self.gesture_recognizer {
+                if let Some(direction) = recognizer.process(&data) {
+                    let msg = format!("Gesture Detected: {:?}", direction);
+                    tracing::info!("{}", msg);
+                    self.status_message = Some(StatusMessage {
+                        message: msg.clone(),
+                        severity: MessageSeverity::Info,
+                    });
 
-                match direction {
-                    GestureDirection::Up => {
-                        let _ = self.input_simulator.mouse_wheel(1);
+                    match direction {
+                        GestureDirection::Up => {
+                            let _ = self.input_simulator.mouse_wheel(1);
+                        }
+                        GestureDirection::Down => {
+                            let _ = self.input_simulator.mouse_wheel(-1);
+                        }
+                        GestureDirection::Left | GestureDirection::Right => {
+                            let _ = self
+                                .input_simulator
+                                .key_press(windows::Win32::UI::Input::KeyboardAndMouse::VK_LMENU);
+                        }
+                        _ => {}
                     }
-                    GestureDirection::Down => {
-                        let _ = self.input_simulator.mouse_wheel(-1);
-                    }
-                    GestureDirection::Left => {
-                        let _ = self
-                            .input_simulator
-                            .key_press(windows::Win32::UI::Input::KeyboardAndMouse::VK_LMENU);
-                    }
-                    _ => {}
                 }
             }
         }
@@ -206,65 +218,67 @@ impl GearVRApp {
         let now = Instant::now();
         let debounce_duration = Duration::from_millis(50);
 
-        if data.trigger_button != self.last_trigger_state {
-            if self
-                .trigger_debounce
-                .map_or(true, |last| now.duration_since(last) > debounce_duration)
-            {
-                self.last_trigger_state = data.trigger_button;
-                self.trigger_debounce = Some(now);
-                if data.trigger_button {
-                    let _ = self.input_simulator.mouse_left_down();
-                } else {
-                    let _ = self.input_simulator.mouse_left_up();
+        if enable_btns {
+            if data.trigger_button != self.last_trigger_state {
+                if self
+                    .trigger_debounce
+                    .map_or(true, |last| now.duration_since(last) > debounce_duration)
+                {
+                    self.last_trigger_state = data.trigger_button;
+                    self.trigger_debounce = Some(now);
+                    if data.trigger_button {
+                        let _ = self.input_simulator.mouse_left_down();
+                    } else {
+                        let _ = self.input_simulator.mouse_left_up();
+                    }
                 }
             }
-        }
 
-        if data.touchpad_button != self.last_touchpad_button_state {
-            if self
-                .touchpad_btn_debounce
-                .map_or(true, |last| now.duration_since(last) > debounce_duration)
-            {
-                self.last_touchpad_button_state = data.touchpad_button;
-                self.touchpad_btn_debounce = Some(now);
-                if data.touchpad_button {
-                    let _ = self.input_simulator.mouse_right_down();
-                } else {
-                    let _ = self.input_simulator.mouse_right_up();
+            if data.touchpad_button != self.last_touchpad_button_state {
+                if self
+                    .touchpad_btn_debounce
+                    .map_or(true, |last| now.duration_since(last) > debounce_duration)
+                {
+                    self.last_touchpad_button_state = data.touchpad_button;
+                    self.touchpad_btn_debounce = Some(now);
+                    if data.touchpad_button {
+                        let _ = self.input_simulator.mouse_right_down();
+                    } else {
+                        let _ = self.input_simulator.mouse_right_up();
+                    }
                 }
             }
-        }
 
-        if data.volume_up_button {
-            if self
-                .volume_up_debounce
-                .map_or(true, |last| now.duration_since(last) > debounce_duration)
-            {
-                let _ = self.input_simulator.mouse_wheel(1);
-                self.volume_up_debounce = Some(now);
+            if data.volume_up_button {
+                if self
+                    .volume_up_debounce
+                    .map_or(true, |last| now.duration_since(last) > debounce_duration)
+                {
+                    let _ = self.input_simulator.mouse_wheel(1);
+                    self.volume_up_debounce = Some(now);
+                }
             }
-        }
 
-        if data.volume_down_button {
-            if self
-                .volume_down_debounce
-                .map_or(true, |last| now.duration_since(last) > debounce_duration)
-            {
-                let _ = self.input_simulator.mouse_wheel(-1);
-                self.volume_down_debounce = Some(now);
+            if data.volume_down_button {
+                if self
+                    .volume_down_debounce
+                    .map_or(true, |last| now.duration_since(last) > debounce_duration)
+                {
+                    let _ = self.input_simulator.mouse_wheel(-1);
+                    self.volume_down_debounce = Some(now);
+                }
             }
-        }
 
-        if data.back_button != self.last_back_button_state {
-            if self
-                .back_btn_debounce
-                .map_or(true, |last| now.duration_since(last) > debounce_duration)
-            {
-                self.last_back_button_state = data.back_button;
-                self.back_btn_debounce = Some(now);
-                if data.back_button {
-                    let _ = self.input_simulator.key_press(VK_ESCAPE);
+            if data.back_button != self.last_back_button_state {
+                if self
+                    .back_btn_debounce
+                    .map_or(true, |last| now.duration_since(last) > debounce_duration)
+                {
+                    self.last_back_button_state = data.back_button;
+                    self.back_btn_debounce = Some(now);
+                    if data.back_button {
+                        let _ = self.input_simulator.key_press(VK_ESCAPE);
+                    }
                 }
             }
         }

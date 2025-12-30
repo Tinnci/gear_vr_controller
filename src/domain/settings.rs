@@ -71,6 +71,7 @@ pub struct Settings {
     pub last_connected_address: Option<u64>,
     pub enable_touchpad: bool,
     pub enable_buttons: bool,
+    pub enable_gestures: bool,
 
     // Logging Settings
     #[serde(default)]
@@ -113,6 +114,7 @@ impl Default for Settings {
             last_connected_address: None,
             enable_touchpad: true,
             enable_buttons: true,
+            enable_gestures: true,
             log_settings: LogSettings::default(),
             // Defaults based on C# implementation
             dead_zone: 0.1, // 10%
