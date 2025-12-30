@@ -10,6 +10,13 @@ pub struct Settings {
     pub known_bluetooth_addresses: Vec<u64>,
     pub enable_touchpad: bool,
     pub enable_buttons: bool,
+
+    // Phase 2: Input Polish Settings
+    pub dead_zone: f64,
+    pub enable_smoothing: bool,
+    pub smoothing_factor: usize,
+    pub enable_acceleration: bool,
+    pub acceleration_power: f64,
 }
 
 impl Default for Settings {
@@ -20,6 +27,12 @@ impl Default for Settings {
             known_bluetooth_addresses: Vec::new(),
             enable_touchpad: true,
             enable_buttons: true,
+            // Defaults based on C# implementation
+            dead_zone: 0.1, // 10%
+            enable_smoothing: true,
+            smoothing_factor: 5, // 5 samples
+            enable_acceleration: true,
+            acceleration_power: 1.5,
         }
     }
 }
@@ -41,9 +54,8 @@ impl SettingsService {
     }
 
     fn get_settings_path() -> anyhow::Result<PathBuf> {
-        let mut path = dirs::config_dir().ok_or_else(|| {
-            anyhow::anyhow!("Could not determine config directory")
-        })?;
+        let mut path = dirs::config_dir()
+            .ok_or_else(|| anyhow::anyhow!("Could not determine config directory"))?;
         path.push("GearVRController");
         fs::create_dir_all(&path)?;
         path.push("settings.json");

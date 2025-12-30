@@ -1,5 +1,6 @@
 use crate::bluetooth::BluetoothService;
 use crate::controller::TouchpadProcessor;
+use crate::gestures::{GestureDirection, GestureRecognizer};
 use crate::input_simulator::InputSimulator;
 use crate::models::{
     AppEvent, ConnectionStatus, ControllerData, MessageSeverity, ScannedDevice, StatusMessage,
@@ -18,6 +19,7 @@ pub struct GearVRApp {
     settings: Arc<Mutex<SettingsService>>,
     input_simulator: InputSimulator,
     touchpad_processor: Option<TouchpadProcessor>,
+    gesture_recognizer: Option<GestureRecognizer>,
 
     // Bluetooth
     bluetooth_tx: mpsc::UnboundedSender<BluetoothCommand>,
@@ -39,6 +41,7 @@ pub struct GearVRApp {
     // Button states (for edge detection)
     last_trigger_state: bool,
     last_touchpad_button_state: bool,
+    last_back_button_state: bool,
 
     // Scanning
     is_scanning: bool,
@@ -48,6 +51,13 @@ pub struct GearVRApp {
     auto_reconnect: bool,
     last_connected_address: Option<u64>,
     reconnect_timer: Option<Instant>,
+
+    // Debounce
+    trigger_debounce: Option<Instant>,
+    touchpad_btn_debounce: Option<Instant>,
+    back_btn_debounce: Option<Instant>,
+    volume_up_debounce: Option<Instant>,
+    volume_down_debounce: Option<Instant>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -123,11 +133,13 @@ impl GearVRApp {
         });
 
         let touchpad_processor = Some(TouchpadProcessor::new(settings.clone()));
+        let gesture_recognizer = Some(GestureRecognizer::new(settings.clone()));
 
         Self {
             settings,
             input_simulator: InputSimulator::new(),
             touchpad_processor,
+            gesture_recognizer,
             bluetooth_tx: bt_cmd_tx,
             controller_data_rx: data_rx,
             connection_status: ConnectionStatus::Disconnected,
@@ -140,11 +152,17 @@ impl GearVRApp {
             last_trigger_state: false,
 
             last_touchpad_button_state: false,
+            last_back_button_state: false,
             is_scanning: false,
             scanned_devices: Vec::new(),
             auto_reconnect: false,
             last_connected_address: None,
             reconnect_timer: None,
+            trigger_debounce: None,
+            touchpad_btn_debounce: None,
+            back_btn_debounce: None,
+            volume_up_debounce: None,
+            volume_down_debounce: None,
         }
     }
 
@@ -161,28 +179,144 @@ impl GearVRApp {
             }
         }
 
-        // Handle button presses (edge detection)
-        if data.trigger_button && !self.last_trigger_state {
-            let _ = self.input_simulator.mouse_left_click();
-        }
-        self.last_trigger_state = data.trigger_button;
+        // Process gestures
+        if let Some(recognizer) = &mut self.gesture_recognizer {
+            if let Some(direction) = recognizer.process(&data) {
+                let msg = format!("Gesture Detected: {:?}", direction);
+                self.status_message = Some(StatusMessage {
+                    message: msg.clone(),
+                    severity: MessageSeverity::Info,
+                });
 
-        if data.touchpad_button && !self.last_touchpad_button_state {
-            let _ = self.input_simulator.mouse_left_click();
+                // TODO: Map actions
+                match direction {
+                    GestureDirection::Up => {
+                        let _ = self.input_simulator.mouse_wheel(1);
+                    }
+                    GestureDirection::Down => {
+                        let _ = self.input_simulator.mouse_wheel(-1);
+                    }
+                    GestureDirection::Left => {
+                        let _ = self
+                            .input_simulator
+                            .key_press(windows::Win32::UI::Input::KeyboardAndMouse::VK_LMENU);
+                    } // Alt (Placeholder)
+                    GestureDirection::Right => {}
+                    _ => {}
+                }
+            }
         }
-        self.last_touchpad_button_state = data.touchpad_button;
 
-        // Handle back button (ESC key)
-        if data.back_button {
-            let _ = self.input_simulator.key_press(VK_ESCAPE);
+        // Handle button presses with debouncing
+        let now = Instant::now();
+        let debounce_duration = Duration::from_millis(50);
+
+        // Helper macro or closure for debounce logic
+        // But since we need to mutate specific fields, maybe verbose is safer
+
+        // TRIGGER (Left Mouse)
+        if data.trigger_button != self.last_trigger_state {
+            let can_switch = match self.trigger_debounce {
+                Some(last) => now.duration_since(last) > debounce_duration,
+                None => true,
+            };
+
+            if can_switch {
+                self.last_trigger_state = data.trigger_button;
+                self.trigger_debounce = Some(now);
+
+                if data.trigger_button {
+                    let _ = self.input_simulator.mouse_left_down();
+                } else {
+                    let _ = self.input_simulator.mouse_left_up();
+                }
+            }
         }
 
-        // Handle volume buttons (Scroll)
+        // TOUCHPAD BUTTON (Right Mouse)
+        if data.touchpad_button != self.last_touchpad_button_state {
+            let can_switch = match self.touchpad_btn_debounce {
+                Some(last) => now.duration_since(last) > debounce_duration,
+                None => true,
+            };
+
+            if can_switch {
+                self.last_touchpad_button_state = data.touchpad_button;
+                self.touchpad_btn_debounce = Some(now);
+
+                if data.touchpad_button {
+                    let _ = self.input_simulator.mouse_right_down();
+                } else {
+                    let _ = self.input_simulator.mouse_right_up();
+                }
+            }
+        }
+
+        // BACK BUTTON (Esc)
+        // For keys, we usually just want single press (Down+Up) or simulate hold?
+        // Let's do hold simulation for consistency
+        // Wait, input_simulator has key_down/key_up
+        // But back button is often used as a click.
+        // Let's implement simple press (down...up) or debounced single shot?
+        // C# impl used SimulateKeyPress (Down+Up) on edge.
+        // Let's stick to C# behavior for now but with debounce.
+        // Actually, if we hold Back, we might want repeat? No.
+
+        // Use a simple state tracker for back button if not already existing?
+        // We don't have last_back_btn_state. Let's look at struct.
+        // Struct has last_trigger_state, last_touchpad_button_state.
+        // We need to add last_back_button_state etc. to struct if we want properly debounce generic buttons.
+        // For now, let's just use the simpler edge detection if we don't track state, BUT we can't debounce without state tracking.
+        // The data.back_button IS the current state.
+        // So we need to add fields to struct.
+
+        // VOLUME (Scroll)
+        // Usually scroll is discrete events. Holding volume should scroll continuously?
+        // C# impl: if held, repeat.
+        // Rust code: "if data.volume_up { wheel(1) }" -> This executes EVERY frame if held.
+        // This makes scroll VERY fast (60Hz scroll).
+        // C# used a debounce timer (50ms) to limit the rate.
+        // effectively 20 scrolls per second.
+
+        // Let's fix Volume repetition rate first.
         if data.volume_up_button {
-            let _ = self.input_simulator.mouse_wheel(1);
+            let can_fire = match self.volume_up_debounce {
+                Some(last) => now.duration_since(last) > debounce_duration,
+                None => true,
+            };
+            if can_fire {
+                let _ = self.input_simulator.mouse_wheel(1);
+                self.volume_up_debounce = Some(now);
+            }
         }
+
         if data.volume_down_button {
-            let _ = self.input_simulator.mouse_wheel(-1);
+            let can_fire = match self.volume_down_debounce {
+                Some(last) => now.duration_since(last) > debounce_duration,
+                None => true,
+            };
+            if can_fire {
+                let _ = self.input_simulator.mouse_wheel(-1);
+                self.volume_down_debounce = Some(now);
+            }
+        }
+
+        // BACK BUTTON (Esc)
+        if data.back_button != self.last_back_button_state {
+            let can_switch = match self.back_btn_debounce {
+                Some(last) => now.duration_since(last) > debounce_duration,
+                None => true,
+            };
+
+            if can_switch {
+                self.last_back_button_state = data.back_button;
+                self.back_btn_debounce = Some(now);
+
+                if data.back_button {
+                    // Rising edge
+                    let _ = self.input_simulator.key_press(VK_ESCAPE);
+                }
+            }
         }
 
         // Update calibration if active
@@ -407,6 +541,40 @@ impl GearVRApp {
 
             ui.checkbox(&mut settings_mut.enable_touchpad, "Enable Touchpad");
             ui.checkbox(&mut settings_mut.enable_buttons, "Enable Buttons");
+
+            ui.separator();
+            ui.heading("Input Polish");
+
+            ui.horizontal(|ui| {
+                ui.label("Dead Zone:");
+                // Range 0.0 to 1.0 normalized? Or 0.0 to 20.0 "percent"?
+                // In controller.rs we use settings.dead_zone / 100.0.
+                // So if user selects 1.0 here, it means 0.01 normalized threshold.
+                ui.add(egui::Slider::new(&mut settings_mut.dead_zone, 0.0..=10.0).text("%"));
+            });
+
+            ui.checkbox(&mut settings_mut.enable_smoothing, "Enable Smoothing");
+            if settings_mut.enable_smoothing {
+                ui.horizontal(|ui| {
+                    ui.label("Smoothing Factor:");
+                    ui.add(egui::Slider::new(
+                        &mut settings_mut.smoothing_factor,
+                        2..=10,
+                    ));
+                });
+            }
+
+            ui.checkbox(&mut settings_mut.enable_acceleration, "Enable Acceleration");
+            if settings_mut.enable_acceleration {
+                ui.horizontal(|ui| {
+                    ui.label("Acceleration Power:");
+                    ui.add(egui::Slider::new(
+                        &mut settings_mut.acceleration_power,
+                        1.0..=3.0,
+                    ));
+                });
+            }
+            ui.separator();
 
             if ui.button("Save Settings").clicked() {
                 if let Err(e) = settings.save() {

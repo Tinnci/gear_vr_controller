@@ -1,5 +1,6 @@
 mod bluetooth;
 mod controller;
+mod gestures;
 mod input_simulator;
 mod models;
 mod settings;
