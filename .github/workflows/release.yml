@@ -1,0 +1,47 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build and Release
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release
+        run: cargo build --release
+
+      - name: Package Binary
+        shell: pwsh
+        run: |
+          mkdir dist
+          cp target/release/gear_vr_controller_rust.exe dist/
+          # Optional: Compress if needed
+          # Compress-Archive -Path dist/* -DestinationPath gear_vr_controller_rust_v${{ github.ref_name }}_win_x64.zip
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            target/release/gear_vr_controller_rust.exe
+          name: Release ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
