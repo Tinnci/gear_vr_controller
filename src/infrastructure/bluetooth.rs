@@ -139,6 +139,42 @@ impl BluetoothService {
             }
         }
 
+        // 请求设备访问权限 (可能触发配对对话框)
+        info!("Requesting device access...");
+        let access_status = device.RequestAccessAsync()?.await?;
+        info!("Device access status: {:?}", access_status);
+
+        if access_status != windows::Devices::Enumeration::DeviceAccessStatus::Allowed {
+            warn!(
+                "Device access not allowed. Status: {:?}. Trying to continue anyway...",
+                access_status
+            );
+        }
+
+        // 检查并请求配对
+        let device_info = device.DeviceInformation()?;
+        let pairing = device_info.Pairing()?;
+        info!(
+            "Device pairing status - IsPaired: {:?}, CanPair: {:?}",
+            pairing.IsPaired()?,
+            pairing.CanPair()?
+        );
+
+        if !pairing.IsPaired()? && pairing.CanPair()? {
+            info!("Device is not paired. Attempting to pair...");
+            let pair_result = pairing.PairAsync()?.await?;
+            info!("Pairing result: {:?}", pair_result.Status()?);
+
+            // 配对后需要重新获取服务
+            if pair_result.Status()?
+                == windows::Devices::Enumeration::DevicePairingResultStatus::Paired
+            {
+                info!("Pairing successful! Reconnecting to get updated services...");
+                // 配对成功后，返回错误让调用者重试连接
+                anyhow::bail!("Pairing completed. Please reconnect.");
+            }
+        }
+
         // 6. 启用通知 (带重试逻辑)
         tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
 
