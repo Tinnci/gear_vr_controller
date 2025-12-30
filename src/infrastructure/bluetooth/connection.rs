@@ -12,7 +12,6 @@ use windows::Devices::Bluetooth::GenericAttributeProfile::{
     GattCommunicationStatus,
 };
 use windows::Devices::Bluetooth::{BluetoothConnectionStatus, BluetoothLEDevice};
-use windows::Devices::Enumeration::DevicePairingResultStatus;
 use windows::Storage::Streams::DataWriter;
 
 /// Configuration for connection behavior
@@ -73,23 +72,72 @@ impl BleConnection {
         let device = self.connect_device(address).await?;
         info!("Device connected: {:?}", device.Name()?);
 
-        // Step 2: Handle pairing
+        // Step 2: Create GattSession to maintain connection
+        // This helps prevent Windows from requiring additional pairing
+        if let Ok(session) = self.create_gatt_session(&device).await {
+            info!("GattSession created, MaintainConnection set to true");
+            // Keep session alive by not dropping it
+            std::mem::forget(session);
+        } else {
+            warn!("Failed to create GattSession, continuing anyway...");
+        }
+
+        // Step 3: Handle pairing (simplified - just logs status)
         self.handle_pairing(&device).await?;
 
-        // Step 3: Get GATT services and characteristics
+        // Step 4: Get GATT services and characteristics
         let (data_char, cmd_char) = self.get_characteristics(&device).await?;
 
-        // Step 4: Send initialization commands
+        // Step 5: Try enabling notifications BEFORE sending init commands
+        // Some devices need this order, and it may trigger the pairing dialog earlier
+        let notifications_enabled = match self.enable_notifications(&data_char).await {
+            Ok(()) => true,
+            Err(e) => {
+                warn!(
+                    "Could not enable notifications: {}. Will try after init commands.",
+                    e
+                );
+                false
+            }
+        };
+
+        // Step 6: Send initialization commands
         self.send_init_commands(&cmd_char).await?;
 
-        // Step 5: Enable notifications
-        self.enable_notifications(&data_char).await?;
+        // Step 7: If notifications weren't enabled earlier, try again
+        if !notifications_enabled {
+            info!("Retrying notification subscription after init commands...");
+            if let Err(e) = self.enable_notifications(&data_char).await {
+                // If still failing, log warning but continue - device may auto-send data
+                warn!(
+                    "Notification subscription still failing: {}. Controller may still work.",
+                    e
+                );
+                self.send_log(
+                    "Connected (notifications may be limited)",
+                    MessageSeverity::Warning,
+                );
+            }
+        }
 
         Ok(ConnectionResult {
             device,
             data_characteristic: data_char,
             command_characteristic: cmd_char,
         })
+    }
+
+    /// Create a GattSession to maintain the BLE connection
+    async fn create_gatt_session(
+        &self,
+        device: &BluetoothLEDevice,
+    ) -> Result<windows::Devices::Bluetooth::GenericAttributeProfile::GattSession> {
+        use windows::Devices::Bluetooth::GenericAttributeProfile::GattSession;
+
+        let device_id = device.BluetoothDeviceId()?;
+        let session = GattSession::FromDeviceIdAsync(&device_id)?.await?;
+        session.SetMaintainConnection(true)?;
+        Ok(session)
     }
 
     /// Connect to BLE device
@@ -99,7 +147,11 @@ impl BleConnection {
         Ok(device)
     }
 
-    /// Handle device pairing with retry logic
+    /// Handle device pairing
+    ///
+    /// For BLE devices, traditional pairing is often not needed.
+    /// We skip pairing and directly access GATT services.
+    /// If that fails due to access issues, we can try pairing then.
     async fn handle_pairing(&self, device: &BluetoothLEDevice) -> Result<()> {
         let device_info = device.DeviceInformation()?;
         let pairing = device_info.Pairing()?;
@@ -113,94 +165,15 @@ impl BleConnection {
             return Ok(());
         }
 
-        // Attempt custom pairing with retries
-        self.send_log("Pairing with controller...", MessageSeverity::Info);
-
-        for attempt in 1..=self.config.max_pairing_retries {
-            info!(
-                "Pairing attempt {}/{}",
-                attempt, self.config.max_pairing_retries
-            );
-
-            let custom_pairing = pairing.Custom()?;
-
-            match custom_pairing
-                .PairAsync(windows::Devices::Enumeration::DevicePairingKinds::ConfirmOnly)?
-                .await
-            {
-                Ok(pair_result) => {
-                    let status = pair_result.Status()?;
-                    info!("Pairing attempt {} result: {:?}", attempt, status);
-
-                    match status {
-                        DevicePairingResultStatus::Paired => {
-                            self.send_log("Pairing successful!", MessageSeverity::Success);
-                            return Ok(());
-                        }
-                        DevicePairingResultStatus::AlreadyPaired => {
-                            info!("Device was already paired");
-                            return Ok(());
-                        }
-                        DevicePairingResultStatus::Failed => {
-                            // Status 19 - BLE devices often don't need traditional pairing
-                            info!(
-                                "Pairing 'Failed' - BLE device may not require traditional pairing"
-                            );
-                            self.send_log(
-                                "Device may not require pairing, continuing...",
-                                MessageSeverity::Info,
-                            );
-                            return Ok(());
-                        }
-                        DevicePairingResultStatus::AccessDenied => {
-                            warn!("Pairing access denied");
-                            self.send_log(
-                                "Access denied. Try removing device from Windows Bluetooth settings.",
-                                MessageSeverity::Warning,
-                            );
-                        }
-                        DevicePairingResultStatus::AuthenticationFailure => {
-                            warn!("Pairing authentication failed");
-                        }
-                        DevicePairingResultStatus::ConnectionRejected => {
-                            warn!("Device rejected connection");
-                        }
-                        DevicePairingResultStatus::RequiredHandlerNotRegistered => {
-                            info!("No handler required, continuing...");
-                            return Ok(());
-                        }
-                        _ => {
-                            warn!("Unexpected pairing status: {:?}", status);
-                        }
-                    }
-                }
-                Err(e) => {
-                    let error_str = format!("{:?}", e);
-                    warn!("Pairing attempt {} failed: {}", attempt, error_str);
-
-                    if error_str.contains("800704C7") {
-                        self.send_log(
-                            "Pairing was cancelled. Please accept when prompted.",
-                            MessageSeverity::Warning,
-                        );
-                    }
-                }
-            }
-
-            // Retry delay
-            if attempt < self.config.max_pairing_retries {
-                tokio::time::sleep(tokio::time::Duration::from_millis(
-                    self.config.pairing_retry_delay_ms,
-                ))
-                .await;
-            }
-        }
-
-        warn!("All pairing attempts completed, continuing anyway...");
+        // For BLE devices like Gear VR Controller, we often don't need traditional pairing
+        // The device uses "Just Works" pairing or no pairing at all
+        // Skip pairing attempt and proceed directly to GATT access
+        info!("BLE device not paired - will attempt direct GATT access (no traditional pairing needed)");
         self.send_log(
-            "Pairing incomplete, attempting connection...",
-            MessageSeverity::Warning,
+            "Connecting without traditional pairing...",
+            MessageSeverity::Info,
         );
+
         Ok(())
     }
 
@@ -289,24 +262,60 @@ impl BleConnection {
         Ok(())
     }
 
-    /// Enable notifications on data characteristic
+    /// Enable notifications on data characteristic with retry logic
     async fn enable_notifications(&self, data_char: &GattCharacteristic) -> Result<()> {
         info!("Enabling notifications...");
 
-        let status = data_char
-            .WriteClientCharacteristicConfigurationDescriptorAsync(
-                GattClientCharacteristicConfigurationDescriptorValue::Notify,
-            )?
-            .await?;
+        // Retry up to 3 times for notification subscription
+        for attempt in 1..=3 {
+            match data_char
+                .WriteClientCharacteristicConfigurationDescriptorAsync(
+                    GattClientCharacteristicConfigurationDescriptorValue::Notify,
+                )?
+                .await
+            {
+                Ok(status) => {
+                    if status == GattCommunicationStatus::Success {
+                        info!("Notifications enabled successfully");
+                        self.send_log("Connection established!", MessageSeverity::Success);
+                        return Ok(());
+                    } else {
+                        warn!("Notification subscription returned status: {:?}", status);
+                        if attempt < 3 {
+                            info!("Retrying notification subscription...");
+                            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                        }
+                    }
+                }
+                Err(e) => {
+                    let error_str = format!("{:?}", e);
+                    warn!(
+                        "Notification subscription attempt {} failed: {}",
+                        attempt, error_str
+                    );
 
-        if status != GattCommunicationStatus::Success {
-            error!("Failed to enable notifications: {:?}", status);
-            anyhow::bail!("Failed to enable notifications");
+                    // Check for user cancelled error (0x800704C7)
+                    if error_str.contains("800704C7") {
+                        self.send_log(
+                            "Please accept the pairing dialog when it appears",
+                            MessageSeverity::Warning,
+                        );
+                    }
+
+                    if attempt < 3 {
+                        info!("Retrying in 1 second...");
+                        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+                    } else {
+                        // On final attempt failure, return error
+                        error!("Failed to enable notifications after {} attempts", attempt);
+                        anyhow::bail!("Failed to enable notifications: {}", e);
+                    }
+                }
+            }
         }
 
-        info!("Notifications enabled successfully");
-        self.send_log("Connection established!", MessageSeverity::Success);
-        Ok(())
+        error!("Failed to enable notifications after all attempts");
+        anyhow::bail!("Failed to enable notifications")
     }
 
     /// Check if device is connected
