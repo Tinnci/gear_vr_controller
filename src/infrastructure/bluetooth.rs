@@ -72,66 +72,115 @@ impl BluetoothService {
 
         info!("Device connected: {:?}", device.Name()?);
 
-        // 2. 获取 GATT 服务
-        let services_result = device.GetGattServicesAsync()?.await?;
+        // 2. 获取 GATT 服务 (使用 Uncached 模式以避免缓存问题)
+        let service_uuid = parse_uuid(&service_uuid_str)?;
+        let services_result = device.GetGattServicesForUuidAsync(service_uuid)?.await?;
 
         if services_result.Status()? != GattCommunicationStatus::Success {
+            error!(
+                "Failed to get GATT services. Status: {:?}",
+                services_result.Status()?
+            );
             anyhow::bail!("Failed to get GATT services");
         }
 
-        // 3. 查找控制器服务 - use block scope to drop services before await
-        let service = {
-            let services = services_result.Services()?;
-            info!("Found {} services", services.Size()?);
-            let _ = self.data_sender.send(AppEvent::LogMessage(StatusMessage {
-                message: "Services discovered. Looking for controller service...".to_string(),
-                severity: MessageSeverity::Info,
-            }));
+        let services = services_result.Services()?;
+        info!(
+            "Found {} services matching controller UUID",
+            services.Size()?
+        );
 
-            let service_uuid = parse_uuid(&service_uuid_str)?;
-            let mut target_service = None;
+        if services.Size()? == 0 {
+            anyhow::bail!("Controller service not found");
+        }
 
-            for i in 0..services.Size()? {
-                let svc = services.GetAt(i)?;
-                if svc.Uuid()? == service_uuid {
-                    target_service = Some(svc);
-                    break;
-                }
-            }
-
-            target_service.ok_or_else(|| anyhow::anyhow!("Controller service not found"))?
-        };
+        let service = services.GetAt(0)?;
         info!("Found controller service");
+        let _ = self.data_sender.send(AppEvent::LogMessage(StatusMessage {
+            message: "Controller service found".to_string(),
+            severity: MessageSeverity::Info,
+        }));
 
-        // 4. 获取特征值
-        let chars_result = service.GetCharacteristicsAsync()?.await?;
+        // 4. 获取特征值 (使用 Uncached 模式)
+        let char_uuid = parse_uuid(&data_uuid_str)?;
+        let chars_result = service.GetCharacteristicsForUuidAsync(char_uuid)?.await?;
 
         if chars_result.Status()? != GattCommunicationStatus::Success {
+            error!(
+                "Failed to get characteristics. Status: {:?}",
+                chars_result.Status()?
+            );
             anyhow::bail!("Failed to get characteristics");
         }
 
         let characteristics = chars_result.Characteristics()?;
-        info!("Found {} characteristics", characteristics.Size()?);
+        info!("Found {} data characteristics", characteristics.Size()?);
 
-        // 5. 查找数据特征值
-        let char_uuid = parse_uuid(&data_uuid_str)?;
-        let mut data_char = None;
+        if characteristics.Size()? == 0 {
+            anyhow::bail!("Data characteristic not found");
+        }
 
-        for i in 0..characteristics.Size()? {
-            let characteristic = characteristics.GetAt(i)?;
-            if characteristic.Uuid()? == char_uuid {
-                let props = characteristic.CharacteristicProperties()?;
-                info!("Found data characteristic with properties: {:?}", props);
-                data_char = Some(characteristic);
-                break;
+        let data_characteristic = characteristics.GetAt(0)?;
+        let props = data_characteristic.CharacteristicProperties()?;
+        info!("Data characteristic properties: {:?}", props);
+
+        // 诊断: 尝试先读取特征值以测试基本通信
+        info!("Attempting to read characteristic value for diagnostics...");
+        let read_result = data_characteristic.ReadValueAsync()?.await?;
+        match read_result.Status()? {
+            GattCommunicationStatus::Success => {
+                info!("Read test successful! Communication is working.");
+            }
+            other => {
+                warn!(
+                    "Read test failed with status: {:?}. This may indicate pairing issues.",
+                    other
+                );
             }
         }
 
-        let data_characteristic =
-            data_char.ok_or_else(|| anyhow::anyhow!("Data characteristic not found"))?;
-        info!("Found data characteristic");
+        // 6. 启用通知 (带重试逻辑)
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
 
-        // 6. 订阅通知 (使用 TypedEventHandler)
+        let mut notify_enabled = false;
+        for attempt in 1..=3 {
+            info!(
+                "Attempting to enable notifications (attempt {}/3)...",
+                attempt
+            );
+
+            let status = data_characteristic
+                .WriteClientCharacteristicConfigurationDescriptorAsync(
+                    GattClientCharacteristicConfigurationDescriptorValue::Notify,
+                )?
+                .await?;
+
+            if status == GattCommunicationStatus::Success {
+                notify_enabled = true;
+                break;
+            } else {
+                warn!(
+                    "Notification enable attempt {} failed. Status: {:?}",
+                    attempt, status
+                );
+                if attempt < 3 {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                }
+            }
+        }
+
+        if !notify_enabled {
+            error!("Failed to enable notifications after 3 attempts");
+            anyhow::bail!("Failed to enable notifications. Device may need to be paired in Windows Settings first.");
+        }
+
+        info!("Notifications enabled successfully");
+        let _ = self.data_sender.send(AppEvent::LogMessage(StatusMessage {
+            message: "Notifications enabled. Handshake complete.".to_string(),
+            severity: MessageSeverity::Info,
+        }));
+
+        // 7. 注册通知事件处理器 (在启用通知后)
         let sender = self.data_sender.clone();
         let handler = TypedEventHandler::new(
             move |_: windows::core::Ref<GattCharacteristic>,
@@ -148,24 +197,6 @@ impl BluetoothService {
         );
 
         data_characteristic.ValueChanged(&handler)?;
-
-        // 7. 启用通知
-        let status = data_characteristic
-            .WriteClientCharacteristicConfigurationDescriptorAsync(
-                GattClientCharacteristicConfigurationDescriptorValue::Notify,
-            )?
-            .await?;
-
-        if status != GattCommunicationStatus::Success {
-            error!("Failed to enable notifications. Status: {:?}", status);
-            anyhow::bail!("Failed to enable notifications with status: {:?}", status);
-        }
-
-        info!("Notifications enabled successfully");
-        let _ = self.data_sender.send(AppEvent::LogMessage(StatusMessage {
-            message: "Notifications enabled. Handshake complete.".to_string(),
-            severity: MessageSeverity::Info,
-        }));
 
         // 8. 可选：发送启动命令
         if let Err(e) = self.send_start_command(&service).await {
