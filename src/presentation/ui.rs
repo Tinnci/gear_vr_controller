@@ -448,6 +448,37 @@ impl GearVRApp {
                         }
                     });
             }
+
+            // Recently Connected Devices
+            let known_addresses = if let Ok(settings) = self.settings.lock() {
+                settings.get().known_bluetooth_addresses.clone()
+            } else {
+                Vec::new()
+            };
+
+            if !known_addresses.is_empty() {
+                ui.separator();
+                ui.label("Recently Connected:");
+                egui::ScrollArea::vertical()
+                    .id_salt("known_devices")
+                    .max_height(100.0)
+                    .show(ui, |ui| {
+                        for address in known_addresses {
+                            ui.horizontal(|ui| {
+                                ui.label(format!("{:X}", address));
+                                if ui.button("Connect").clicked() {
+                                    self.bluetooth_address_input = format!("{:X}", address);
+                                    self.connection_status = ConnectionStatus::Connecting;
+                                    self.auto_reconnect = true;
+                                    self.last_connected_address = Some(address);
+                                    self.reconnect_timer = None;
+                                    let _ =
+                                        self.bluetooth_tx.send(BluetoothCommand::Connect(address));
+                                }
+                            });
+                        }
+                    });
+            }
         });
 
         ui.add_space(10.0);

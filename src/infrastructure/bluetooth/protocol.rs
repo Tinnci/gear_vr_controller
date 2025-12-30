@@ -73,15 +73,24 @@ pub const INIT_SEQUENCE: &[(ControllerCommand, u32)] = &[
 /// Delay between commands in milliseconds
 pub const COMMAND_DELAY_MS: u64 = 50;
 
-/// IMU scaling factors
-/// These are approximate values - actual values may need calibration
+/// IMU scaling factors from decompiled Samsung APK
+/// Based on: com.samsung.android.app.vr.input.service/ui/c.class
 pub mod imu_scale {
-    /// Accelerometer scale (±8G range, 13-bit resolution)
-    pub const ACCEL: f32 = 1.0 / 4096.0;
-    /// Gyroscope scale (±2000 dps typical)
-    pub const GYRO: f32 = 1.0 / 900.0;
-    /// Magnetometer scale
-    pub const MAG: f32 = 1.0 / 1000.0;
+    /// Accelerometer: value * 10000.0 * 9.80665 / 2048.0 * ACCEL_FACTOR
+    /// ACCEL_FACTOR = 0.00001 (to g)
+    pub const ACCEL_RAW: f32 = 10000.0 * 9.80665 / 2048.0;
+    pub const ACCEL_FACTOR: f32 = 0.00001;
+
+    /// Gyroscope: value * 10000.0 * 0.017453292 / 14.285 * GYRO_FACTOR
+    /// GYRO_FACTOR = 0.0001 (to radians/s)
+    pub const GYRO_RAW: f32 = 10000.0 * 0.017453292 / 14.285;
+    pub const GYRO_FACTOR: f32 = 0.0001;
+
+    /// Magnetometer: value * 0.06
+    pub const MAG: f32 = 0.06;
+
+    /// Timestamp factor
+    pub const TIMESTAMP_FACTOR: f32 = 0.001;
 }
 
 /// Parse a 60-byte data packet from the controller
@@ -150,68 +159,63 @@ pub fn parse_raw_bytes(bytes: &[u8]) -> Result<ControllerData> {
     // Timestamp
     let timestamp = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as i64;
 
-    // Temperature (optional sensor data)
-    let temperature = Some(i16::from_le_bytes([bytes[4], bytes[5]]));
+    // Temperature (byte 57 according to JS implementation)
+    let temperature = Some(bytes[57] as i16);
 
-    // Parse IMU as 16-bit integers
-    let raw_accel_x = i16::from_le_bytes([bytes[8], bytes[9]]);
-    let raw_accel_y = i16::from_le_bytes([bytes[10], bytes[11]]);
-    let raw_accel_z = i16::from_le_bytes([bytes[12], bytes[13]]);
+    // Parse IMU as 16-bit integers using Samsung APK formula
+    // Accelerometer at bytes 4-9 (3 samples at offsets 0, 16, 32 - we use first)
+    // JS: getAccelerometerFloatWithOffsetFromArrayBufferAtIndex(buffer, 4/6/8, 0)
+    let raw_accel_x = i16::from_le_bytes([bytes[4], bytes[5]]);
+    let raw_accel_y = i16::from_le_bytes([bytes[6], bytes[7]]);
+    let raw_accel_z = i16::from_le_bytes([bytes[8], bytes[9]]);
 
-    let raw_gyro_x = i16::from_le_bytes([bytes[14], bytes[15]]);
-    let raw_gyro_y = i16::from_le_bytes([bytes[16], bytes[17]]);
-    let raw_gyro_z = i16::from_le_bytes([bytes[18], bytes[19]]);
+    // Gyroscope at bytes 10-15
+    let raw_gyro_x = i16::from_le_bytes([bytes[10], bytes[11]]);
+    let raw_gyro_y = i16::from_le_bytes([bytes[12], bytes[13]]);
+    let raw_gyro_z = i16::from_le_bytes([bytes[14], bytes[15]]);
 
-    let raw_mag_x = i16::from_le_bytes([bytes[20], bytes[21]]);
-    let raw_mag_y = i16::from_le_bytes([bytes[22], bytes[23]]);
-    let raw_mag_z = i16::from_le_bytes([bytes[24], bytes[25]]);
+    // Apply Samsung APK scaling formulas
+    // Accel: value * 10000.0 * 9.80665 / 2048.0 * 0.00001
+    let accel_x = raw_accel_x as f32 * imu_scale::ACCEL_RAW * imu_scale::ACCEL_FACTOR;
+    let accel_y = raw_accel_y as f32 * imu_scale::ACCEL_RAW * imu_scale::ACCEL_FACTOR;
+    let accel_z = raw_accel_z as f32 * imu_scale::ACCEL_RAW * imu_scale::ACCEL_FACTOR;
 
-    // Detect if data is 16-bit integers or 32-bit floats
-    // 16-bit IMU values should be within reasonable range
-    let (accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z) =
-        if raw_accel_x.abs() < 32000 && raw_accel_y.abs() < 32000 && raw_accel_z.abs() < 32000 {
-            // 16-bit integer format - apply scaling
-            (
-                raw_accel_x as f32 * imu_scale::ACCEL,
-                raw_accel_y as f32 * imu_scale::ACCEL,
-                raw_accel_z as f32 * imu_scale::ACCEL,
-                raw_gyro_x as f32 * imu_scale::GYRO,
-                raw_gyro_y as f32 * imu_scale::GYRO,
-                raw_gyro_z as f32 * imu_scale::GYRO,
-            )
-        } else {
-            // Fallback to 32-bit float interpretation
-            (
-                f32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]),
-                f32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]),
-                f32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]),
-                f32::from_le_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]),
-                f32::from_le_bytes([bytes[20], bytes[21], bytes[22], bytes[23]]),
-                f32::from_le_bytes([bytes[24], bytes[25], bytes[26], bytes[27]]),
-            )
-        };
+    // Gyro: value * 10000.0 * 0.017453292 / 14.285 * 0.0001
+    let gyro_x = raw_gyro_x as f32 * imu_scale::GYRO_RAW * imu_scale::GYRO_FACTOR;
+    let gyro_y = raw_gyro_y as f32 * imu_scale::GYRO_RAW * imu_scale::GYRO_FACTOR;
+    let gyro_z = raw_gyro_z as f32 * imu_scale::GYRO_RAW * imu_scale::GYRO_FACTOR;
 
-    // Magnetometer
-    let (mag_x, mag_y, mag_z) = (
-        raw_mag_x as f32 * imu_scale::MAG,
-        raw_mag_y as f32 * imu_scale::MAG,
-        raw_mag_z as f32 * imu_scale::MAG,
-    );
+    // Magnetometer at bytes 32-37 (JS: offset 32 + 0/2/4)
+    let raw_mag_x = i16::from_le_bytes([bytes[32], bytes[33]]);
+    let raw_mag_y = i16::from_le_bytes([bytes[34], bytes[35]]);
+    let raw_mag_z = i16::from_le_bytes([bytes[36], bytes[37]]);
 
-    // Touchpad
-    let touchpad_x = u16::from_le_bytes([bytes[54], bytes[55]]);
-    let touchpad_y = u16::from_le_bytes([bytes[56], bytes[57]]);
+    let mag_x = raw_mag_x as f32 * imu_scale::MAG;
+    let mag_y = raw_mag_y as f32 * imu_scale::MAG;
+    let mag_z = raw_mag_z as f32 * imu_scale::MAG;
 
-    // Buttons
+    // Touchpad coordinates - CORRECTED based on JS reference implementation
+    // The touchpad data is packed across multiple bytes using bit operations
+    // Max observed value = 315 (touchpad dimension in mm)
+    // JS: axisX = (((eventData[54] & 0xF) << 6) + ((eventData[55] & 0xFC) >> 2)) & 0x3FF
+    // JS: axisY = (((eventData[55] & 0x3) << 8) + ((eventData[56] & 0xFF) >> 0)) & 0x3FF
+    let touchpad_x =
+        ((((bytes[54] & 0x0F) as u16) << 6) + (((bytes[55] & 0xFC) as u16) >> 2)) & 0x3FF;
+    let touchpad_y = ((((bytes[55] & 0x03) as u16) << 8) + ((bytes[56] & 0xFF) as u16)) & 0x3FF;
+
+    // Button states - CORRECTED based on JS reference implementation
+    // JS mapping: trigger=bit0, home=bit1, back=bit2, touchpad=bit3, volUp=bit4, volDown=bit5
     let button_byte = bytes[58];
-    let trigger_button = (button_byte & 0x01) != 0;
-    let touchpad_button = (button_byte & 0x02) != 0;
-    let back_button = (button_byte & 0x04) != 0;
-    let home_button = (button_byte & 0x08) != 0;
-    let volume_up_button = (button_byte & 0x10) != 0;
-    let volume_down_button = (button_byte & 0x20) != 0;
+    let trigger_button = (button_byte & (1 << 0)) != 0;
+    let home_button = (button_byte & (1 << 1)) != 0;
+    let back_button = (button_byte & (1 << 2)) != 0;
+    let touchpad_button = (button_byte & (1 << 3)) != 0;
+    let volume_up_button = (button_byte & (1 << 4)) != 0;
+    let volume_down_button = (button_byte & (1 << 5)) != 0;
 
-    let touchpad_touched = bytes[59] != 0;
+    // Touchpad touched state (byte 59 is not used in JS, but we check it anyway)
+    // Note: In JS, temperature is at byte 57, and touchpad touch state might be implicit
+    let touchpad_touched = touchpad_x > 0 || touchpad_y > 0;
 
     Ok(ControllerData {
         timestamp,

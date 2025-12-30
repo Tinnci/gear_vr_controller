@@ -92,6 +92,13 @@ impl BluetoothService {
         self.device = Some(result.device);
         self.data_characteristic = Some(result.data_characteristic);
 
+        // Save to history on successful connection
+        {
+            if let Ok(mut settings) = self.settings.lock() {
+                let _ = settings.add_known_address(address);
+            }
+        }
+
         // Notify connection success
         let _ = self
             .event_sender
