@@ -11,9 +11,11 @@ use std::f32::consts::PI;
 pub enum ControlMode {
     #[default]
     Trackpad, // Normal trackpad mouse control
-    Joystick, // Continuous movement based on position
-    Scroll,   // Touchpad controls scroll wheel
-    Disabled, // Input paused
+    Joystick,   // Continuous movement based on position
+    AirMouse,   // IMU gyroscope-based air mouse
+    TiltScroll, // Tilt controller to scroll
+    Scroll,     // Touchpad controls scroll wheel
+    Disabled,   // Input paused
 }
 
 impl ControlMode {
@@ -21,6 +23,8 @@ impl ControlMode {
         match self {
             ControlMode::Trackpad => "Trackpad",
             ControlMode::Joystick => "Joystick",
+            ControlMode::AirMouse => "AirMouse",
+            ControlMode::TiltScroll => "TiltScroll",
             ControlMode::Scroll => "Scroll",
             ControlMode::Disabled => "Disabled",
         }
@@ -30,6 +34,8 @@ impl ControlMode {
         match self {
             ControlMode::Trackpad => "🖱️",
             ControlMode::Joystick => "🕹️",
+            ControlMode::AirMouse => "✈️",
+            ControlMode::TiltScroll => "📐",
             ControlMode::Scroll => "📜",
             ControlMode::Disabled => "⏸️",
         }
@@ -39,6 +45,8 @@ impl ControlMode {
         match self {
             ControlMode::Trackpad => "Move finger to move cursor",
             ControlMode::Joystick => "Push to edge for continuous movement",
+            ControlMode::AirMouse => "Wave controller to move cursor",
+            ControlMode::TiltScroll => "Tilt controller to scroll",
             ControlMode::Scroll => "Swipe to scroll content",
             ControlMode::Disabled => "All input temporarily paused",
         }
@@ -75,6 +83,8 @@ impl RadialMenu {
         let modes = [
             ControlMode::Trackpad,
             ControlMode::Joystick,
+            ControlMode::AirMouse,
+            ControlMode::TiltScroll,
             ControlMode::Scroll,
             ControlMode::Disabled,
         ];

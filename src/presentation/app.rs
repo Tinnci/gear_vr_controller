@@ -1,5 +1,6 @@
 use crate::domain::controller::TouchpadProcessor;
 use crate::domain::gestures::{GestureDirection, GestureRecognizer};
+use crate::domain::imu::ImuProcessor;
 use crate::domain::models::{
     AppEvent, BluetoothCommand, CalibrationState, ConnectionStatus, ControllerData,
     MessageSeverity, ScannedDevice, StatusMessage, Tab,
@@ -21,6 +22,7 @@ pub struct GearVRApp {
     pub(crate) input_simulator: InputSimulator,
     pub(crate) touchpad_processor: Option<TouchpadProcessor>,
     pub(crate) gesture_recognizer: Option<GestureRecognizer>,
+    pub(crate) imu_processor: Option<ImuProcessor>,
 
     // Bluetooth
     pub(crate) bluetooth_tx: mpsc::UnboundedSender<BluetoothCommand>,
@@ -138,6 +140,7 @@ impl GearVRApp {
 
         let touchpad_processor = Some(TouchpadProcessor::new(settings.clone()));
         let gesture_recognizer = Some(GestureRecognizer::new(settings.clone()));
+        let imu_processor = Some(ImuProcessor::new(settings.clone()));
         let last_connected_address = settings.lock().unwrap().get().last_connected_address;
 
         Self {
@@ -145,6 +148,7 @@ impl GearVRApp {
             input_simulator: InputSimulator::new(),
             touchpad_processor,
             gesture_recognizer,
+            imu_processor,
             bluetooth_tx: bt_cmd_tx,
             controller_data_rx: data_rx,
             connection_status: ConnectionStatus::Disconnected,
@@ -191,11 +195,55 @@ impl GearVRApp {
         let menu_active = self.radial_menu.is_visible;
         let input_disabled = self.current_control_mode == ControlMode::Disabled;
 
+        // Process touchpad data for normalization (needed for menu selection too)
         if let Some(processor) = &mut self.touchpad_processor {
             processor.process(&mut data);
-            if enable_tp && data.touchpad_touched && !menu_active && !input_disabled {
-                if let Some((dx, dy)) = processor.calculate_mouse_delta(&data) {
-                    let _ = self.input_simulator.move_mouse(dx, dy);
+        }
+
+        // Handle input based on current control mode
+        if !menu_active && !input_disabled {
+            match self.current_control_mode {
+                ControlMode::Trackpad | ControlMode::Joystick => {
+                    // Trackpad and Joystick modes use touchpad processor
+                    if enable_tp && data.touchpad_touched {
+                        if let Some(processor) = &mut self.touchpad_processor {
+                            if let Some((dx, dy)) = processor.calculate_mouse_delta(&data) {
+                                let _ = self.input_simulator.move_mouse(dx, dy);
+                            }
+                        }
+                    }
+                }
+                ControlMode::AirMouse => {
+                    // Air Mouse mode uses IMU gyroscope
+                    if let Some(imu) = &mut self.imu_processor {
+                        if let Some((dx, dy)) = imu.calculate_airmouse_delta(&data) {
+                            let _ = self.input_simulator.move_mouse(dx, dy);
+                        }
+                    }
+                }
+                ControlMode::TiltScroll => {
+                    // Tilt Scroll mode uses IMU accelerometer
+                    if let Some(imu) = &mut self.imu_processor {
+                        if let Some(scroll) = imu.calculate_tilt_scroll(&data) {
+                            let _ = self.input_simulator.mouse_wheel(scroll);
+                        }
+                    }
+                }
+                ControlMode::Scroll => {
+                    // Touchpad scroll mode - use touchpad Y movement for scrolling
+                    if enable_tp && data.touchpad_touched {
+                        if let Some(processor) = &mut self.touchpad_processor {
+                            if let Some((_, dy)) = processor.calculate_mouse_delta(&data) {
+                                if dy.abs() > 2 {
+                                    let scroll = if dy > 0 { -1 } else { 1 };
+                                    let _ = self.input_simulator.mouse_wheel(scroll);
+                                }
+                            }
+                        }
+                    }
+                }
+                ControlMode::Disabled => {
+                    // No input processing
                 }
             }
         }
