@@ -7,48 +7,41 @@ use eframe::egui::{self, Color32, Pos2, Stroke, Vec2};
 use std::f32::consts::PI;
 
 /// Available control modes for the controller
+/// Available control modes for the controller
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ControlMode {
     #[default]
-    Trackpad, // Normal trackpad mouse control
-    Joystick,   // Continuous movement based on position
-    AirMouse,   // IMU gyroscope-based air mouse
-    TiltScroll, // Tilt controller to scroll
-    Scroll,     // Touchpad controls scroll wheel
-    Disabled,   // Input paused
+    Mouse, // Air Mouse Mode (IMU cursor + TP scroll)
+    Touchpad,     // Laptop Trackpad Mode (TP cursor + Button scroll)
+    Presentation, // PPT/Media Mode (Buttons only)
+    Settings,     // Quick Settings / Calibration
 }
 
 impl ControlMode {
     pub fn name(&self) -> &'static str {
         match self {
-            ControlMode::Trackpad => "Trackpad",
-            ControlMode::Joystick => "Joystick",
-            ControlMode::AirMouse => "AirMouse",
-            ControlMode::TiltScroll => "TiltScroll",
-            ControlMode::Scroll => "Scroll",
-            ControlMode::Disabled => "Disabled",
+            ControlMode::Mouse => "Air Mouse",
+            ControlMode::Touchpad => "Touchpad",
+            ControlMode::Presentation => "Presenter",
+            ControlMode::Settings => "Settings",
         }
     }
 
     pub fn icon(&self) -> &'static str {
         match self {
-            ControlMode::Trackpad => "🖱️",
-            ControlMode::Joystick => "🕹️",
-            ControlMode::AirMouse => "✈️",
-            ControlMode::TiltScroll => "📐",
-            ControlMode::Scroll => "📜",
-            ControlMode::Disabled => "⏸️",
+            ControlMode::Mouse => "✈️",
+            ControlMode::Touchpad => "🖱️",
+            ControlMode::Presentation => "📽️",
+            ControlMode::Settings => "⚙️",
         }
     }
 
     pub fn description(&self) -> &'static str {
         match self {
-            ControlMode::Trackpad => "Move finger to move cursor",
-            ControlMode::Joystick => "Push to edge for continuous movement",
-            ControlMode::AirMouse => "Wave controller to move cursor",
-            ControlMode::TiltScroll => "Tilt controller to scroll",
-            ControlMode::Scroll => "Swipe to scroll content",
-            ControlMode::Disabled => "All input temporarily paused",
+            ControlMode::Mouse => "Wave to move, Touch to scroll",
+            ControlMode::Touchpad => "Laptop style control",
+            ControlMode::Presentation => "PPT & Media control",
+            ControlMode::Settings => "Calibration & Options",
         }
     }
 }
@@ -81,12 +74,10 @@ impl Default for RadialMenu {
 impl RadialMenu {
     pub fn new() -> Self {
         let modes = [
-            ControlMode::Trackpad,
-            ControlMode::Joystick,
-            ControlMode::AirMouse,
-            ControlMode::TiltScroll,
-            ControlMode::Scroll,
-            ControlMode::Disabled,
+            ControlMode::Mouse,
+            ControlMode::Touchpad,
+            ControlMode::Presentation,
+            ControlMode::Settings,
         ];
 
         let item_count = modes.len();

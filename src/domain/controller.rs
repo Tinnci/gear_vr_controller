@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 pub struct TouchpadProcessor {
     settings: Arc<Mutex<SettingsService>>,
-    last_processed_pos: Option<(f64, f64)>,
+    pub last_processed_pos: Option<(f64, f64)>,
     delta_buffer_x: VecDeque<f64>,
     delta_buffer_y: VecDeque<f64>,
 }

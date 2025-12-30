@@ -2,8 +2,8 @@ use tracing::{debug, trace};
 use windows::Win32::Foundation::POINT;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_KEYUP,
-    MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN,
-    MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_WHEEL, MOUSEINPUT, VIRTUAL_KEY,
+    MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MOVE,
+    MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_WHEEL, MOUSEINPUT, VIRTUAL_KEY,
 };
 use windows::Win32::UI::WindowsAndMessaging::{GetCursorPos, SetCursorPos};
 
@@ -161,6 +161,7 @@ impl InputSimulator {
     }
 
     /// Simulate mouse wheel scroll
+    /// Simulate mouse wheel scroll
     pub fn mouse_wheel(&self, delta: i32) -> anyhow::Result<()> {
         debug!("Mouse Wheel Scroll: {}", delta);
         unsafe {
@@ -172,6 +173,28 @@ impl InputSimulator {
                         dy: 0,
                         mouseData: (delta * WHEEL_DELTA) as u32,
                         dwFlags: MOUSEEVENTF_WHEEL,
+                        time: 0,
+                        dwExtraInfo: 0,
+                    },
+                },
+            };
+            SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
+        }
+        Ok(())
+    }
+
+    /// Simulate horizontal mouse wheel scroll
+    pub fn mouse_h_wheel(&self, delta: i32) -> anyhow::Result<()> {
+        debug!("Mouse Horizontal Wheel Scroll: {}", delta);
+        unsafe {
+            let input = INPUT {
+                r#type: INPUT_MOUSE,
+                Anonymous: INPUT_0 {
+                    mi: MOUSEINPUT {
+                        dx: 0,
+                        dy: 0,
+                        mouseData: (delta * WHEEL_DELTA) as u32,
+                        dwFlags: MOUSEEVENTF_HWHEEL,
                         time: 0,
                         dwExtraInfo: 0,
                     },

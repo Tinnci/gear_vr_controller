@@ -193,7 +193,7 @@ impl GearVRApp {
 
         // Skip normal touchpad/gesture processing when radial menu is active
         let menu_active = self.radial_menu.is_visible;
-        let input_disabled = self.current_control_mode == ControlMode::Disabled;
+        // let input_disabled = self.current_control_mode == ControlMode::Disabled; // Disabled mode removed
 
         // Process touchpad data for normalization (needed for menu selection too)
         if let Some(processor) = &mut self.touchpad_processor {
@@ -201,10 +201,48 @@ impl GearVRApp {
         }
 
         // Handle input based on current control mode
-        if !menu_active && !input_disabled {
+        if !menu_active {
             match self.current_control_mode {
-                ControlMode::Trackpad | ControlMode::Joystick => {
-                    // Trackpad and Joystick modes use touchpad processor
+                ControlMode::Mouse => {
+                    // --- AIR MOUSE MODE ---
+                    // 1. IMU Cursor
+                    if let Some(imu) = &mut self.imu_processor {
+                        if let Some((dx, dy)) = imu.calculate_airmouse_delta(&data) {
+                            let _ = self.input_simulator.move_mouse(dx, dy);
+                        }
+                    }
+
+                    // 2. Touchpad Scroll (Vertical & Horizontal)
+                    if enable_tp && data.touchpad_touched {
+                        if let Some(processor) = &mut self.touchpad_processor {
+                            // Use raw movement for scroll to avoid acceleration weirdness
+                            let dx = data.touchpad_x as f64
+                                - processor
+                                    .last_processed_pos
+                                    .unwrap_or((data.touchpad_x as f64, data.touchpad_y as f64))
+                                    .0;
+                            let dy = data.touchpad_y as f64
+                                - processor
+                                    .last_processed_pos
+                                    .unwrap_or((data.touchpad_x as f64, data.touchpad_y as f64))
+                                    .1;
+
+                            // Scroll Threshold
+                            let threshold = 0.05;
+                            if dy.abs() > threshold {
+                                let scroll = if dy > 0.0 { -1 } else { 1 };
+                                let _ = self.input_simulator.mouse_wheel(scroll);
+                            }
+                            if dx.abs() > threshold {
+                                let scroll = if dx > 0.0 { 1 } else { -1 };
+                                let _ = self.input_simulator.mouse_h_wheel(scroll);
+                            }
+                        }
+                    }
+                }
+                ControlMode::Touchpad => {
+                    // --- LAPTOP TRACKPAD MODE ---
+                    // 1. Touchpad Cursor
                     if enable_tp && data.touchpad_touched {
                         if let Some(processor) = &mut self.touchpad_processor {
                             if let Some((dx, dy)) = processor.calculate_mouse_delta(&data) {
@@ -213,42 +251,13 @@ impl GearVRApp {
                         }
                     }
                 }
-                ControlMode::AirMouse => {
-                    // Air Mouse mode uses IMU gyroscope
-                    if let Some(imu) = &mut self.imu_processor {
-                        if let Some((dx, dy)) = imu.calculate_airmouse_delta(&data) {
-                            let _ = self.input_simulator.move_mouse(dx, dy);
-                        }
-                    }
-                }
-                ControlMode::TiltScroll => {
-                    // Tilt Scroll mode uses IMU accelerometer
-                    if let Some(imu) = &mut self.imu_processor {
-                        if let Some(scroll) = imu.calculate_tilt_scroll(&data) {
-                            let _ = self.input_simulator.mouse_wheel(scroll);
-                        }
-                    }
-                }
-                ControlMode::Scroll => {
-                    // Touchpad scroll mode - use touchpad Y movement for scrolling
-                    if enable_tp && data.touchpad_touched {
-                        if let Some(processor) = &mut self.touchpad_processor {
-                            if let Some((_, dy)) = processor.calculate_mouse_delta(&data) {
-                                if dy.abs() > 2 {
-                                    let scroll = if dy > 0 { -1 } else { 1 };
-                                    let _ = self.input_simulator.mouse_wheel(scroll);
-                                }
-                            }
-                        }
-                    }
-                }
-                ControlMode::Disabled => {
-                    // No input processing
+                ControlMode::Presentation | ControlMode::Settings => {
+                    // No cursor movement in these modes
                 }
             }
         }
 
-        if enable_gestures && !menu_active && !input_disabled {
+        if enable_gestures && !menu_active {
             if let Some(recognizer) = &mut self.gesture_recognizer {
                 if let Some(direction) = recognizer.process(&data) {
                     let msg = format!("Gesture Detected: {:?}", direction);
@@ -281,13 +290,89 @@ impl GearVRApp {
         let menu_hold_threshold = Duration::from_millis(300);
 
         if enable_btns {
-            // Radial Menu Trigger Logic
-            if data.trigger_button {
+            // --- BUTTON MAPPING BASED ON MODE ---
+
+            // Trigger Button
+            if data.trigger_button != self.last_trigger_state {
+                if self
+                    .trigger_debounce
+                    .map_or(true, |last| now.duration_since(last) > debounce_duration)
+                {
+                    self.last_trigger_state = data.trigger_button;
+                    self.trigger_debounce = Some(now);
+
+                    if data.trigger_button {
+                        // Trigger Pressed
+                        match self.current_control_mode {
+                            ControlMode::Mouse | ControlMode::Touchpad => {
+                                let _ = self.input_simulator.mouse_left_down();
+                            }
+                            ControlMode::Presentation => {
+                                // Next Slide (Right Arrow)
+                                let _ = self.input_simulator.key_press(
+                                    windows::Win32::UI::Input::KeyboardAndMouse::VK_RIGHT,
+                                );
+                            }
+                            _ => {}
+                        }
+                    } else {
+                        // Trigger Released
+                        match self.current_control_mode {
+                            ControlMode::Mouse | ControlMode::Touchpad => {
+                                let _ = self.input_simulator.mouse_left_up();
+                            }
+                            ControlMode::Presentation => {
+                                // Key press already handled on down, no release needed for simple key.
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+
+            // Touchpad Button (Center Click)
+            if data.touchpad_button != self.last_touchpad_button_state {
+                if self
+                    .touchpad_btn_debounce
+                    .map_or(true, |last| now.duration_since(last) > debounce_duration)
+                {
+                    self.last_touchpad_button_state = data.touchpad_button;
+                    self.touchpad_btn_debounce = Some(now);
+                    if data.touchpad_button {
+                        // Touchpad Button Pressed
+                        match self.current_control_mode {
+                            ControlMode::Mouse | ControlMode::Touchpad => {
+                                let _ = self.input_simulator.mouse_right_down();
+                            }
+                            ControlMode::Presentation => {
+                                // Previous Slide (Left Arrow)
+                                let _ = self.input_simulator.key_press(
+                                    windows::Win32::UI::Input::KeyboardAndMouse::VK_LEFT,
+                                );
+                            }
+                            _ => {}
+                        }
+                    } else {
+                        // Touchpad Button Released
+                        match self.current_control_mode {
+                            ControlMode::Mouse | ControlMode::Touchpad => {
+                                let _ = self.input_simulator.mouse_right_up();
+                            }
+                            ControlMode::Presentation => {
+                                // Key press already handled on down.
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+
+            // Back Button (Radial Menu Activator on Long Press, otherwise Escape)
+            if data.back_button {
                 if self.trigger_hold_start.is_none() {
-                    // Trigger just pressed
+                    // Reusing trigger_hold_start for back button hold
                     self.trigger_hold_start = Some(now);
                 } else if let Some(start_time) = self.trigger_hold_start {
-                    // Trigger being held
                     if now.duration_since(start_time) >= menu_hold_threshold
                         && !self.radial_menu.is_visible
                     {
@@ -304,14 +389,19 @@ impl GearVRApp {
                     }
                 }
             } else {
-                // Trigger released
+                // Back Button Released
                 if let Some(start_time) = self.trigger_hold_start {
                     let hold_duration = now.duration_since(start_time);
 
                     if self.radial_menu.is_visible {
                         // Was showing radial menu - handle selection
                         if let Some(selected_mode) = self.radial_menu.hide() {
-                            self.current_control_mode = selected_mode;
+                            if selected_mode == ControlMode::Settings {
+                                self.selected_tab = Tab::Settings;
+                            } else {
+                                self.current_control_mode = selected_mode;
+                            }
+
                             self.status_message = Some(StatusMessage {
                                 message: format!(
                                     "Mode: {} - {}",
@@ -322,66 +412,85 @@ impl GearVRApp {
                             });
                         }
                     } else if hold_duration < menu_hold_threshold {
-                        // Quick tap - normal click behavior
+                        // Quick tap - normal back/escape behavior
                         if self
-                            .trigger_debounce
+                            .back_btn_debounce
                             .map_or(true, |last| now.duration_since(last) > debounce_duration)
                         {
-                            // Send click (down then up)
-                            let _ = self.input_simulator.mouse_left_click();
-                            self.trigger_debounce = Some(now);
+                            self.back_btn_debounce = Some(now);
+                            match self.current_control_mode {
+                                ControlMode::Mouse | ControlMode::Touchpad => {
+                                    // Right Click
+                                    let _ = self.input_simulator.mouse_right_click();
+                                }
+                                ControlMode::Presentation => {
+                                    // Prev Slide
+                                    let _ = self.input_simulator.key_press(
+                                        windows::Win32::UI::Input::KeyboardAndMouse::VK_LEFT,
+                                    );
+                                }
+                                _ => {}
+                            }
                         }
                     }
-
                     self.trigger_hold_start = None;
                 }
-                self.last_trigger_state = false;
             }
 
-            if data.touchpad_button != self.last_touchpad_button_state {
-                if self
-                    .touchpad_btn_debounce
-                    .map_or(true, |last| now.duration_since(last) > debounce_duration)
-                {
-                    self.last_touchpad_button_state = data.touchpad_button;
-                    self.touchpad_btn_debounce = Some(now);
-                    if data.touchpad_button {
-                        let _ = self.input_simulator.mouse_right_down();
-                    } else {
-                        let _ = self.input_simulator.mouse_right_up();
-                    }
-                }
-            }
-
+            // Volume Up Button
             if data.volume_up_button {
                 if self
                     .volume_up_debounce
                     .map_or(true, |last| now.duration_since(last) > debounce_duration)
                 {
-                    let _ = self.input_simulator.mouse_wheel(1);
                     self.volume_up_debounce = Some(now);
+                    match self.current_control_mode {
+                        ControlMode::Mouse => {
+                            // Volume Up
+                            let _ = self.input_simulator.key_press(
+                                windows::Win32::UI::Input::KeyboardAndMouse::VK_VOLUME_UP,
+                            );
+                        }
+                        ControlMode::Touchpad => {
+                            // Scroll Up
+                            let _ = self.input_simulator.mouse_wheel(1);
+                        }
+                        ControlMode::Presentation => {
+                            // Volume Up
+                            let _ = self.input_simulator.key_press(
+                                windows::Win32::UI::Input::KeyboardAndMouse::VK_VOLUME_UP,
+                            );
+                        }
+                        _ => {}
+                    }
                 }
             }
 
+            // Volume Down Button
             if data.volume_down_button {
                 if self
                     .volume_down_debounce
                     .map_or(true, |last| now.duration_since(last) > debounce_duration)
                 {
-                    let _ = self.input_simulator.mouse_wheel(-1);
                     self.volume_down_debounce = Some(now);
-                }
-            }
-
-            if data.back_button != self.last_back_button_state {
-                if self
-                    .back_btn_debounce
-                    .map_or(true, |last| now.duration_since(last) > debounce_duration)
-                {
-                    self.last_back_button_state = data.back_button;
-                    self.back_btn_debounce = Some(now);
-                    if data.back_button {
-                        let _ = self.input_simulator.key_press(VK_ESCAPE);
+                    match self.current_control_mode {
+                        ControlMode::Mouse => {
+                            // Volume Down
+                            let _ = self.input_simulator.key_press(
+                                windows::Win32::UI::Input::KeyboardAndMouse::VK_VOLUME_DOWN,
+                            );
+                        }
+                        ControlMode::Touchpad => {
+                            // Scroll Down
+                            let _ = self.input_simulator.mouse_wheel(-1);
+                        }
+                        ControlMode::Presentation => {
+                            // Volume Down
+                            let _ = self.input_simulator.key_press(
+                                windows::Win32::UI::Input::KeyboardAndMouse::VK_VOLUME_DOWN,
+                            );
+                        }
+                        _ => {}
                     }
                 }
             }
