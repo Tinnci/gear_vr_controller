@@ -156,12 +156,37 @@ fn ui_status_panel(app: &mut GearVRApp, ui: &mut egui::Ui) {
                         .clicked()
                     {
                         let _ = app.admin_client.launch_worker();
-                        std::thread::sleep(std::time::Duration::from_millis(800));
-                        let _ = app.admin_client.restart_bluetooth_service();
+
+                        // Show a loading/wait message
                         app.status_message = Some(StatusMessage {
-                            message: "Bluetooth stack reset command sent.".to_string(),
+                            message: "Waiting for Admin Worker (UAC Confirmation)...".to_string(),
                             severity: MessageSeverity::Info,
                         });
+
+                        // Poll for connection (max 10s)
+                        if let Ok(true) = app.admin_client.wait_for_worker(10000) {
+                            match app.admin_client.restart_bluetooth_service() {
+                                Ok(_) => {
+                                    app.status_message = Some(StatusMessage {
+                                        message:
+                                            "Bluetooth stack successfully reset via Admin Worker."
+                                                .to_string(),
+                                        severity: MessageSeverity::Success,
+                                    });
+                                }
+                                Err(e) => {
+                                    app.status_message = Some(StatusMessage {
+                                        message: format!("Admin Task Failed: {}", e),
+                                        severity: MessageSeverity::Error,
+                                    });
+                                }
+                            }
+                        } else {
+                            app.status_message = Some(StatusMessage {
+                                message: "Admin elevation timed out or was cancelled.".to_string(),
+                                severity: MessageSeverity::Warning,
+                            });
+                        }
                     }
 
                     if ui.button("⚙ Open BT Settings").clicked() {
@@ -176,11 +201,18 @@ fn ui_status_panel(app: &mut GearVRApp, ui: &mut egui::Ui) {
                             .on_hover_text("Attempts to remove pairing record from Windows")
                             .clicked()
                         {
-                            if let Some(_addr) = app.last_connected_address {
-                                let _ = app.admin_client.launch_worker();
-                                // Note: We'd need to pass the instance_id, but address is better than nothing if service can find it.
-                                // For now, restarting service is more reliable.
-                                let _ = app.admin_client.restart_bluetooth_service();
+                            let _ = app.admin_client.launch_worker();
+                            app.status_message = Some(StatusMessage {
+                                message: "Waiting for Admin Worker...".to_string(),
+                                severity: MessageSeverity::Info,
+                            });
+
+                            if let Ok(true) = app.admin_client.wait_for_worker(10000) {
+                                let _ = app.admin_client.restart_bluetooth_service(); // For now used for general reset
+                                app.status_message = Some(StatusMessage {
+                                    message: "Environment reset triggered.".to_string(),
+                                    severity: MessageSeverity::Success,
+                                });
                             }
                         }
                     }

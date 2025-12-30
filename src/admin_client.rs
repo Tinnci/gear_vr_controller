@@ -34,6 +34,18 @@ impl AdminClient {
         }
     }
 
+    /// Wait for the worker to become available (polling)
+    pub fn wait_for_worker(&mut self, timeout_ms: u64) -> Result<bool> {
+        let start = std::time::Instant::now();
+        while start.elapsed() < std::time::Duration::from_millis(timeout_ms) {
+            if self.try_connect().unwrap_or(false) {
+                return Ok(true);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+        Ok(false)
+    }
+
     /// Launch the admin worker with UAC prompt
     pub fn launch_worker(&self) -> Result<()> {
         info!("Requesting legacy UAC elevation to start worker...");

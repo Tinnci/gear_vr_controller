@@ -4,9 +4,14 @@ use interprocess::local_socket::{
 };
 use interprocess::TryClone;
 use serde::{Deserialize, Serialize};
+use std::ffi::OsStr;
 use std::io::{BufRead, BufReader, Write};
+use std::os::windows::ffi::OsStrExt;
 use std::process::Command;
 use tracing::{error, info};
+use windows::Win32::UI::WindowsAndMessaging::{
+    MessageBoxW, MB_ICONINFORMATION, MB_OK, MB_SYSTEMMODAL,
+};
 
 // Unique name for the named pipe
 pub const PIPE_NAME: &str = "@gear_vr_admin_worker";
@@ -41,6 +46,7 @@ pub fn run_admin_worker() -> Result<()> {
         })
         .init();
 
+    let _ = show_msgbox("Gear VR Controller", "Admin Diagnostic Assistant Started.\n\nPlease wait for commands from the main application.");
     info!("Admin worker started");
 
     let pipe_name = PIPE_NAME.to_fs_name::<GenericFilePath>()?;
@@ -70,6 +76,13 @@ fn handle_connection(mut stream: LocalStream) -> Result<()> {
                 if let Ok(cmd) = serde_json::from_str::<AdminCommand>(&buffer) {
                     info!("Received command: {:?}", cmd);
                     let response = execute_command(cmd);
+
+                    if let AdminResponse::Success(ref msg) = response {
+                        let _ = show_msgbox("Admin Action Success", msg);
+                    } else if let AdminResponse::Error(ref err) = response {
+                        let _ = show_msgbox("Admin Action Failed", err);
+                    }
+
                     let json = serde_json::to_string(&response)? + "\n";
                     stream.write_all(json.as_bytes())?;
                     stream.flush()?;
@@ -129,5 +142,25 @@ fn execute_command(cmd: AdminCommand) -> AdminResponse {
             }
         }
         AdminCommand::Quit => AdminResponse::Success("Quitting".to_string()),
+    }
+}
+
+fn show_msgbox(title: &str, body: &str) -> i32 {
+    let title_wide: Vec<u16> = OsStr::new(title)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let body_wide: Vec<u16> = OsStr::new(body)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    unsafe {
+        MessageBoxW(
+            None,
+            windows::core::PCWSTR(body_wide.as_ptr()),
+            windows::core::PCWSTR(title_wide.as_ptr()),
+            MB_OK | MB_ICONINFORMATION | MB_SYSTEMMODAL,
+        )
+        .0 as i32
     }
 }
