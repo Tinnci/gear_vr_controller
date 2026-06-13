@@ -6,6 +6,7 @@ use eframe::egui;
 pub fn render(app: &mut GearVRApp, ui: &mut egui::Ui) {
     Components::heading(ui, "Debug & Internal State");
     ui.add_space(20.0);
+    let latest_data = app.latest_controller_data.clone();
 
     Components::brutalist_card(ui, "Bluetooth Engine Status", |ui| {
         ui.horizontal(|ui| {
@@ -25,7 +26,7 @@ pub fn render(app: &mut GearVRApp, ui: &mut egui::Ui) {
 
     ui.add_space(10.0);
 
-    if let Some(data) = &app.latest_controller_data {
+    if let Some(data) = &latest_data {
         Components::brutalist_card(ui, "Raw Telemetry", |ui| {
             egui::Grid::new("debug_grid")
                 .spacing([20.0, 5.0])
@@ -42,10 +43,77 @@ pub fn render(app: &mut GearVRApp, ui: &mut egui::Ui) {
                         data.gyro_x, data.gyro_y, data.gyro_z
                     ));
                     ui.end_row();
+                    ui.label("Mag:");
+                    ui.label(format!(
+                        "{:.2}, {:.2}, {:.2}",
+                        data.mag_x, data.mag_y, data.mag_z
+                    ));
+                    ui.end_row();
                     ui.label("Packets:");
                     ui.label(format!("{}", data.timestamp));
                     ui.end_row();
+                    ui.label("Temperature:");
+                    ui.label(
+                        data.temperature
+                            .map_or_else(|| "n/a".to_string(), |value| value.to_string()),
+                    );
+                    ui.end_row();
+                    ui.label("Home Button:");
+                    ui.label(if data.home_button {
+                        "pressed"
+                    } else {
+                        "released"
+                    });
+                    ui.end_row();
+                    #[cfg(debug_assertions)]
+                    {
+                        ui.label("Raw Packet:");
+                        ui.label(data.raw_bytes.as_ref().map_or_else(
+                            || "n/a".to_string(),
+                            |bytes| format!("{} bytes", bytes.len()),
+                        ));
+                        ui.end_row();
+                    }
                 });
+        });
+    }
+
+    ui.add_space(10.0);
+
+    if let Some(imu) = &mut app.imu_processor {
+        Components::brutalist_card(ui, "IMU Diagnostics", |ui| {
+            ui.horizontal(|ui| {
+                if ui.button("Start Gyro Calibration").clicked() {
+                    imu.start_calibration();
+                }
+                if ui.button("Reset IMU Filter").clicked() {
+                    imu.reset_orientation();
+                }
+            });
+
+            if imu.is_calibrating() {
+                ui.add(
+                    egui::ProgressBar::new(imu.calibration_progress().min(1.0))
+                        .text("Calibrating gyro..."),
+                );
+            }
+
+            if let Some(data) = &latest_data {
+                egui::Grid::new("imu_debug_grid")
+                    .spacing([20.0, 5.0])
+                    .show(ui, |ui| {
+                        ui.label("Tilt Scroll:");
+                        ui.label(
+                            imu.calculate_tilt_scroll(data)
+                                .map_or_else(|| "neutral".to_string(), |value| value.to_string()),
+                        );
+                        ui.end_row();
+
+                        ui.label("Shake:");
+                        ui.label(if imu.detect_shake(data) { "yes" } else { "no" });
+                        ui.end_row();
+                    });
+            }
         });
     }
 

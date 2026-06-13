@@ -1,7 +1,9 @@
 use crate::domain::models::TouchpadCalibration;
 use serde::{Deserialize, Serialize};
-use std::fs;
-use std::path::PathBuf;
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogSettings {
@@ -155,41 +157,74 @@ fn default_pairing_retry_delay_ms() -> u64 {
     1000
 }
 
-pub struct SettingsService {
-    settings: Settings,
-    settings_path: PathBuf,
+pub trait SettingsStore: Send {
+    fn load(&self) -> anyhow::Result<Settings>;
+    fn save(&self, settings: &Settings) -> anyhow::Result<()>;
 }
 
-impl SettingsService {
-    pub fn new() -> anyhow::Result<Self> {
-        let settings_path = Self::get_settings_path()?;
-        let settings = Self::load_from_file(&settings_path).unwrap_or_default();
+pub struct JsonFileSettingsStore {
+    path: PathBuf,
+}
 
-        Ok(Self {
-            settings,
-            settings_path,
-        })
+impl JsonFileSettingsStore {
+    pub fn new(path: PathBuf) -> Self {
+        Self { path }
     }
 
-    fn get_settings_path() -> anyhow::Result<PathBuf> {
-        let mut path = dirs::config_dir()
-            .ok_or_else(|| anyhow::anyhow!("Could not determine config directory"))?;
+    pub fn default_path() -> anyhow::Result<PathBuf> {
+        let mut path = windows_config_dir()?;
         path.push("GearVRController");
         fs::create_dir_all(&path)?;
         path.push("settings.json");
         Ok(path)
     }
 
-    fn load_from_file(path: &PathBuf) -> anyhow::Result<Settings> {
+    fn load_from_file(path: &Path) -> anyhow::Result<Settings> {
         let contents = fs::read_to_string(path)?;
         let settings = serde_json::from_str(&contents)?;
         Ok(settings)
     }
+}
+
+impl SettingsStore for JsonFileSettingsStore {
+    fn load(&self) -> anyhow::Result<Settings> {
+        Self::load_from_file(&self.path)
+    }
+
+    fn save(&self, settings: &Settings) -> anyhow::Result<()> {
+        let json = serde_json::to_string_pretty(settings)?;
+        fs::write(&self.path, json)?;
+        Ok(())
+    }
+}
+
+fn windows_config_dir() -> anyhow::Result<PathBuf> {
+    env::var_os("APPDATA")
+        .or_else(|| env::var_os("LOCALAPPDATA"))
+        .map(PathBuf::from)
+        .ok_or_else(|| anyhow::anyhow!("Could not determine Windows config directory"))
+}
+
+pub struct SettingsService {
+    settings: Settings,
+    store: Box<dyn SettingsStore>,
+}
+
+impl SettingsService {
+    pub fn new() -> anyhow::Result<Self> {
+        Self::with_store(Box::new(JsonFileSettingsStore::new(
+            JsonFileSettingsStore::default_path()?,
+        )))
+    }
+
+    pub fn with_store(store: Box<dyn SettingsStore>) -> anyhow::Result<Self> {
+        let settings = store.load().unwrap_or_default();
+
+        Ok(Self { settings, store })
+    }
 
     pub fn save(&self) -> anyhow::Result<()> {
-        let json = serde_json::to_string_pretty(&self.settings)?;
-        fs::write(&self.settings_path, json)?;
-        Ok(())
+        self.store.save(&self.settings)
     }
 
     pub fn get(&self) -> &Settings {

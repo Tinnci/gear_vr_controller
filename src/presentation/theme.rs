@@ -7,8 +7,6 @@ pub struct BrutalistPalette {
     pub accent_yellow: egui::Color32,
     pub accent_green: egui::Color32,
     pub accent_cyan: egui::Color32,
-    pub accent_red: egui::Color32,
-    pub accent_blue: egui::Color32,
 }
 
 impl BrutalistPalette {
@@ -21,8 +19,6 @@ impl BrutalistPalette {
                 accent_yellow: egui::Color32::from_rgb(255, 200, 0),
                 accent_green: egui::Color32::from_rgb(0, 255, 127),
                 accent_cyan: egui::Color32::from_rgb(0, 255, 255),
-                accent_red: egui::Color32::from_rgb(255, 80, 80),
-                accent_blue: egui::Color32::from_rgb(80, 80, 255),
             }
         } else {
             Self {
@@ -32,8 +28,6 @@ impl BrutalistPalette {
                 accent_yellow: egui::Color32::from_rgb(255, 220, 0),
                 accent_green: egui::Color32::from_rgb(0, 255, 100),
                 accent_cyan: egui::Color32::from_rgb(0, 200, 255),
-                accent_red: egui::Color32::from_rgb(255, 50, 50),
-                accent_blue: egui::Color32::from_rgb(50, 50, 255),
             }
         }
     }

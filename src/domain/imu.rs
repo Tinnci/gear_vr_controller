@@ -15,10 +15,6 @@ pub struct ImuProcessor {
     gyro_offset_y: f32,
     gyro_offset_z: f32,
 
-    // Accumulated rotation for absolute positioning (optional)
-    accumulated_yaw: f32,
-    accumulated_pitch: f32,
-
     // Smoothing buffers
     gyro_buffer_x: Vec<f32>,
     gyro_buffer_y: Vec<f32>,
@@ -37,8 +33,6 @@ impl ImuProcessor {
             gyro_offset_x: 0.0,
             gyro_offset_y: 0.0,
             gyro_offset_z: 0.0,
-            accumulated_yaw: 0.0,
-            accumulated_pitch: 0.0,
             gyro_buffer_x: Vec::new(),
             gyro_buffer_y: Vec::new(),
             buffer_size: 3,
@@ -172,11 +166,11 @@ impl ImuProcessor {
         magnitude > shake_threshold
     }
 
-    /// Reset accumulated rotation (re-center)
+    /// Reset filtered motion history.
     pub fn reset_orientation(&mut self) {
-        self.accumulated_yaw = 0.0;
-        self.accumulated_pitch = 0.0;
-        tracing::info!("IMU orientation reset");
+        self.gyro_buffer_x.clear();
+        self.gyro_buffer_y.clear();
+        tracing::info!("IMU filter state reset");
     }
 
     fn finish_calibration(&mut self) {

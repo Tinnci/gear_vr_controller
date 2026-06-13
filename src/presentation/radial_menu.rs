@@ -7,7 +7,6 @@ use eframe::egui::{self, Color32, Pos2, Stroke, Vec2};
 use std::f32::consts::PI;
 
 /// Available control modes for the controller
-/// Available control modes for the controller
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ControlMode {
     #[default]
@@ -62,7 +61,7 @@ pub struct RadialMenu {
     pub items: Vec<RadialMenuItem>,
     pub outer_radius: f32,
     pub inner_radius: f32,
-    pub dead_zone_radius: f32,
+    pub dead_zone_threshold: f64,
 }
 
 impl Default for RadialMenu {
@@ -104,7 +103,7 @@ impl RadialMenu {
             items,
             outer_radius: 120.0,
             inner_radius: 40.0,
-            dead_zone_radius: 25.0,
+            dead_zone_threshold: 0.3,
         }
     }
 
@@ -126,7 +125,7 @@ impl RadialMenu {
         let distance = (touchpad_x * touchpad_x + touchpad_y * touchpad_y).sqrt();
 
         // Dead zone in center - no selection
-        if distance < 0.3 {
+        if distance < self.dead_zone_threshold {
             self.selected_index = None;
             return;
         }

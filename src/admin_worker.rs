@@ -1,20 +1,26 @@
+use crate::admin_ipc::{NamedPipe, PIPE_NAME};
 use anyhow::Result;
-use interprocess::local_socket::{
-    traits::ListenerExt, GenericFilePath, ListenerOptions, Stream as LocalStream, ToFsName,
-};
-use interprocess::TryClone;
 use serde::{Deserialize, Serialize};
 use std::ffi::OsStr;
-use std::io::{BufRead, BufReader, Write};
+use std::mem::size_of;
 use std::os::windows::ffi::OsStrExt;
 use std::process::Command;
+use std::thread;
+use std::time::{Duration, Instant};
 use tracing::{error, info};
+use windows::core::PCWSTR;
+use windows::Win32::Foundation::{
+    ERROR_SERVICE_ALREADY_RUNNING, ERROR_SERVICE_NOT_ACTIVE, WIN32_ERROR,
+};
+use windows::Win32::System::Services::{
+    CloseServiceHandle, ControlService, OpenSCManagerW, OpenServiceW, QueryServiceStatusEx,
+    StartServiceW, SC_HANDLE, SC_MANAGER_CONNECT, SC_STATUS_PROCESS_INFO, SERVICE_CONTROL_STOP,
+    SERVICE_QUERY_STATUS, SERVICE_RUNNING, SERVICE_START, SERVICE_STATUS,
+    SERVICE_STATUS_CURRENT_STATE, SERVICE_STATUS_PROCESS, SERVICE_STOP, SERVICE_STOPPED,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
     MessageBoxW, MB_ICONINFORMATION, MB_OK, MB_SYSTEMMODAL,
 };
-
-// Unique name for the named pipe
-pub const PIPE_NAME: &str = "@gear_vr_admin_worker";
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum AdminCommand {
@@ -49,32 +55,26 @@ pub fn run_admin_worker() -> Result<()> {
     let _ = show_msgbox("Gear VR Controller", "Admin Diagnostic Assistant Started.\n\nPlease wait for commands from the main application.");
     info!("Admin worker started");
 
-    let pipe_name = PIPE_NAME.to_fs_name::<GenericFilePath>()?;
-    let listener = ListenerOptions::new().name(pipe_name).create_sync()?;
+    info!("Listening on named pipe...");
 
-    info!("Listing on named pipe...");
-
-    for conn in listener.incoming().filter_map(|x| x.ok()) {
+    loop {
+        let pipe = NamedPipe::create_server(PIPE_NAME)?;
+        pipe.wait_for_client()?;
         info!("Client connected");
-        if let Err(e) = handle_connection(conn) {
+        if let Err(e) = handle_connection(pipe) {
             error!("Connection error: {}", e);
         }
     }
-
-    Ok(())
 }
 
-fn handle_connection(mut stream: LocalStream) -> Result<()> {
-    let mut reader = BufReader::new(stream.try_clone()?);
-    let mut buffer = String::new();
-
+fn handle_connection(mut stream: NamedPipe) -> Result<()> {
     loop {
-        buffer.clear();
-        match reader.read_line(&mut buffer) {
-            Ok(0) => break, // EOF
-            Ok(_) => {
+        match stream.read_line()? {
+            None => break,
+            Some(buffer) => {
                 if let Ok(cmd) = serde_json::from_str::<AdminCommand>(&buffer) {
                     info!("Received command: {:?}", cmd);
+                    let should_quit = matches!(cmd, AdminCommand::Quit);
                     let response = execute_command(cmd);
 
                     if let AdminResponse::Success(ref msg) = response {
@@ -83,22 +83,17 @@ fn handle_connection(mut stream: LocalStream) -> Result<()> {
                         let _ = show_msgbox("Admin Action Failed", err);
                     }
 
-                    let json = serde_json::to_string(&response)? + "\n";
-                    stream.write_all(json.as_bytes())?;
-                    stream.flush()?;
+                    let json = serde_json::to_string(&response)?;
+                    stream.write_line(&json)?;
 
-                    // If quit, we can exit the process
-                    if let AdminCommand::Quit = serde_json::from_str(&buffer).unwrap() {
+                    if should_quit {
                         std::process::exit(0);
                     }
                 }
             }
-            Err(e) => {
-                error!("Read error: {}", e);
-                break;
-            }
         }
     }
+    stream.disconnect();
     Ok(())
 }
 
@@ -109,7 +104,7 @@ fn execute_command(cmd: AdminCommand) -> AdminResponse {
             info!("Removing device: {}", instance_id);
             // pnputil /remove-device "InstanceID"
             match Command::new("pnputil")
-                .args(&["/remove-device", &instance_id])
+                .args(["/remove-device", &instance_id])
                 .output()
             {
                 Ok(output) => {
@@ -125,24 +120,107 @@ fn execute_command(cmd: AdminCommand) -> AdminResponse {
         }
         AdminCommand::RestartBluetoothService => {
             info!("Restarting Bluetooth service...");
-            // powershell -Command "Restart-Service bthserv -Force"
-            match Command::new("powershell")
-                .args(&["-Command", "Restart-Service bthserv -Force"])
-                .output()
-            {
-                Ok(output) => {
-                    if output.status.success() {
-                        AdminResponse::Success("Bluetooth service restarted".to_string())
-                    } else {
-                        let stderr = String::from_utf8_lossy(&output.stderr);
-                        AdminResponse::Error(stderr.to_string())
-                    }
-                }
+            match restart_windows_service("bthserv") {
+                Ok(()) => AdminResponse::Success("Bluetooth service restarted".to_string()),
                 Err(e) => AdminResponse::Error(e.to_string()),
             }
         }
         AdminCommand::Quit => AdminResponse::Success("Quitting".to_string()),
     }
+}
+
+fn restart_windows_service(service_name: &str) -> Result<()> {
+    let scm = ServiceHandle::new(unsafe {
+        OpenSCManagerW(PCWSTR::null(), PCWSTR::null(), SC_MANAGER_CONNECT)?
+    });
+
+    let service_name = wide_string(service_name);
+    let service = ServiceHandle::new(unsafe {
+        OpenServiceW(
+            scm.raw(),
+            PCWSTR(service_name.as_ptr()),
+            SERVICE_QUERY_STATUS | SERVICE_STOP | SERVICE_START,
+        )?
+    });
+
+    if query_service_state(service.raw())? != SERVICE_STOPPED {
+        let mut status = SERVICE_STATUS::default();
+        match unsafe { ControlService(service.raw(), SERVICE_CONTROL_STOP, &mut status) } {
+            Ok(()) => wait_for_service_state(service.raw(), SERVICE_STOPPED)?,
+            Err(e) if WIN32_ERROR::from_error(&e) == Some(ERROR_SERVICE_NOT_ACTIVE) => {}
+            Err(e) => return Err(e.into()),
+        }
+    }
+
+    match unsafe { StartServiceW(service.raw(), None) } {
+        Ok(()) => wait_for_service_state(service.raw(), SERVICE_RUNNING),
+        Err(e) if WIN32_ERROR::from_error(&e) == Some(ERROR_SERVICE_ALREADY_RUNNING) => Ok(()),
+        Err(e) => Err(e.into()),
+    }
+}
+
+fn wait_for_service_state(
+    service: SC_HANDLE,
+    expected: SERVICE_STATUS_CURRENT_STATE,
+) -> Result<()> {
+    let started = Instant::now();
+    let timeout = Duration::from_secs(15);
+
+    while started.elapsed() < timeout {
+        if query_service_state(service)? == expected {
+            return Ok(());
+        }
+        thread::sleep(Duration::from_millis(250));
+    }
+
+    anyhow::bail!("Timed out waiting for service state {:?}", expected)
+}
+
+fn query_service_state(service: SC_HANDLE) -> Result<SERVICE_STATUS_CURRENT_STATE> {
+    let mut status = SERVICE_STATUS_PROCESS::default();
+    let mut bytes_needed = 0u32;
+    let buffer = unsafe {
+        std::slice::from_raw_parts_mut(
+            (&mut status as *mut SERVICE_STATUS_PROCESS).cast::<u8>(),
+            size_of::<SERVICE_STATUS_PROCESS>(),
+        )
+    };
+
+    unsafe {
+        QueryServiceStatusEx(
+            service,
+            SC_STATUS_PROCESS_INFO,
+            Some(buffer),
+            &mut bytes_needed,
+        )?;
+    }
+
+    Ok(status.dwCurrentState)
+}
+
+struct ServiceHandle(SC_HANDLE);
+
+impl ServiceHandle {
+    fn new(handle: SC_HANDLE) -> Self {
+        Self(handle)
+    }
+
+    fn raw(&self) -> SC_HANDLE {
+        self.0
+    }
+}
+
+impl Drop for ServiceHandle {
+    fn drop(&mut self) {
+        let _ = unsafe { CloseServiceHandle(self.0) };
+    }
+}
+
+fn wide_string(value: &str) -> Vec<u16> {
+    OsStr::new(value)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect()
 }
 
 fn show_msgbox(title: &str, body: &str) -> i32 {

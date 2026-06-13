@@ -11,9 +11,7 @@ use windows::Devices::Bluetooth::GenericAttributeProfile::{
     GattCharacteristic, GattClientCharacteristicConfigurationDescriptorValue,
     GattCommunicationStatus,
 };
-use windows::Devices::Bluetooth::{
-    BluetoothCacheMode, BluetoothConnectionStatus, BluetoothLEDevice,
-};
+use windows::Devices::Bluetooth::{BluetoothCacheMode, BluetoothLEDevice};
 use windows::Devices::Enumeration::{DeviceInformation, DeviceUnpairingResultStatus};
 use windows::Storage::Streams::DataWriter;
 
@@ -48,7 +46,6 @@ impl Default for ConnectionConfig {
 pub struct ConnectionResult {
     pub device: BluetoothLEDevice,
     pub data_characteristic: GattCharacteristic,
-    pub command_characteristic: GattCharacteristic,
 }
 
 /// BLE Connection handler
@@ -188,7 +185,6 @@ impl BleConnection {
         Ok(ConnectionResult {
             device,
             data_characteristic: data_char,
-            command_characteristic: cmd_char,
         })
     }
 
@@ -251,7 +247,7 @@ impl BleConnection {
         let aqs_filter = BluetoothLEDevice::GetDeviceSelectorFromPairingState(true)?;
 
         // 2. Search system database
-        let devices = DeviceInformation::FindAllAsyncAqsFilter(&aqs_filter.into())?.await?;
+        let devices = DeviceInformation::FindAllAsyncAqsFilter(&aqs_filter)?.await?;
 
         for device_info in devices {
             // We need to check if this device_info matches our target address.
@@ -407,8 +403,9 @@ impl BleConnection {
     ) -> Result<()> {
         info!("Enabling notifications...");
 
-        // Retry up to 3 times for notification subscription
-        for attempt in 1..=3 {
+        let max_attempts = self.config.max_pairing_retries.max(1);
+
+        for attempt in 1..=max_attempts {
             match data_char
                 .WriteClientCharacteristicConfigurationDescriptorAsync(
                     GattClientCharacteristicConfigurationDescriptorValue::Notify,
@@ -433,9 +430,12 @@ impl BleConnection {
                             let _ = self.unpair_device(device).await;
                         }
 
-                        if attempt < 3 {
+                        if attempt < max_attempts {
                             info!("Retrying notification subscription...");
-                            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                            tokio::time::sleep(tokio::time::Duration::from_millis(
+                                self.config.pairing_retry_delay_ms,
+                            ))
+                            .await;
                         }
                     }
                 }
@@ -454,9 +454,12 @@ impl BleConnection {
                         );
                     }
 
-                    if attempt < 3 {
-                        info!("Retrying in 1 second...");
-                        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+                    if attempt < max_attempts {
+                        info!("Retrying in {} ms...", self.config.pairing_retry_delay_ms);
+                        tokio::time::sleep(tokio::time::Duration::from_millis(
+                            self.config.pairing_retry_delay_ms,
+                        ))
+                        .await;
                     } else {
                         // On final attempt failure, return error
                         error!("Failed to enable notifications after {} attempts", attempt);
@@ -468,14 +471,6 @@ impl BleConnection {
 
         error!("Failed to enable notifications after all attempts");
         anyhow::bail!("Failed to enable notifications")
-    }
-
-    /// Check if device is connected
-    pub fn is_connected(device: &BluetoothLEDevice) -> bool {
-        device
-            .ConnectionStatus()
-            .map(|s| s == BluetoothConnectionStatus::Connected)
-            .unwrap_or(false)
     }
 
     /// Send a log message

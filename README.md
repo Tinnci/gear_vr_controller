@@ -1,76 +1,123 @@
-# Gear VR Controller for Windows (Rust Edition)
+# Gear VR Controller for Windows
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)
 ![Status](https://img.shields.io/badge/status-Active-brightgreen.svg)
 
-Empower your Samsung Gear VR Controller (SM-R323 / SM-R324 / SM-R325) on Windows with this modern, high-performance driver written in Rust. Experience low-latency input, customizable gestures, and versatile control modes including Air Mouse functionality.
+A Windows desktop application for using the Samsung Gear VR Controller
+(SM-R323, SM-R324, and SM-R325) as a mouse, touchpad, and presentation
+remote. The application is written in Rust and uses Bluetooth LE for
+controller communication, egui for the user interface, and windows-rs for
+Windows input and Bluetooth integration.
 
-## ✨ Key Features
+## Features
 
-- **🚀 High Performance**: Built with Rust for minimal latency and resource usage.
-- **🔌 Seamless Connectivity**: Automatic Bluetooth LE discovery and reconnection.
-- **🖱️ Versatile Control Modes**:
-  - **✈️ Air Mouse**: Wave your controller to move the cursor (using Gyroscope/IMU).
-  - **💻 Touchpad**: Use the controller trackpad like a laptop trackpad.
-  - **📽️ Presenter**: Optimized for PowerPoint presentations and media control.
-- **🎨 Radial Menu**: Quick-access overlay menu to switch modes on the fly (Long press `Back` button).
-- **👆 Gestures**: Configurable touchpad gestures for scrolling and navigation.
-- **⚙️ Customization**: Fine-tune sensitivity, dead zones, and acceleration.
-- **🛡️ Admin Tools**: Built-in tools to manage Bluetooth ghost devices and driver issues.
+- Bluetooth LE discovery and connection for Gear VR Controller devices.
+- Air Mouse mode using IMU data for cursor movement.
+- Touchpad mode for laptop-style cursor control.
+- Presenter mode for slide navigation and media control.
+- Radial menu for switching control modes from the controller.
+- Touchpad gesture support for scrolling and navigation.
+- Adjustable sensitivity, dead zones, acceleration, and protocol settings.
+- Diagnostic views for Bluetooth state, controller telemetry, and IMU data.
+- Optional elevated helper for Bluetooth service recovery tasks.
 
-## 🛠️ Installation
+## Requirements
 
-1.  **Download**: Get the latest release from the [Releases](https://github.com/Tinnci/gear_vr_controller/releases) page.
-2.  **Run**: Launch `gear_vr_controller_rust.exe`.
-3.  **Connect**: Press and hold the **Home** button on your controller to enter pairing mode. The app will automatically detect and connect.
+- Windows 10 or Windows 11.
+- A Samsung Gear VR Controller model SM-R323, SM-R324, or SM-R325.
+- Bluetooth LE support on the Windows machine.
+- Rust stable toolchain when building from source.
+- Windows SDK and MSVC build tools when building from source.
 
-## 🎮 Controls & Modes
+## Installation
 
-Switch modes by **holding the Back button** for 0.5s to open the Radial Menu.
+1. Download the latest release from the
+   [Releases](https://github.com/Tinnci/gear_vr_controller/releases) page.
+2. Run `gear_vr_controller_rust.exe`.
+3. Put the controller into pairing mode by holding the Home button.
+4. Use the app to scan for the controller and connect.
 
-| Mode | Trigger | Touchpad | Back | Home | Vol +/- |
+## Control Modes
+
+Hold the Back button to open the radial menu and switch modes.
+
+| Mode | Trigger | Touchpad | Back | Home | Volume |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Air Mouse** (Default) | Left Click | Scroll (Wheel) | Right Click | Win Key | Volume |
-| **Touchpad** | Left Click | Move Cursor | Right Click | Win + D | Scroll |
-| **Presenter** | Next Slide | Play/Pause | Prev Slide | - | Volume |
+| Air Mouse | Left click | Scroll wheel | Right click | Windows key | System volume |
+| Touchpad | Left click | Move cursor | Right click | Show desktop | Scroll |
+| Presenter | Next slide | Play or pause | Previous slide | Unassigned | System volume |
 
-> **Note**: In Air Mouse mode, hold the controller naturally like a pointer.
+In Air Mouse mode, hold the controller like a pointer for the most predictable
+cursor movement.
 
-## 🔧 Building from Source
+## Build From Source
 
-Requirements:
-- [Rust Toolchain](https://rustup.rs/) (Stable)
-- Windows 10/11 SDK
+Install Rust from [rustup.rs](https://rustup.rs/) and make sure the stable MSVC
+toolchain is available.
 
 ```powershell
-# Clone the repository
 git clone https://github.com/Tinnci/gear_vr_controller.git
 cd gear_vr_controller
-
-# Build
-cargo build --release
-
-# Run
-cargo run --release
+cargo build --release --locked
 ```
 
-## 🤝 Contributing
+Run the development build:
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+```powershell
+cargo run
+```
 
-1. Fork the Project
-2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the Branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+Run the release build:
 
-## 📄 License
+```powershell
+cargo run --release --locked
+```
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+## Development Checks
 
-## 🙏 Acknowledgements
+The repository includes `rust-toolchain.toml` to install the expected Rust
+channel and components. Before submitting changes, run:
 
-- Based on reverse engineering of the Gear VR Controller BLE protocol.
-- Built with [egui](https://github.com/emilk/egui) for the UI.
-- Uses [windows-rs](https://github.com/microsoft/windows-rs) for OS integration.
+```powershell
+cargo fmt --check
+cargo check --locked
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-targets --all-features
+cargo build --release --locked
+```
+
+The GitHub Actions CI workflow runs the format, check, clippy, and test steps
+on Windows.
+
+## Troubleshooting
+
+If the controller is detected but cannot connect, remove it from Windows
+Bluetooth settings and pair it again. If GATT service discovery fails, restart
+the Bluetooth service from the app diagnostics or from Windows Services.
+
+For persistent connection issues:
+
+- Confirm the controller is not connected to another device.
+- Replace or recharge the controller battery.
+- Remove old Gear VR Controller entries from Windows Bluetooth settings.
+- Reboot the computer after removing stale Bluetooth devices.
+- Run the app again and scan for the controller.
+
+## Project Layout
+
+- `src/domain`: controller models, settings, gestures, touchpad, and IMU logic.
+- `src/infrastructure`: Bluetooth, input simulation, logging, and OS services.
+- `src/presentation`: egui application state, tabs, components, and theming.
+- `src/admin_client.rs` and `src/admin_worker.rs`: elevated helper process.
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for
+details.
+
+## Acknowledgements
+
+- Based on reverse engineering of the Samsung Gear VR Controller BLE protocol.
+- Built with [egui](https://github.com/emilk/egui).
+- Uses [windows-rs](https://github.com/microsoft/windows-rs) for Windows APIs.

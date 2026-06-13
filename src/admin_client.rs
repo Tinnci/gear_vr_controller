@@ -1,14 +1,15 @@
-use crate::admin_worker::{AdminCommand, AdminResponse, PIPE_NAME};
-use anyhow::{Context, Result};
-use interprocess::local_socket::{
-    traits::Stream, GenericFilePath, Stream as LocalStream, ToFsName,
-};
-use std::io::{BufRead, BufReader, Write};
-use std::process::Command;
+use crate::admin_ipc::{NamedPipe, PIPE_NAME};
+use crate::admin_worker::{AdminCommand, AdminResponse};
+use anyhow::Result;
+use std::ffi::OsStr;
+use std::os::windows::ffi::OsStrExt;
 use tracing::info;
+use windows::core::PCWSTR;
+use windows::Win32::UI::Shell::ShellExecuteW;
+use windows::Win32::UI::WindowsAndMessaging::SW_HIDE;
 
 pub struct AdminClient {
-    stream: Option<LocalStream>,
+    stream: Option<NamedPipe>,
 }
 
 impl AdminClient {
@@ -23,8 +24,7 @@ impl AdminClient {
             return Ok(true);
         }
 
-        let pipe_name = PIPE_NAME.to_fs_name::<GenericFilePath>()?;
-        match LocalStream::connect(pipe_name) {
+        match NamedPipe::connect(PIPE_NAME) {
             Ok(stream) => {
                 info!("Connected to Admin Worker!");
                 self.stream = Some(stream);
@@ -48,22 +48,30 @@ impl AdminClient {
 
     /// Launch the admin worker with UAC prompt
     pub fn launch_worker(&self) -> Result<()> {
-        info!("Requesting legacy UAC elevation to start worker...");
+        info!("Requesting UAC elevation to start worker...");
 
         let exe_path = std::env::current_exe()?;
-        let exe_str = exe_path.to_str().context("Invalid exe path")?;
+        let operation = wide_string("runas");
+        let file = wide_os_string(exe_path.as_os_str());
+        let parameters = wide_string("--admin-worker");
 
-        // Use ShellExecute via PowerShell to trigger UAC "RunAs"
-        // This is a standard trick to elevate from code without linking shell32.lib directly just for this.
-        let ps_script = format!(
-            "Start-Process -FilePath '{}' -ArgumentList '--admin-worker' -Verb RunAs -WindowStyle Hidden",
-            exe_str
-        );
+        let result = unsafe {
+            ShellExecuteW(
+                None,
+                PCWSTR(operation.as_ptr()),
+                PCWSTR(file.as_ptr()),
+                PCWSTR(parameters.as_ptr()),
+                PCWSTR::null(),
+                SW_HIDE,
+            )
+        };
 
-        Command::new("powershell")
-            .args(&["-Command", &ps_script])
-            .spawn()
-            .context("Failed to launch elevated worker")?;
+        if result.0 as isize <= 32 {
+            anyhow::bail!(
+                "Failed to launch elevated worker: ShellExecuteW returned {:?}",
+                result
+            );
+        }
 
         Ok(())
     }
@@ -78,19 +86,12 @@ impl AdminClient {
         }
 
         let stream = self.stream.as_mut().unwrap();
+        let json_cmd = serde_json::to_string(&cmd)?;
+        stream.write_line(&json_cmd)?;
 
-        // Serialize command
-        let json_cmd = serde_json::to_string(&cmd)? + "\n";
-
-        // Write
-        stream.write_all(json_cmd.as_bytes())?;
-        stream.flush()?;
-
-        // Read response
-        let mut reader = BufReader::new(stream);
-        let mut buffer = String::new();
-        reader.read_line(&mut buffer)?;
-
+        let buffer = stream
+            .read_line()?
+            .ok_or_else(|| anyhow::anyhow!("Admin Worker closed the pipe"))?;
         let response: AdminResponse = serde_json::from_str(&buffer)?;
         Ok(response)
     }
@@ -105,6 +106,7 @@ impl AdminClient {
     }
 
     /// Helper: Nuke Ghost Device
+    #[allow(dead_code)]
     pub fn remove_ghost_device(&mut self, instance_id: &str) -> Result<String> {
         match self.send_command(AdminCommand::RemoveGhostDevice(instance_id.to_string()))? {
             AdminResponse::Success(msg) => Ok(msg),
@@ -112,4 +114,12 @@ impl AdminClient {
             _ => anyhow::bail!("Unexpected response"),
         }
     }
+}
+
+fn wide_string(value: &str) -> Vec<u16> {
+    wide_os_string(OsStr::new(value))
+}
+
+fn wide_os_string(value: &OsStr) -> Vec<u16> {
+    value.encode_wide().chain(std::iter::once(0)).collect()
 }

@@ -6,15 +6,19 @@ use crate::domain::models::{
     MessageSeverity, ScannedDevice, StatusMessage, Tab,
 };
 use crate::domain::settings::SettingsService;
-use crate::infrastructure::bluetooth::BluetoothService;
 use crate::infrastructure::input_simulator::InputSimulator;
 use crate::presentation::radial_menu::{ControlMode, RadialMenu};
 use eframe::egui::{self, Pos2};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
-use tracing::error;
-use windows::Win32::UI::Input::KeyboardAndMouse::VK_ESCAPE;
+
+const BUTTON_DEBOUNCE: Duration = Duration::from_millis(50);
+const RADIAL_MENU_HOLD: Duration = Duration::from_millis(300);
+
+fn debounce_ready(last: Option<Instant>, now: Instant, duration: Duration) -> bool {
+    last.is_none_or(|last| now.duration_since(last) > duration)
+}
 
 pub struct GearVRApp {
     // Services
@@ -44,7 +48,6 @@ pub struct GearVRApp {
     // Button states (for edge detection)
     pub(crate) last_trigger_state: bool,
     pub(crate) last_touchpad_button_state: bool,
-    pub(crate) last_back_button_state: bool,
 
     // Scanning
     pub(crate) is_scanning: bool,
@@ -74,7 +77,7 @@ pub struct GearVRApp {
     // Radial Menu
     pub(crate) radial_menu: RadialMenu,
     pub(crate) current_control_mode: ControlMode,
-    pub(crate) trigger_hold_start: Option<Instant>,
+    pub(crate) back_hold_start: Option<Instant>,
 }
 
 impl GearVRApp {
@@ -93,50 +96,14 @@ impl GearVRApp {
 
         let settings = Arc::new(Mutex::new(settings_service));
         let (data_tx, data_rx) = mpsc::unbounded_channel();
-        let (bt_cmd_tx, mut bt_cmd_rx) = mpsc::unbounded_channel();
+        let (bt_cmd_tx, bt_cmd_rx) = mpsc::unbounded_channel();
         let bt_settings = settings.clone();
 
-        std::thread::spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("Failed to create tokio runtime for Bluetooth");
-
-            rt.block_on(async move {
-                let tx_clone = data_tx.clone();
-                let mut bt_service = BluetoothService::new(data_tx, bt_settings);
-
-                while let Some(cmd) = bt_cmd_rx.recv().await {
-                    match cmd {
-                        BluetoothCommand::Connect(address) => {
-                            if let Err(e) = bt_service.connect(address).await {
-                                error!("Connection failed: {}", e);
-                                let _ = tx_clone.send(AppEvent::LogMessage(StatusMessage {
-                                    message: format!("Connection failed: {}", e),
-                                    severity: MessageSeverity::Error,
-                                }));
-                                let _ = tx_clone.send(AppEvent::ConnectionStatus(
-                                    ConnectionStatus::Disconnected,
-                                ));
-                            }
-                        }
-                        BluetoothCommand::Disconnect => {
-                            bt_service.disconnect();
-                        }
-                        BluetoothCommand::StartScan => {
-                            if let Err(e) = bt_service.start_scan() {
-                                error!("Failed to start scan: {}", e);
-                            }
-                        }
-                        BluetoothCommand::StopScan => {
-                            if let Err(e) = bt_service.stop_scan() {
-                                error!("Failed to stop scan: {}", e);
-                            }
-                        }
-                    }
-                }
-            });
-        });
+        crate::application::bluetooth_worker::spawn_bluetooth_worker(
+            data_tx,
+            bt_cmd_rx,
+            bt_settings,
+        );
 
         let touchpad_processor = Some(TouchpadProcessor::new(settings.clone()));
         let gesture_recognizer = Some(GestureRecognizer::new(settings.clone()));
@@ -160,7 +127,6 @@ impl GearVRApp {
             calibration_data: CalibrationState::default(),
             last_trigger_state: false,
             last_touchpad_button_state: false,
-            last_back_button_state: false,
             is_scanning: false,
             scanned_devices: Vec::new(),
             auto_reconnect: false,
@@ -176,7 +142,7 @@ impl GearVRApp {
             _logging_guard: logging_guard,
             radial_menu: RadialMenu::new(),
             current_control_mode: ControlMode::default(),
-            trigger_hold_start: None,
+            back_hold_start: None,
         }
     }
 
@@ -286,94 +252,84 @@ impl GearVRApp {
         }
 
         let now = Instant::now();
-        let debounce_duration = Duration::from_millis(50);
-        let menu_hold_threshold = Duration::from_millis(300);
-
         if enable_btns {
             // --- BUTTON MAPPING BASED ON MODE ---
 
             // Trigger Button
-            if data.trigger_button != self.last_trigger_state {
-                if self
-                    .trigger_debounce
-                    .map_or(true, |last| now.duration_since(last) > debounce_duration)
-                {
-                    self.last_trigger_state = data.trigger_button;
-                    self.trigger_debounce = Some(now);
+            if data.trigger_button != self.last_trigger_state
+                && debounce_ready(self.trigger_debounce, now, BUTTON_DEBOUNCE)
+            {
+                self.last_trigger_state = data.trigger_button;
+                self.trigger_debounce = Some(now);
 
-                    if data.trigger_button {
-                        // Trigger Pressed
-                        match self.current_control_mode {
-                            ControlMode::Mouse | ControlMode::Touchpad => {
-                                let _ = self.input_simulator.mouse_left_down();
-                            }
-                            ControlMode::Presentation => {
-                                // Next Slide (Right Arrow)
-                                let _ = self.input_simulator.key_press(
-                                    windows::Win32::UI::Input::KeyboardAndMouse::VK_RIGHT,
-                                );
-                            }
-                            _ => {}
+                if data.trigger_button {
+                    // Trigger Pressed
+                    match self.current_control_mode {
+                        ControlMode::Mouse | ControlMode::Touchpad => {
+                            let _ = self.input_simulator.mouse_left_down();
                         }
-                    } else {
-                        // Trigger Released
-                        match self.current_control_mode {
-                            ControlMode::Mouse | ControlMode::Touchpad => {
-                                let _ = self.input_simulator.mouse_left_up();
-                            }
-                            ControlMode::Presentation => {
-                                // Key press already handled on down, no release needed for simple key.
-                            }
-                            _ => {}
+                        ControlMode::Presentation => {
+                            // Next Slide (Right Arrow)
+                            let _ = self
+                                .input_simulator
+                                .key_press(windows::Win32::UI::Input::KeyboardAndMouse::VK_RIGHT);
                         }
+                        _ => {}
+                    }
+                } else {
+                    // Trigger Released
+                    match self.current_control_mode {
+                        ControlMode::Mouse | ControlMode::Touchpad => {
+                            let _ = self.input_simulator.mouse_left_up();
+                        }
+                        ControlMode::Presentation => {
+                            // Key press already handled on down, no release needed for simple key.
+                        }
+                        _ => {}
                     }
                 }
             }
 
             // Touchpad Button (Center Click)
-            if data.touchpad_button != self.last_touchpad_button_state {
-                if self
-                    .touchpad_btn_debounce
-                    .map_or(true, |last| now.duration_since(last) > debounce_duration)
-                {
-                    self.last_touchpad_button_state = data.touchpad_button;
-                    self.touchpad_btn_debounce = Some(now);
-                    if data.touchpad_button {
-                        // Touchpad Button Pressed
-                        match self.current_control_mode {
-                            ControlMode::Mouse | ControlMode::Touchpad => {
-                                let _ = self.input_simulator.mouse_right_down();
-                            }
-                            ControlMode::Presentation => {
-                                // Previous Slide (Left Arrow)
-                                let _ = self.input_simulator.key_press(
-                                    windows::Win32::UI::Input::KeyboardAndMouse::VK_LEFT,
-                                );
-                            }
-                            _ => {}
+            if data.touchpad_button != self.last_touchpad_button_state
+                && debounce_ready(self.touchpad_btn_debounce, now, BUTTON_DEBOUNCE)
+            {
+                self.last_touchpad_button_state = data.touchpad_button;
+                self.touchpad_btn_debounce = Some(now);
+                if data.touchpad_button {
+                    // Touchpad Button Pressed
+                    match self.current_control_mode {
+                        ControlMode::Mouse | ControlMode::Touchpad => {
+                            let _ = self.input_simulator.mouse_right_down();
                         }
-                    } else {
-                        // Touchpad Button Released
-                        match self.current_control_mode {
-                            ControlMode::Mouse | ControlMode::Touchpad => {
-                                let _ = self.input_simulator.mouse_right_up();
-                            }
-                            ControlMode::Presentation => {
-                                // Key press already handled on down.
-                            }
-                            _ => {}
+                        ControlMode::Presentation => {
+                            // Previous Slide (Left Arrow)
+                            let _ = self
+                                .input_simulator
+                                .key_press(windows::Win32::UI::Input::KeyboardAndMouse::VK_LEFT);
                         }
+                        _ => {}
+                    }
+                } else {
+                    // Touchpad Button Released
+                    match self.current_control_mode {
+                        ControlMode::Mouse | ControlMode::Touchpad => {
+                            let _ = self.input_simulator.mouse_right_up();
+                        }
+                        ControlMode::Presentation => {
+                            // Key press already handled on down.
+                        }
+                        _ => {}
                     }
                 }
             }
 
             // Back Button (Radial Menu Activator on Long Press, otherwise Escape)
             if data.back_button {
-                if self.trigger_hold_start.is_none() {
-                    // Reusing trigger_hold_start for back button hold
-                    self.trigger_hold_start = Some(now);
-                } else if let Some(start_time) = self.trigger_hold_start {
-                    if now.duration_since(start_time) >= menu_hold_threshold
+                if self.back_hold_start.is_none() {
+                    self.back_hold_start = Some(now);
+                } else if let Some(start_time) = self.back_hold_start {
+                    if now.duration_since(start_time) >= RADIAL_MENU_HOLD
                         && !self.radial_menu.is_visible
                     {
                         // Show radial menu at current cursor position
@@ -390,7 +346,7 @@ impl GearVRApp {
                 }
             } else {
                 // Back Button Released
-                if let Some(start_time) = self.trigger_hold_start {
+                if let Some(start_time) = self.back_hold_start {
                     let hold_duration = now.duration_since(start_time);
 
                     if self.radial_menu.is_visible {
@@ -411,12 +367,9 @@ impl GearVRApp {
                                 severity: MessageSeverity::Success,
                             });
                         }
-                    } else if hold_duration < menu_hold_threshold {
+                    } else if hold_duration < RADIAL_MENU_HOLD {
                         // Quick tap - normal back/escape behavior
-                        if self
-                            .back_btn_debounce
-                            .map_or(true, |last| now.duration_since(last) > debounce_duration)
-                        {
+                        if debounce_ready(self.back_btn_debounce, now, BUTTON_DEBOUNCE) {
                             self.back_btn_debounce = Some(now);
                             match self.current_control_mode {
                                 ControlMode::Mouse | ControlMode::Touchpad => {
@@ -433,65 +386,59 @@ impl GearVRApp {
                             }
                         }
                     }
-                    self.trigger_hold_start = None;
+                    self.back_hold_start = None;
                 }
             }
 
             // Volume Up Button
-            if data.volume_up_button {
-                if self
-                    .volume_up_debounce
-                    .map_or(true, |last| now.duration_since(last) > debounce_duration)
-                {
-                    self.volume_up_debounce = Some(now);
-                    match self.current_control_mode {
-                        ControlMode::Mouse => {
-                            // Volume Up
-                            let _ = self.input_simulator.key_press(
-                                windows::Win32::UI::Input::KeyboardAndMouse::VK_VOLUME_UP,
-                            );
-                        }
-                        ControlMode::Touchpad => {
-                            // Scroll Up
-                            let _ = self.input_simulator.mouse_wheel(1);
-                        }
-                        ControlMode::Presentation => {
-                            // Volume Up
-                            let _ = self.input_simulator.key_press(
-                                windows::Win32::UI::Input::KeyboardAndMouse::VK_VOLUME_UP,
-                            );
-                        }
-                        _ => {}
+            if data.volume_up_button
+                && debounce_ready(self.volume_up_debounce, now, BUTTON_DEBOUNCE)
+            {
+                self.volume_up_debounce = Some(now);
+                match self.current_control_mode {
+                    ControlMode::Mouse => {
+                        // Volume Up
+                        let _ = self
+                            .input_simulator
+                            .key_press(windows::Win32::UI::Input::KeyboardAndMouse::VK_VOLUME_UP);
                     }
+                    ControlMode::Touchpad => {
+                        // Scroll Up
+                        let _ = self.input_simulator.mouse_wheel(1);
+                    }
+                    ControlMode::Presentation => {
+                        // Volume Up
+                        let _ = self
+                            .input_simulator
+                            .key_press(windows::Win32::UI::Input::KeyboardAndMouse::VK_VOLUME_UP);
+                    }
+                    _ => {}
                 }
             }
 
             // Volume Down Button
-            if data.volume_down_button {
-                if self
-                    .volume_down_debounce
-                    .map_or(true, |last| now.duration_since(last) > debounce_duration)
-                {
-                    self.volume_down_debounce = Some(now);
-                    match self.current_control_mode {
-                        ControlMode::Mouse => {
-                            // Volume Down
-                            let _ = self.input_simulator.key_press(
-                                windows::Win32::UI::Input::KeyboardAndMouse::VK_VOLUME_DOWN,
-                            );
-                        }
-                        ControlMode::Touchpad => {
-                            // Scroll Down
-                            let _ = self.input_simulator.mouse_wheel(-1);
-                        }
-                        ControlMode::Presentation => {
-                            // Volume Down
-                            let _ = self.input_simulator.key_press(
-                                windows::Win32::UI::Input::KeyboardAndMouse::VK_VOLUME_DOWN,
-                            );
-                        }
-                        _ => {}
+            if data.volume_down_button
+                && debounce_ready(self.volume_down_debounce, now, BUTTON_DEBOUNCE)
+            {
+                self.volume_down_debounce = Some(now);
+                match self.current_control_mode {
+                    ControlMode::Mouse => {
+                        // Volume Down
+                        let _ = self
+                            .input_simulator
+                            .key_press(windows::Win32::UI::Input::KeyboardAndMouse::VK_VOLUME_DOWN);
                     }
+                    ControlMode::Touchpad => {
+                        // Scroll Down
+                        let _ = self.input_simulator.mouse_wheel(-1);
+                    }
+                    ControlMode::Presentation => {
+                        // Volume Down
+                        let _ = self
+                            .input_simulator
+                            .key_press(windows::Win32::UI::Input::KeyboardAndMouse::VK_VOLUME_DOWN);
+                    }
+                    _ => {}
                 }
             }
         }
@@ -550,7 +497,7 @@ impl eframe::App for GearVRApp {
                             let should_update_msg = self
                                 .status_message
                                 .as_ref()
-                                .map_or(true, |m| m.severity != MessageSeverity::Error);
+                                .is_none_or(|m| m.severity != MessageSeverity::Error);
 
                             if should_update_msg {
                                 self.status_message = Some(StatusMessage {

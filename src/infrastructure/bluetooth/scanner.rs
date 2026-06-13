@@ -110,11 +110,6 @@ impl BleScanner {
         }
         Ok(())
     }
-
-    /// Check if currently scanning
-    pub fn is_scanning(&self) -> bool {
-        self.watcher.is_some()
-    }
 }
 
 impl Drop for BleScanner {

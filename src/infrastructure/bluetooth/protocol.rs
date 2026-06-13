@@ -5,7 +5,9 @@
 
 use crate::domain::models::ControllerData;
 use anyhow::Result;
-use tracing::{debug, trace};
+use tracing::debug;
+#[cfg(debug_assertions)]
+use tracing::trace;
 use windows::core::GUID;
 use windows::Storage::Streams::{DataReader, IBuffer};
 
@@ -20,6 +22,7 @@ pub const DATA_CHAR_UUID: &str = "c8c51726-81bc-483b-a052-f7a14ea3d281";
 pub const COMMAND_CHAR_UUID: &str = "c8c51726-81bc-483b-a052-f7a14ea3d282";
 
 /// Controller initialization and control commands
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub enum ControllerCommand {
     /// Turn all modes off and stop sending data
@@ -88,9 +91,6 @@ pub mod imu_scale {
 
     /// Magnetometer: value * 0.06
     pub const MAG: f32 = 0.06;
-
-    /// Timestamp factor
-    pub const TIMESTAMP_FACTOR: f32 = 0.001;
 }
 
 /// Parse a 60-byte data packet from the controller
@@ -201,7 +201,7 @@ pub fn parse_raw_bytes(bytes: &[u8]) -> Result<ControllerData> {
     // JS: axisY = (((eventData[55] & 0x3) << 8) + ((eventData[56] & 0xFF) >> 0)) & 0x3FF
     let touchpad_x =
         ((((bytes[54] & 0x0F) as u16) << 6) + (((bytes[55] & 0xFC) as u16) >> 2)) & 0x3FF;
-    let touchpad_y = ((((bytes[55] & 0x03) as u16) << 8) + ((bytes[56] & 0xFF) as u16)) & 0x3FF;
+    let touchpad_y = ((((bytes[55] & 0x03) as u16) << 8) + bytes[56] as u16) & 0x3FF;
 
     // Button states - CORRECTED based on JS reference implementation
     // JS mapping: trigger=bit0, home=bit1, back=bit2, touchpad=bit3, volUp=bit4, volDown=bit5

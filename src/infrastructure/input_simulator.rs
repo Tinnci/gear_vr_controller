@@ -5,7 +5,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MOVE,
     MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_WHEEL, MOUSEINPUT, VIRTUAL_KEY,
 };
-use windows::Win32::UI::WindowsAndMessaging::{GetCursorPos, SetCursorPos};
+use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
 const WHEEL_DELTA: i32 = 120;
 
@@ -35,15 +35,6 @@ impl InputSimulator {
             };
 
             SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
-        }
-        Ok(())
-    }
-
-    /// Move mouse to absolute position
-    pub fn set_cursor_pos(&self, x: i32, y: i32) -> anyhow::Result<()> {
-        debug!("Setting cursor pos to ({}, {})", x, y);
-        unsafe {
-            SetCursorPos(x, y)?;
         }
         Ok(())
     }
@@ -160,7 +151,6 @@ impl InputSimulator {
         Ok(())
     }
 
-    /// Simulate mouse wheel scroll
     /// Simulate mouse wheel scroll
     pub fn mouse_wheel(&self, delta: i32) -> anyhow::Result<()> {
         debug!("Mouse Wheel Scroll: {}", delta);

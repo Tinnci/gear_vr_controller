@@ -57,16 +57,14 @@ fn ui_connection_panel(app: &mut GearVRApp, ui: &mut egui::Ui) {
                     app.auto_reconnect = false;
                     let _ = app.bluetooth_tx.send(BluetoothCommand::Disconnect);
                 }
-            } else {
-                if ui.button("Establish Connection").clicked() {
-                    if let Ok(address) =
-                        u64::from_str_radix(&app.bluetooth_address_input.replace(":", ""), 16)
-                    {
-                        app.connection_status = ConnectionStatus::Connecting;
-                        app.auto_reconnect = true;
-                        app.last_connected_address = Some(address);
-                        let _ = app.bluetooth_tx.send(BluetoothCommand::Connect(address));
-                    }
+            } else if ui.button("Establish Connection").clicked() {
+                if let Ok(address) =
+                    u64::from_str_radix(&app.bluetooth_address_input.replace(":", ""), 16)
+                {
+                    app.connection_status = ConnectionStatus::Connecting;
+                    app.auto_reconnect = true;
+                    app.last_connected_address = Some(address);
+                    let _ = app.bluetooth_tx.send(BluetoothCommand::Connect(address));
                 }
             }
 
@@ -76,12 +74,10 @@ fn ui_connection_panel(app: &mut GearVRApp, ui: &mut egui::Ui) {
                     let _ = app.bluetooth_tx.send(BluetoothCommand::StopScan);
                 }
                 ui.spinner();
-            } else {
-                if ui.button("Scan for Gear VR").clicked() {
-                    app.is_scanning = true;
-                    app.scanned_devices.clear();
-                    let _ = app.bluetooth_tx.send(BluetoothCommand::StartScan);
-                }
+            } else if ui.button("Scan for Gear VR").clicked() {
+                app.is_scanning = true;
+                app.scanned_devices.clear();
+                let _ = app.bluetooth_tx.send(BluetoothCommand::StartScan);
             }
         });
 
@@ -118,12 +114,11 @@ fn ui_status_panel(app: &mut GearVRApp, ui: &mut egui::Ui) {
 
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(&msg.message).color(color).strong());
-                if msg.severity == MessageSeverity::Error
-                    || msg.severity == MessageSeverity::Warning
+                if (msg.severity == MessageSeverity::Error
+                    || msg.severity == MessageSeverity::Warning)
+                    && ui.button("✖").on_hover_text("Clear Message").clicked()
                 {
-                    if ui.button("✖").on_hover_text("Clear Message").clicked() {
-                        app.status_message = None;
-                    }
+                    app.status_message = None;
                 }
             });
 
@@ -157,12 +152,6 @@ fn ui_status_panel(app: &mut GearVRApp, ui: &mut egui::Ui) {
                     {
                         let _ = app.admin_client.launch_worker();
 
-                        // Show a loading/wait message
-                        app.status_message = Some(StatusMessage {
-                            message: "Waiting for Admin Worker (UAC Confirmation)...".to_string(),
-                            severity: MessageSeverity::Info,
-                        });
-
                         // Poll for connection (max 10s)
                         if let Ok(true) = app.admin_client.wait_for_worker(10000) {
                             match app.admin_client.restart_bluetooth_service() {
@@ -193,28 +182,6 @@ fn ui_status_panel(app: &mut GearVRApp, ui: &mut egui::Ui) {
                         let _ = std::process::Command::new("explorer")
                             .arg("ms-settings:bluetooth")
                             .spawn();
-                    }
-
-                    if is_gatt_fail {
-                        if ui
-                            .button("🗑️ Unpair Device")
-                            .on_hover_text("Attempts to remove pairing record from Windows")
-                            .clicked()
-                        {
-                            let _ = app.admin_client.launch_worker();
-                            app.status_message = Some(StatusMessage {
-                                message: "Waiting for Admin Worker...".to_string(),
-                                severity: MessageSeverity::Info,
-                            });
-
-                            if let Ok(true) = app.admin_client.wait_for_worker(10000) {
-                                let _ = app.admin_client.restart_bluetooth_service(); // For now used for general reset
-                                app.status_message = Some(StatusMessage {
-                                    message: "Environment reset triggered.".to_string(),
-                                    severity: MessageSeverity::Success,
-                                });
-                            }
-                        }
                     }
                 });
             }
