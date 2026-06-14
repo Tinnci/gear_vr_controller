@@ -18,7 +18,7 @@ Windows input and Bluetooth integration.
 - Presenter mode for slide navigation and media control.
 - Radial menu for switching control modes from the controller.
 - Touchpad gesture support for scrolling and navigation.
-- Adjustable sensitivity, dead zones, acceleration, and protocol settings.
+- Adjustable sensitivity, dead zones, acceleration, debouncing, and protocol settings.
 - Diagnostic views for Bluetooth state, controller telemetry, and IMU data.
 - Optional elevated helper for Bluetooth service recovery tasks.
 
@@ -74,38 +74,24 @@ Run the release build:
 cargo run --release --locked
 ```
 
-## Development Checks
+## Development
 
 The repository includes `rust-toolchain.toml` to install the expected Rust
-channel and components. Before submitting changes, run the local quality gate:
+channel and components. Run the default gate before submitting changes:
 
 ```powershell
 .\scripts\quality.ps1
 ```
 
-For a fuller local report that also tries coverage, dependency policy, unused
-dependency, line-count, and duplication checks when those optional tools are
-installed:
+For a fuller local report, install the optional cargo/npm tools and run:
 
 ```powershell
 .\scripts\quality.ps1 -Full
 ```
 
-The core checks are:
-
-```powershell
-cargo fmt --all -- --check
-cargo check --workspace --all-targets --all-features --locked
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --all-targets --all-features
-cargo build --release --locked
-```
-
-Clippy is configured to warn on long functions, complex types, excessive
-argument lists, panic-style placeholders, and unchecked `unwrap` or `expect`
-usage. Optional tools such as `cargo-llvm-cov`, `cargo-deny`, `cargo-machete`,
-`cargo-modules`, `tokei`, and `jscpd` are treated as local reports unless
-explicitly installed.
+The default gate covers formatting, workspace checking, Clippy, and tests. The
+full report also tries release build, coverage, dependency policy, unused
+dependency detection, source metrics, module structure, and duplication scans.
 
 The GitHub Actions CI workflow runs the format, check, clippy, and test steps
 on Windows.
@@ -127,9 +113,12 @@ For persistent connection issues:
 ## Project Layout
 
 - `src/domain`: controller models, settings, gestures, touchpad, and IMU logic.
-- `src/infrastructure`: Bluetooth, input simulation, logging, and OS services.
+- `src/infrastructure`: Bluetooth, input simulation, logging, and Windows services.
+- `src/infrastructure/bluetooth/connection`: pairing, GATT discovery,
+  initialization, notification setup, and connection types.
 - `src/presentation`: egui application state, tabs, components, and theming.
 - `src/admin_client.rs` and `src/admin_worker.rs`: elevated helper process.
+- `ROADMAP.md`: maintainer-facing status, planned work, and deferred migrations.
 
 ## License
 
