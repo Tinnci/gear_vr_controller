@@ -12,12 +12,22 @@ use eframe::egui::{self, Pos2};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    VIRTUAL_KEY, VK_LEFT, VK_LMENU, VK_RIGHT, VK_VOLUME_DOWN, VK_VOLUME_UP,
+};
 
 const BUTTON_DEBOUNCE: Duration = Duration::from_millis(50);
 const RADIAL_MENU_HOLD: Duration = Duration::from_millis(300);
 
 fn debounce_ready(last: Option<Instant>, now: Instant, duration: Duration) -> bool {
     last.is_none_or(|last| now.duration_since(last) > duration)
+}
+
+#[derive(Default)]
+struct InputFeatureFlags {
+    touchpad: bool,
+    buttons: bool,
+    gestures: bool,
 }
 
 pub struct GearVRApp {
@@ -85,7 +95,13 @@ impl GearVRApp {
         // Apply Neubrutalism Style (default Light)
         crate::presentation::theme::configure_neubrutalism(&cc.egui_ctx, false);
 
-        let settings_service = SettingsService::new().expect("Failed to load settings");
+        let settings_service = match SettingsService::new() {
+            Ok(service) => service,
+            Err(e) => {
+                eprintln!("Failed to load settings; using in-memory defaults: {}", e);
+                SettingsService::in_memory_defaults()
+            }
+        };
 
         let logging_guard =
             crate::infrastructure::logging::init_logger(&settings_service.get().log_settings)
@@ -108,7 +124,13 @@ impl GearVRApp {
         let touchpad_processor = Some(TouchpadProcessor::new(settings.clone()));
         let gesture_recognizer = Some(GestureRecognizer::new(settings.clone()));
         let imu_processor = Some(ImuProcessor::new(settings.clone()));
-        let last_connected_address = settings.lock().unwrap().get().last_connected_address;
+        let last_connected_address = match settings.lock() {
+            Ok(settings) => settings.get().last_connected_address,
+            Err(_) => {
+                tracing::warn!("Settings lock poisoned during startup");
+                None
+            }
+        };
 
         Self {
             settings,
@@ -147,313 +169,299 @@ impl GearVRApp {
     }
 
     fn process_controller_data(&mut self, mut data: ControllerData) {
-        let (enable_tp, enable_btns, enable_gestures) = {
-            let s = self.settings.lock().unwrap();
-            let settings = s.get();
-            (
-                settings.enable_touchpad,
-                settings.enable_buttons,
-                settings.enable_gestures,
-            )
+        let flags = self.input_feature_flags();
+        let menu_active = self.radial_menu.is_visible;
+
+        self.normalize_touchpad(&mut data);
+
+        if !menu_active {
+            self.process_motion_input(&data, flags.touchpad);
+            if flags.gestures {
+                self.process_gesture_input(&data);
+            }
+        }
+
+        if flags.buttons {
+            self.process_button_input(&data, Instant::now());
+        }
+
+        self.capture_calibration_sample(&data);
+        self.latest_controller_data = Some(data);
+    }
+
+    fn input_feature_flags(&self) -> InputFeatureFlags {
+        match self.settings.lock() {
+            Ok(settings) => {
+                let settings = settings.get();
+                InputFeatureFlags {
+                    touchpad: settings.enable_touchpad,
+                    buttons: settings.enable_buttons,
+                    gestures: settings.enable_gestures,
+                }
+            }
+            Err(_) => {
+                tracing::warn!("Settings lock poisoned; disabling controller input for this frame");
+                InputFeatureFlags::default()
+            }
+        }
+    }
+
+    fn normalize_touchpad(&mut self, data: &mut ControllerData) {
+        if let Some(processor) = &mut self.touchpad_processor {
+            processor.process(data);
+        }
+    }
+
+    fn process_motion_input(&mut self, data: &ControllerData, touchpad_enabled: bool) {
+        match self.current_control_mode {
+            ControlMode::Mouse => self.process_mouse_mode_input(data, touchpad_enabled),
+            ControlMode::Touchpad => self.process_touchpad_mode_input(data, touchpad_enabled),
+            ControlMode::Presentation | ControlMode::Settings => {}
+        }
+    }
+
+    fn process_mouse_mode_input(&mut self, data: &ControllerData, touchpad_enabled: bool) {
+        if let Some(imu) = &mut self.imu_processor {
+            if let Some((dx, dy)) = imu.calculate_airmouse_delta(data) {
+                let _ = self.input_simulator.move_mouse(dx, dy);
+            }
+        }
+
+        if touchpad_enabled && data.touchpad_touched {
+            self.process_touchpad_scroll(data);
+        }
+    }
+
+    fn process_touchpad_scroll(&mut self, data: &ControllerData) {
+        let Some(processor) = &mut self.touchpad_processor else {
+            return;
         };
 
-        // Skip normal touchpad/gesture processing when radial menu is active
-        let menu_active = self.radial_menu.is_visible;
-        // let input_disabled = self.current_control_mode == ControlMode::Disabled; // Disabled mode removed
+        let fallback = (data.touchpad_x as f64, data.touchpad_y as f64);
+        let (last_x, last_y) = processor.last_processed_pos.unwrap_or(fallback);
+        let dx = data.touchpad_x as f64 - last_x;
+        let dy = data.touchpad_y as f64 - last_y;
+        let threshold = 0.05;
 
-        // Process touchpad data for normalization (needed for menu selection too)
+        if dy.abs() > threshold {
+            let scroll = if dy > 0.0 { -1 } else { 1 };
+            let _ = self.input_simulator.mouse_wheel(scroll);
+        }
+        if dx.abs() > threshold {
+            let scroll = if dx > 0.0 { 1 } else { -1 };
+            let _ = self.input_simulator.mouse_h_wheel(scroll);
+        }
+    }
+
+    fn process_touchpad_mode_input(&mut self, data: &ControllerData, touchpad_enabled: bool) {
+        if !touchpad_enabled || !data.touchpad_touched {
+            return;
+        }
+
         if let Some(processor) = &mut self.touchpad_processor {
-            processor.process(&mut data);
+            if let Some((dx, dy)) = processor.calculate_mouse_delta(data) {
+                let _ = self.input_simulator.move_mouse(dx, dy);
+            }
+        }
+    }
+
+    fn process_gesture_input(&mut self, data: &ControllerData) {
+        let Some(recognizer) = &mut self.gesture_recognizer else {
+            return;
+        };
+        let Some(direction) = recognizer.process(data) else {
+            return;
+        };
+
+        let msg = format!("Gesture Detected: {:?}", direction);
+        tracing::info!("{}", msg);
+        self.status_message = Some(StatusMessage {
+            message: msg,
+            severity: MessageSeverity::Info,
+        });
+
+        match direction {
+            GestureDirection::Up => {
+                let _ = self.input_simulator.mouse_wheel(1);
+            }
+            GestureDirection::Down => {
+                let _ = self.input_simulator.mouse_wheel(-1);
+            }
+            GestureDirection::Left | GestureDirection::Right => self.press_key(VK_LMENU),
+            GestureDirection::None => {}
+        }
+    }
+
+    fn process_button_input(&mut self, data: &ControllerData, now: Instant) {
+        self.handle_trigger_button(data, now);
+        self.handle_touchpad_button(data, now);
+        self.handle_back_button(data, now);
+        self.handle_volume_buttons(data, now);
+    }
+
+    fn handle_trigger_button(&mut self, data: &ControllerData, now: Instant) {
+        if data.trigger_button == self.last_trigger_state
+            || !debounce_ready(self.trigger_debounce, now, BUTTON_DEBOUNCE)
+        {
+            return;
         }
 
-        // Handle input based on current control mode
-        if !menu_active {
+        self.last_trigger_state = data.trigger_button;
+        self.trigger_debounce = Some(now);
+
+        match (self.current_control_mode, data.trigger_button) {
+            (ControlMode::Mouse | ControlMode::Touchpad, true) => {
+                let _ = self.input_simulator.mouse_left_down();
+            }
+            (ControlMode::Mouse | ControlMode::Touchpad, false) => {
+                let _ = self.input_simulator.mouse_left_up();
+            }
+            (ControlMode::Presentation, true) => self.press_key(VK_RIGHT),
+            _ => {}
+        }
+    }
+
+    fn handle_touchpad_button(&mut self, data: &ControllerData, now: Instant) {
+        if data.touchpad_button == self.last_touchpad_button_state
+            || !debounce_ready(self.touchpad_btn_debounce, now, BUTTON_DEBOUNCE)
+        {
+            return;
+        }
+
+        self.last_touchpad_button_state = data.touchpad_button;
+        self.touchpad_btn_debounce = Some(now);
+
+        match (self.current_control_mode, data.touchpad_button) {
+            (ControlMode::Mouse | ControlMode::Touchpad, true) => {
+                let _ = self.input_simulator.mouse_right_down();
+            }
+            (ControlMode::Mouse | ControlMode::Touchpad, false) => {
+                let _ = self.input_simulator.mouse_right_up();
+            }
+            (ControlMode::Presentation, true) => self.press_key(VK_LEFT),
+            _ => {}
+        }
+    }
+
+    fn handle_back_button(&mut self, data: &ControllerData, now: Instant) {
+        if data.back_button {
+            self.handle_back_pressed(data, now);
+        } else {
+            self.handle_back_released(now);
+        }
+    }
+
+    fn handle_back_pressed(&mut self, data: &ControllerData, now: Instant) {
+        let Some(start_time) = self.back_hold_start else {
+            self.back_hold_start = Some(now);
+            return;
+        };
+
+        if now.duration_since(start_time) >= RADIAL_MENU_HOLD && !self.radial_menu.is_visible {
+            if let Ok((x, y)) = self.input_simulator.get_cursor_pos() {
+                self.radial_menu.show(Pos2::new(x as f32, y as f32));
+            }
+        }
+
+        if self.radial_menu.is_visible && data.touchpad_touched {
+            self.radial_menu
+                .update_selection(data.processed_touchpad_x, data.processed_touchpad_y);
+        }
+    }
+
+    fn handle_back_released(&mut self, now: Instant) {
+        let Some(start_time) = self.back_hold_start else {
+            return;
+        };
+
+        let hold_duration = now.duration_since(start_time);
+        if self.radial_menu.is_visible {
+            self.apply_radial_menu_selection();
+        } else if hold_duration < RADIAL_MENU_HOLD {
+            self.handle_quick_back_tap(now);
+        }
+
+        self.back_hold_start = None;
+    }
+
+    fn apply_radial_menu_selection(&mut self) {
+        let Some(selected_mode) = self.radial_menu.hide() else {
+            return;
+        };
+
+        if selected_mode == ControlMode::Settings {
+            self.selected_tab = Tab::Settings;
+        } else {
+            self.current_control_mode = selected_mode;
+        }
+
+        self.status_message = Some(StatusMessage {
+            message: format!(
+                "Mode: {} - {}",
+                selected_mode.name(),
+                selected_mode.description()
+            ),
+            severity: MessageSeverity::Success,
+        });
+    }
+
+    fn handle_quick_back_tap(&mut self, now: Instant) {
+        if !debounce_ready(self.back_btn_debounce, now, BUTTON_DEBOUNCE) {
+            return;
+        }
+
+        self.back_btn_debounce = Some(now);
+        match self.current_control_mode {
+            ControlMode::Mouse | ControlMode::Touchpad => {
+                let _ = self.input_simulator.mouse_right_click();
+            }
+            ControlMode::Presentation => self.press_key(VK_LEFT),
+            ControlMode::Settings => {}
+        }
+    }
+
+    fn handle_volume_buttons(&mut self, data: &ControllerData, now: Instant) {
+        if data.volume_up_button && debounce_ready(self.volume_up_debounce, now, BUTTON_DEBOUNCE) {
+            self.volume_up_debounce = Some(now);
             match self.current_control_mode {
-                ControlMode::Mouse => {
-                    // --- AIR MOUSE MODE ---
-                    // 1. IMU Cursor
-                    if let Some(imu) = &mut self.imu_processor {
-                        if let Some((dx, dy)) = imu.calculate_airmouse_delta(&data) {
-                            let _ = self.input_simulator.move_mouse(dx, dy);
-                        }
-                    }
-
-                    // 2. Touchpad Scroll (Vertical & Horizontal)
-                    if enable_tp && data.touchpad_touched {
-                        if let Some(processor) = &mut self.touchpad_processor {
-                            // Use raw movement for scroll to avoid acceleration weirdness
-                            let dx = data.touchpad_x as f64
-                                - processor
-                                    .last_processed_pos
-                                    .unwrap_or((data.touchpad_x as f64, data.touchpad_y as f64))
-                                    .0;
-                            let dy = data.touchpad_y as f64
-                                - processor
-                                    .last_processed_pos
-                                    .unwrap_or((data.touchpad_x as f64, data.touchpad_y as f64))
-                                    .1;
-
-                            // Scroll Threshold
-                            let threshold = 0.05;
-                            if dy.abs() > threshold {
-                                let scroll = if dy > 0.0 { -1 } else { 1 };
-                                let _ = self.input_simulator.mouse_wheel(scroll);
-                            }
-                            if dx.abs() > threshold {
-                                let scroll = if dx > 0.0 { 1 } else { -1 };
-                                let _ = self.input_simulator.mouse_h_wheel(scroll);
-                            }
-                        }
-                    }
-                }
+                ControlMode::Mouse | ControlMode::Presentation => self.press_key(VK_VOLUME_UP),
                 ControlMode::Touchpad => {
-                    // --- LAPTOP TRACKPAD MODE ---
-                    // 1. Touchpad Cursor
-                    if enable_tp && data.touchpad_touched {
-                        if let Some(processor) = &mut self.touchpad_processor {
-                            if let Some((dx, dy)) = processor.calculate_mouse_delta(&data) {
-                                let _ = self.input_simulator.move_mouse(dx, dy);
-                            }
-                        }
-                    }
+                    let _ = self.input_simulator.mouse_wheel(1);
                 }
-                ControlMode::Presentation | ControlMode::Settings => {
-                    // No cursor movement in these modes
-                }
+                ControlMode::Settings => {}
             }
         }
 
-        if enable_gestures && !menu_active {
-            if let Some(recognizer) = &mut self.gesture_recognizer {
-                if let Some(direction) = recognizer.process(&data) {
-                    let msg = format!("Gesture Detected: {:?}", direction);
-                    tracing::info!("{}", msg);
-                    self.status_message = Some(StatusMessage {
-                        message: msg.clone(),
-                        severity: MessageSeverity::Info,
-                    });
-
-                    match direction {
-                        GestureDirection::Up => {
-                            let _ = self.input_simulator.mouse_wheel(1);
-                        }
-                        GestureDirection::Down => {
-                            let _ = self.input_simulator.mouse_wheel(-1);
-                        }
-                        GestureDirection::Left | GestureDirection::Right => {
-                            let _ = self
-                                .input_simulator
-                                .key_press(windows::Win32::UI::Input::KeyboardAndMouse::VK_LMENU);
-                        }
-                        _ => {}
-                    }
+        if data.volume_down_button
+            && debounce_ready(self.volume_down_debounce, now, BUTTON_DEBOUNCE)
+        {
+            self.volume_down_debounce = Some(now);
+            match self.current_control_mode {
+                ControlMode::Mouse | ControlMode::Presentation => self.press_key(VK_VOLUME_DOWN),
+                ControlMode::Touchpad => {
+                    let _ = self.input_simulator.mouse_wheel(-1);
                 }
+                ControlMode::Settings => {}
             }
         }
+    }
 
-        let now = Instant::now();
-        if enable_btns {
-            // --- BUTTON MAPPING BASED ON MODE ---
-
-            // Trigger Button
-            if data.trigger_button != self.last_trigger_state
-                && debounce_ready(self.trigger_debounce, now, BUTTON_DEBOUNCE)
-            {
-                self.last_trigger_state = data.trigger_button;
-                self.trigger_debounce = Some(now);
-
-                if data.trigger_button {
-                    // Trigger Pressed
-                    match self.current_control_mode {
-                        ControlMode::Mouse | ControlMode::Touchpad => {
-                            let _ = self.input_simulator.mouse_left_down();
-                        }
-                        ControlMode::Presentation => {
-                            // Next Slide (Right Arrow)
-                            let _ = self
-                                .input_simulator
-                                .key_press(windows::Win32::UI::Input::KeyboardAndMouse::VK_RIGHT);
-                        }
-                        _ => {}
-                    }
-                } else {
-                    // Trigger Released
-                    match self.current_control_mode {
-                        ControlMode::Mouse | ControlMode::Touchpad => {
-                            let _ = self.input_simulator.mouse_left_up();
-                        }
-                        ControlMode::Presentation => {
-                            // Key press already handled on down, no release needed for simple key.
-                        }
-                        _ => {}
-                    }
-                }
-            }
-
-            // Touchpad Button (Center Click)
-            if data.touchpad_button != self.last_touchpad_button_state
-                && debounce_ready(self.touchpad_btn_debounce, now, BUTTON_DEBOUNCE)
-            {
-                self.last_touchpad_button_state = data.touchpad_button;
-                self.touchpad_btn_debounce = Some(now);
-                if data.touchpad_button {
-                    // Touchpad Button Pressed
-                    match self.current_control_mode {
-                        ControlMode::Mouse | ControlMode::Touchpad => {
-                            let _ = self.input_simulator.mouse_right_down();
-                        }
-                        ControlMode::Presentation => {
-                            // Previous Slide (Left Arrow)
-                            let _ = self
-                                .input_simulator
-                                .key_press(windows::Win32::UI::Input::KeyboardAndMouse::VK_LEFT);
-                        }
-                        _ => {}
-                    }
-                } else {
-                    // Touchpad Button Released
-                    match self.current_control_mode {
-                        ControlMode::Mouse | ControlMode::Touchpad => {
-                            let _ = self.input_simulator.mouse_right_up();
-                        }
-                        ControlMode::Presentation => {
-                            // Key press already handled on down.
-                        }
-                        _ => {}
-                    }
-                }
-            }
-
-            // Back Button (Radial Menu Activator on Long Press, otherwise Escape)
-            if data.back_button {
-                if self.back_hold_start.is_none() {
-                    self.back_hold_start = Some(now);
-                } else if let Some(start_time) = self.back_hold_start {
-                    if now.duration_since(start_time) >= RADIAL_MENU_HOLD
-                        && !self.radial_menu.is_visible
-                    {
-                        // Show radial menu at current cursor position
-                        if let Ok((x, y)) = self.input_simulator.get_cursor_pos() {
-                            self.radial_menu.show(Pos2::new(x as f32, y as f32));
-                        }
-                    }
-
-                    // Update menu selection based on touchpad
-                    if self.radial_menu.is_visible && data.touchpad_touched {
-                        self.radial_menu
-                            .update_selection(data.processed_touchpad_x, data.processed_touchpad_y);
-                    }
-                }
-            } else {
-                // Back Button Released
-                if let Some(start_time) = self.back_hold_start {
-                    let hold_duration = now.duration_since(start_time);
-
-                    if self.radial_menu.is_visible {
-                        // Was showing radial menu - handle selection
-                        if let Some(selected_mode) = self.radial_menu.hide() {
-                            if selected_mode == ControlMode::Settings {
-                                self.selected_tab = Tab::Settings;
-                            } else {
-                                self.current_control_mode = selected_mode;
-                            }
-
-                            self.status_message = Some(StatusMessage {
-                                message: format!(
-                                    "Mode: {} - {}",
-                                    selected_mode.name(),
-                                    selected_mode.description()
-                                ),
-                                severity: MessageSeverity::Success,
-                            });
-                        }
-                    } else if hold_duration < RADIAL_MENU_HOLD {
-                        // Quick tap - normal back/escape behavior
-                        if debounce_ready(self.back_btn_debounce, now, BUTTON_DEBOUNCE) {
-                            self.back_btn_debounce = Some(now);
-                            match self.current_control_mode {
-                                ControlMode::Mouse | ControlMode::Touchpad => {
-                                    // Right Click
-                                    let _ = self.input_simulator.mouse_right_click();
-                                }
-                                ControlMode::Presentation => {
-                                    // Prev Slide
-                                    let _ = self.input_simulator.key_press(
-                                        windows::Win32::UI::Input::KeyboardAndMouse::VK_LEFT,
-                                    );
-                                }
-                                _ => {}
-                            }
-                        }
-                    }
-                    self.back_hold_start = None;
-                }
-            }
-
-            // Volume Up Button
-            if data.volume_up_button
-                && debounce_ready(self.volume_up_debounce, now, BUTTON_DEBOUNCE)
-            {
-                self.volume_up_debounce = Some(now);
-                match self.current_control_mode {
-                    ControlMode::Mouse => {
-                        // Volume Up
-                        let _ = self
-                            .input_simulator
-                            .key_press(windows::Win32::UI::Input::KeyboardAndMouse::VK_VOLUME_UP);
-                    }
-                    ControlMode::Touchpad => {
-                        // Scroll Up
-                        let _ = self.input_simulator.mouse_wheel(1);
-                    }
-                    ControlMode::Presentation => {
-                        // Volume Up
-                        let _ = self
-                            .input_simulator
-                            .key_press(windows::Win32::UI::Input::KeyboardAndMouse::VK_VOLUME_UP);
-                    }
-                    _ => {}
-                }
-            }
-
-            // Volume Down Button
-            if data.volume_down_button
-                && debounce_ready(self.volume_down_debounce, now, BUTTON_DEBOUNCE)
-            {
-                self.volume_down_debounce = Some(now);
-                match self.current_control_mode {
-                    ControlMode::Mouse => {
-                        // Volume Down
-                        let _ = self
-                            .input_simulator
-                            .key_press(windows::Win32::UI::Input::KeyboardAndMouse::VK_VOLUME_DOWN);
-                    }
-                    ControlMode::Touchpad => {
-                        // Scroll Down
-                        let _ = self.input_simulator.mouse_wheel(-1);
-                    }
-                    ControlMode::Presentation => {
-                        // Volume Down
-                        let _ = self
-                            .input_simulator
-                            .key_press(windows::Win32::UI::Input::KeyboardAndMouse::VK_VOLUME_DOWN);
-                    }
-                    _ => {}
-                }
-            }
+    fn capture_calibration_sample(&mut self, data: &ControllerData) {
+        if !self.is_calibrating || !data.touchpad_touched {
+            return;
         }
 
-        if self.is_calibrating && data.touchpad_touched {
-            self.calibration_data
-                .samples
-                .push((data.touchpad_x, data.touchpad_y));
-            self.calibration_data.min_x = self.calibration_data.min_x.min(data.touchpad_x);
-            self.calibration_data.max_x = self.calibration_data.max_x.max(data.touchpad_x);
-            self.calibration_data.min_y = self.calibration_data.min_y.min(data.touchpad_y);
-            self.calibration_data.max_y = self.calibration_data.max_y.max(data.touchpad_y);
-        }
+        self.calibration_data
+            .samples
+            .push((data.touchpad_x, data.touchpad_y));
+        self.calibration_data.min_x = self.calibration_data.min_x.min(data.touchpad_x);
+        self.calibration_data.max_x = self.calibration_data.max_x.max(data.touchpad_x);
+        self.calibration_data.min_y = self.calibration_data.min_y.min(data.touchpad_y);
+        self.calibration_data.max_y = self.calibration_data.max_y.max(data.touchpad_y);
+    }
 
-        self.latest_controller_data = Some(data);
+    fn press_key(&self, key: VIRTUAL_KEY) {
+        let _ = self.input_simulator.key_press(key);
     }
 }
 

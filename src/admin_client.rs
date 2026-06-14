@@ -85,7 +85,10 @@ impl AdminClient {
             }
         }
 
-        let stream = self.stream.as_mut().unwrap();
+        let stream = self
+            .stream
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("Not connected to Admin Worker"))?;
         let json_cmd = serde_json::to_string(&cmd)?;
         stream.write_line(&json_cmd)?;
 

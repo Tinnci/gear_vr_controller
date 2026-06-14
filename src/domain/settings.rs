@@ -205,6 +205,18 @@ fn windows_config_dir() -> anyhow::Result<PathBuf> {
         .ok_or_else(|| anyhow::anyhow!("Could not determine Windows config directory"))
 }
 
+struct MemorySettingsStore;
+
+impl SettingsStore for MemorySettingsStore {
+    fn load(&self) -> anyhow::Result<Settings> {
+        Ok(Settings::default())
+    }
+
+    fn save(&self, _settings: &Settings) -> anyhow::Result<()> {
+        Ok(())
+    }
+}
+
 pub struct SettingsService {
     settings: Settings,
     store: Box<dyn SettingsStore>,
@@ -221,6 +233,13 @@ impl SettingsService {
         let settings = store.load().unwrap_or_default();
 
         Ok(Self { settings, store })
+    }
+
+    pub fn in_memory_defaults() -> Self {
+        Self {
+            settings: Settings::default(),
+            store: Box::new(MemorySettingsStore),
+        }
     }
 
     pub fn save(&self) -> anyhow::Result<()> {

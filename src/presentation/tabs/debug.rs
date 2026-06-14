@@ -1,4 +1,4 @@
-use crate::domain::models::ConnectionStatus;
+use crate::domain::models::{ConnectionStatus, ControllerData};
 use crate::presentation::app::GearVRApp;
 use crate::presentation::components::Components;
 use eframe::egui;
@@ -8,6 +8,21 @@ pub fn render(app: &mut GearVRApp, ui: &mut egui::Ui) {
     ui.add_space(20.0);
     let latest_data = app.latest_controller_data.clone();
 
+    render_bluetooth_status(app, ui);
+    ui.add_space(10.0);
+
+    if let Some(data) = &latest_data {
+        render_raw_telemetry(data, ui);
+    }
+
+    ui.add_space(10.0);
+    render_imu_diagnostics(app, latest_data.as_ref(), ui);
+
+    ui.add_space(10.0);
+    render_input_tests(app, ui);
+}
+
+fn render_bluetooth_status(app: &GearVRApp, ui: &mut egui::Ui) {
     Components::brutalist_card(ui, "Bluetooth Engine Status", |ui| {
         ui.horizontal(|ui| {
             ui.label("State:");
@@ -23,63 +38,65 @@ pub fn render(app: &mut GearVRApp, ui: &mut egui::Ui) {
             ui.label(format!("Endpoint: {:#X}", addr));
         }
     });
+}
 
-    ui.add_space(10.0);
-
-    if let Some(data) = &latest_data {
-        Components::brutalist_card(ui, "Raw Telemetry", |ui| {
-            egui::Grid::new("debug_grid")
-                .spacing([20.0, 5.0])
-                .show(ui, |ui| {
-                    ui.label("Accel:");
-                    ui.label(format!(
-                        "{:.2}, {:.2}, {:.2}",
-                        data.accel_x, data.accel_y, data.accel_z
-                    ));
-                    ui.end_row();
-                    ui.label("Gyro:");
-                    ui.label(format!(
-                        "{:.2}, {:.2}, {:.2}",
-                        data.gyro_x, data.gyro_y, data.gyro_z
-                    ));
-                    ui.end_row();
-                    ui.label("Mag:");
-                    ui.label(format!(
-                        "{:.2}, {:.2}, {:.2}",
-                        data.mag_x, data.mag_y, data.mag_z
-                    ));
-                    ui.end_row();
-                    ui.label("Packets:");
-                    ui.label(format!("{}", data.timestamp));
-                    ui.end_row();
-                    ui.label("Temperature:");
-                    ui.label(
-                        data.temperature
-                            .map_or_else(|| "n/a".to_string(), |value| value.to_string()),
-                    );
-                    ui.end_row();
-                    ui.label("Home Button:");
-                    ui.label(if data.home_button {
-                        "pressed"
-                    } else {
-                        "released"
-                    });
-                    ui.end_row();
-                    #[cfg(debug_assertions)]
-                    {
-                        ui.label("Raw Packet:");
-                        ui.label(data.raw_bytes.as_ref().map_or_else(
-                            || "n/a".to_string(),
-                            |bytes| format!("{} bytes", bytes.len()),
-                        ));
-                        ui.end_row();
-                    }
+fn render_raw_telemetry(data: &ControllerData, ui: &mut egui::Ui) {
+    Components::brutalist_card(ui, "Raw Telemetry", |ui| {
+        egui::Grid::new("debug_grid")
+            .spacing([20.0, 5.0])
+            .show(ui, |ui| {
+                ui.label("Accel:");
+                ui.label(format!(
+                    "{:.2}, {:.2}, {:.2}",
+                    data.accel_x, data.accel_y, data.accel_z
+                ));
+                ui.end_row();
+                ui.label("Gyro:");
+                ui.label(format!(
+                    "{:.2}, {:.2}, {:.2}",
+                    data.gyro_x, data.gyro_y, data.gyro_z
+                ));
+                ui.end_row();
+                ui.label("Mag:");
+                ui.label(format!(
+                    "{:.2}, {:.2}, {:.2}",
+                    data.mag_x, data.mag_y, data.mag_z
+                ));
+                ui.end_row();
+                ui.label("Packets:");
+                ui.label(format!("{}", data.timestamp));
+                ui.end_row();
+                ui.label("Temperature:");
+                ui.label(
+                    data.temperature
+                        .map_or_else(|| "n/a".to_string(), |value| value.to_string()),
+                );
+                ui.end_row();
+                ui.label("Home Button:");
+                ui.label(if data.home_button {
+                    "pressed"
+                } else {
+                    "released"
                 });
-        });
-    }
+                ui.end_row();
+                #[cfg(debug_assertions)]
+                {
+                    ui.label("Raw Packet:");
+                    ui.label(data.raw_bytes.as_ref().map_or_else(
+                        || "n/a".to_string(),
+                        |bytes| format!("{} bytes", bytes.len()),
+                    ));
+                    ui.end_row();
+                }
+            });
+    });
+}
 
-    ui.add_space(10.0);
-
+fn render_imu_diagnostics(
+    app: &mut GearVRApp,
+    latest_data: Option<&ControllerData>,
+    ui: &mut egui::Ui,
+) {
     if let Some(imu) = &mut app.imu_processor {
         Components::brutalist_card(ui, "IMU Diagnostics", |ui| {
             ui.horizontal(|ui| {
@@ -98,7 +115,7 @@ pub fn render(app: &mut GearVRApp, ui: &mut egui::Ui) {
                 );
             }
 
-            if let Some(data) = &latest_data {
+            if let Some(data) = latest_data {
                 egui::Grid::new("imu_debug_grid")
                     .spacing([20.0, 5.0])
                     .show(ui, |ui| {
@@ -116,9 +133,9 @@ pub fn render(app: &mut GearVRApp, ui: &mut egui::Ui) {
             }
         });
     }
+}
 
-    ui.add_space(10.0);
-
+fn render_input_tests(app: &mut GearVRApp, ui: &mut egui::Ui) {
     Components::brutalist_card(ui, "Input Injection Test", |ui| {
         ui.horizontal(|ui| {
             if ui.button("Trigger Left-Click").clicked() {

@@ -2,6 +2,17 @@
 name = "gear_vr_controller_rust"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+
+[lints.clippy]
+expect_used = "warn"
+panic = "warn"
+todo = "warn"
+too_many_arguments = "warn"
+too_many_lines = "warn"
+type_complexity = "warn"
+unimplemented = "warn"
+unwrap_used = "warn"
 
 [dependencies]
 # GUI framework

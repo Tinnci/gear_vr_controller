@@ -274,9 +274,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_uuid() {
-        let guid = parse_uuid(SERVICE_UUID).unwrap();
+    fn test_parse_uuid() -> Result<()> {
+        let guid = parse_uuid(SERVICE_UUID)?;
         assert_eq!(guid.data1, 0x4f63756c);
+        Ok(())
     }
 
     #[test]

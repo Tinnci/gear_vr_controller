@@ -125,7 +125,9 @@ impl RotatingFileState {
             self.current_bucket = Some(bucket);
         }
 
-        Ok(self.file.as_mut().expect("log file initialized"))
+        self.file
+            .as_mut()
+            .ok_or_else(|| io::Error::other("log file was not initialized"))
     }
 
     fn log_path(&self, bucket: u64) -> PathBuf {

@@ -137,7 +137,6 @@ impl GestureRecognizer {
 
         let distance = (dx * dx + dy * dy).sqrt();
 
-        // TODO: Get sensitivity from settings if needed to scale threshold
         let threshold = self.get_recognition_threshold();
 
         if distance < threshold {

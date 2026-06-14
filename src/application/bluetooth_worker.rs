@@ -13,10 +13,20 @@ pub fn spawn_bluetooth_worker(
     settings: Arc<Mutex<SettingsService>>,
 ) {
     std::thread::spawn(move || {
-        let rt = tokio::runtime::Builder::new_current_thread()
+        let rt = match tokio::runtime::Builder::new_current_thread()
             .enable_time()
             .build()
-            .expect("Failed to create tokio runtime for Bluetooth");
+        {
+            Ok(runtime) => runtime,
+            Err(e) => {
+                error!("Failed to create tokio runtime for Bluetooth: {}", e);
+                let _ = event_sender.send(AppEvent::LogMessage(StatusMessage {
+                    message: format!("Bluetooth runtime initialization failed: {}", e),
+                    severity: MessageSeverity::Error,
+                }));
+                return;
+            }
+        };
 
         rt.block_on(async move {
             let error_sender = event_sender.clone();

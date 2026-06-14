@@ -22,7 +22,10 @@ impl TouchpadProcessor {
 
     /// Process raw controller data and update processed touchpad coordinates
     pub fn process(&mut self, data: &mut ControllerData) {
-        let settings = self.settings.lock().unwrap();
+        let Ok(settings) = self.settings.lock() else {
+            tracing::warn!("Touchpad settings lock poisoned; skipping coordinate normalization");
+            return;
+        };
         let calibration = &settings.get().touchpad_calibration;
 
         // Reset buffers if touch ended
@@ -72,9 +75,17 @@ impl TouchpadProcessor {
         let mut total_dx = 0.0;
         let mut total_dy = 0.0;
 
-        let settings_guard = self.settings.lock().unwrap();
+        let Ok(settings_guard) = self.settings.lock() else {
+            tracing::warn!("Touchpad settings lock poisoned; skipping mouse delta");
+            return None;
+        };
         let settings = settings_guard.get();
         let sensitivity = settings.mouse_sensitivity;
+        let enable_smoothing = settings.enable_smoothing;
+        let smoothing_factor = settings.smoothing_factor;
+        let enable_acceleration = settings.enable_acceleration;
+        let acceleration_power = settings.acceleration_power;
+        drop(settings_guard);
 
         // 1. RELATIVE MOVEMENT (Trackpad Mode)
         if let Some((last_x, last_y)) = self.last_processed_pos {
@@ -82,10 +93,10 @@ impl TouchpadProcessor {
             let mut rel_dy = current_y - last_y;
 
             // Apply Smoothing to relative movement
-            if settings.enable_smoothing {
+            if enable_smoothing {
                 self.delta_buffer_x.push_back(rel_dx);
                 self.delta_buffer_y.push_back(rel_dy);
-                while self.delta_buffer_x.len() > settings.smoothing_factor {
+                while self.delta_buffer_x.len() > smoothing_factor {
                     self.delta_buffer_x.pop_front();
                     self.delta_buffer_y.pop_front();
                 }
@@ -94,10 +105,9 @@ impl TouchpadProcessor {
             }
 
             // Apply Acceleration
-            if settings.enable_acceleration {
-                let power = settings.acceleration_power;
-                rel_dx = rel_dx.signum() * rel_dx.abs().powf(power);
-                rel_dy = rel_dy.signum() * rel_dy.abs().powf(power);
+            if enable_acceleration {
+                rel_dx = rel_dx.signum() * rel_dx.abs().powf(acceleration_power);
+                rel_dy = rel_dy.signum() * rel_dy.abs().powf(acceleration_power);
             }
 
             let scale_factor = 800.0; // Adjusted for sensitivity

@@ -77,15 +77,34 @@ cargo run --release --locked
 ## Development Checks
 
 The repository includes `rust-toolchain.toml` to install the expected Rust
-channel and components. Before submitting changes, run:
+channel and components. Before submitting changes, run the local quality gate:
 
 ```powershell
-cargo fmt --check
-cargo check --locked
+.\scripts\quality.ps1
+```
+
+For a fuller local report that also tries coverage, dependency policy, unused
+dependency, line-count, and duplication checks when those optional tools are
+installed:
+
+```powershell
+.\scripts\quality.ps1 -Full
+```
+
+The core checks are:
+
+```powershell
+cargo fmt --all -- --check
+cargo check --workspace --all-targets --all-features --locked
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-targets --all-features
 cargo build --release --locked
 ```
+
+Clippy is configured to warn on long functions, complex types, excessive
+argument lists, panic-style placeholders, and unchecked `unwrap` or `expect`
+usage. Optional tools such as `cargo-llvm-cov`, `cargo-deny`, `cargo-machete`,
+`tokei`, and `jscpd` are treated as local reports unless explicitly installed.
 
 The GitHub Actions CI workflow runs the format, check, clippy, and test steps
 on Windows.

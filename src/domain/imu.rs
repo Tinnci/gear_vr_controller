@@ -3,7 +3,7 @@
 //! Processes gyroscope and accelerometer data for air-mouse style control.
 
 use crate::domain::models::ControllerData;
-use crate::domain::settings::SettingsService;
+use crate::domain::settings::{Settings, SettingsService};
 use std::sync::{Arc, Mutex};
 
 /// IMU Processor for air-mouse and motion-based control
@@ -83,9 +83,12 @@ impl ImuProcessor {
         // Controller orientation matters - adjust mapping based on how user holds it
 
         // Get sensitivity from settings
-        let sensitivity = {
-            let s = self.settings.lock().unwrap();
-            s.get().mouse_sensitivity
+        let sensitivity = match self.settings.lock() {
+            Ok(settings) => settings.get().mouse_sensitivity,
+            Err(_) => {
+                tracing::warn!("IMU settings lock poisoned; using default mouse sensitivity");
+                Settings::default().mouse_sensitivity
+            }
         };
 
         // Apply smoothing

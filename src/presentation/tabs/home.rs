@@ -219,7 +219,7 @@ fn ui_controller_data_panel(app: &mut GearVRApp, ui: &mut egui::Ui) {
                     ui.end_row();
 
                     ui.label("Battery:");
-                    ui.label(format!("{}%", 100)); // Placeholder for now
+                    ui.label("n/a");
                     ui.end_row();
                 });
         });

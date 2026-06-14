@@ -1,9 +1,10 @@
 use tracing::{debug, trace};
 use windows::Win32::Foundation::POINT;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_KEYUP,
-    MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MOVE,
-    MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_WHEEL, MOUSEINPUT, VIRTUAL_KEY,
+    SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYBD_EVENT_FLAGS,
+    KEYEVENTF_KEYUP, MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
+    MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_WHEEL, MOUSEINPUT,
+    MOUSE_EVENT_FLAGS, VIRTUAL_KEY,
 };
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
@@ -19,24 +20,7 @@ impl InputSimulator {
     /// Move mouse by relative offset
     pub fn move_mouse(&self, dx: i32, dy: i32) -> anyhow::Result<()> {
         trace!("Moving mouse by ({}, {})", dx, dy);
-        unsafe {
-            let input = INPUT {
-                r#type: INPUT_MOUSE,
-                Anonymous: INPUT_0 {
-                    mi: MOUSEINPUT {
-                        dx,
-                        dy,
-                        mouseData: 0,
-                        dwFlags: MOUSEEVENTF_MOVE,
-                        time: 0,
-                        dwExtraInfo: 0,
-                    },
-                },
-            };
-
-            SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
-        }
-        Ok(())
+        self.send_mouse_input(dx, dy, 0, MOUSEEVENTF_MOVE)
     }
 
     /// Get current cursor position
@@ -52,45 +36,13 @@ impl InputSimulator {
     /// Simulate left mouse button down
     pub fn mouse_left_down(&self) -> anyhow::Result<()> {
         debug!("Mouse Left Down");
-        unsafe {
-            let input = INPUT {
-                r#type: INPUT_MOUSE,
-                Anonymous: INPUT_0 {
-                    mi: MOUSEINPUT {
-                        dx: 0,
-                        dy: 0,
-                        mouseData: 0,
-                        dwFlags: MOUSEEVENTF_LEFTDOWN,
-                        time: 0,
-                        dwExtraInfo: 0,
-                    },
-                },
-            };
-            SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
-        }
-        Ok(())
+        self.send_mouse_input(0, 0, 0, MOUSEEVENTF_LEFTDOWN)
     }
 
     /// Simulate left mouse button up
     pub fn mouse_left_up(&self) -> anyhow::Result<()> {
         debug!("Mouse Left Up");
-        unsafe {
-            let input = INPUT {
-                r#type: INPUT_MOUSE,
-                Anonymous: INPUT_0 {
-                    mi: MOUSEINPUT {
-                        dx: 0,
-                        dy: 0,
-                        mouseData: 0,
-                        dwFlags: MOUSEEVENTF_LEFTUP,
-                        time: 0,
-                        dwExtraInfo: 0,
-                    },
-                },
-            };
-            SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
-        }
-        Ok(())
+        self.send_mouse_input(0, 0, 0, MOUSEEVENTF_LEFTUP)
     }
 
     /// Simulate left mouse click
@@ -103,45 +55,13 @@ impl InputSimulator {
     /// Simulate right mouse button down
     pub fn mouse_right_down(&self) -> anyhow::Result<()> {
         debug!("Mouse Right Down");
-        unsafe {
-            let input = INPUT {
-                r#type: INPUT_MOUSE,
-                Anonymous: INPUT_0 {
-                    mi: MOUSEINPUT {
-                        dx: 0,
-                        dy: 0,
-                        mouseData: 0,
-                        dwFlags: MOUSEEVENTF_RIGHTDOWN,
-                        time: 0,
-                        dwExtraInfo: 0,
-                    },
-                },
-            };
-            SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
-        }
-        Ok(())
+        self.send_mouse_input(0, 0, 0, MOUSEEVENTF_RIGHTDOWN)
     }
 
     /// Simulate right mouse button up
     pub fn mouse_right_up(&self) -> anyhow::Result<()> {
         debug!("Mouse Right Up");
-        unsafe {
-            let input = INPUT {
-                r#type: INPUT_MOUSE,
-                Anonymous: INPUT_0 {
-                    mi: MOUSEINPUT {
-                        dx: 0,
-                        dy: 0,
-                        mouseData: 0,
-                        dwFlags: MOUSEEVENTF_RIGHTUP,
-                        time: 0,
-                        dwExtraInfo: 0,
-                    },
-                },
-            };
-            SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
-        }
-        Ok(())
+        self.send_mouse_input(0, 0, 0, MOUSEEVENTF_RIGHTUP)
     }
 
     /// Simulate right mouse click
@@ -154,93 +74,82 @@ impl InputSimulator {
     /// Simulate mouse wheel scroll
     pub fn mouse_wheel(&self, delta: i32) -> anyhow::Result<()> {
         debug!("Mouse Wheel Scroll: {}", delta);
-        unsafe {
-            let input = INPUT {
-                r#type: INPUT_MOUSE,
-                Anonymous: INPUT_0 {
-                    mi: MOUSEINPUT {
-                        dx: 0,
-                        dy: 0,
-                        mouseData: (delta * WHEEL_DELTA) as u32,
-                        dwFlags: MOUSEEVENTF_WHEEL,
-                        time: 0,
-                        dwExtraInfo: 0,
-                    },
-                },
-            };
-            SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
-        }
-        Ok(())
+        self.send_mouse_input(0, 0, (delta * WHEEL_DELTA) as u32, MOUSEEVENTF_WHEEL)
     }
 
     /// Simulate horizontal mouse wheel scroll
     pub fn mouse_h_wheel(&self, delta: i32) -> anyhow::Result<()> {
         debug!("Mouse Horizontal Wheel Scroll: {}", delta);
-        unsafe {
-            let input = INPUT {
-                r#type: INPUT_MOUSE,
-                Anonymous: INPUT_0 {
-                    mi: MOUSEINPUT {
-                        dx: 0,
-                        dy: 0,
-                        mouseData: (delta * WHEEL_DELTA) as u32,
-                        dwFlags: MOUSEEVENTF_HWHEEL,
-                        time: 0,
-                        dwExtraInfo: 0,
-                    },
-                },
-            };
-            SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
-        }
-        Ok(())
+        self.send_mouse_input(0, 0, (delta * WHEEL_DELTA) as u32, MOUSEEVENTF_HWHEEL)
     }
 
     /// Simulate key press
     pub fn key_down(&self, key: VIRTUAL_KEY) -> anyhow::Result<()> {
         debug!("Key Down: {:?}", key);
-        unsafe {
-            let input = INPUT {
-                r#type: INPUT_KEYBOARD,
-                Anonymous: INPUT_0 {
-                    ki: KEYBDINPUT {
-                        wVk: key,
-                        wScan: 0,
-                        dwFlags: Default::default(),
-                        time: 0,
-                        dwExtraInfo: 0,
-                    },
-                },
-            };
-            SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
-        }
-        Ok(())
+        self.send_key_input(key, KEYBD_EVENT_FLAGS::default())
     }
 
     /// Simulate key release
     pub fn key_up(&self, key: VIRTUAL_KEY) -> anyhow::Result<()> {
         debug!("Key Up: {:?}", key);
-        unsafe {
-            let input = INPUT {
-                r#type: INPUT_KEYBOARD,
-                Anonymous: INPUT_0 {
-                    ki: KEYBDINPUT {
-                        wVk: key,
-                        wScan: 0,
-                        dwFlags: KEYEVENTF_KEYUP,
-                        time: 0,
-                        dwExtraInfo: 0,
-                    },
-                },
-            };
-            SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
-        }
-        Ok(())
+        self.send_key_input(key, KEYEVENTF_KEYUP)
     }
 
     /// Simulate key press and release
     pub fn key_press(&self, key: VIRTUAL_KEY) -> anyhow::Result<()> {
         self.key_down(key)?;
         self.key_up(key)?;
+        Ok(())
+    }
+
+    fn send_mouse_input(
+        &self,
+        dx: i32,
+        dy: i32,
+        mouse_data: u32,
+        flags: MOUSE_EVENT_FLAGS,
+    ) -> anyhow::Result<()> {
+        let input = INPUT {
+            r#type: INPUT_MOUSE,
+            Anonymous: INPUT_0 {
+                mi: MOUSEINPUT {
+                    dx,
+                    dy,
+                    mouseData: mouse_data,
+                    dwFlags: flags,
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+
+        self.send_input(input)
+    }
+
+    fn send_key_input(&self, key: VIRTUAL_KEY, flags: KEYBD_EVENT_FLAGS) -> anyhow::Result<()> {
+        let input = INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: key,
+                    wScan: 0,
+                    dwFlags: flags,
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+
+        self.send_input(input)
+    }
+
+    fn send_input(&self, input: INPUT) -> anyhow::Result<()> {
+        let sent = unsafe { SendInput(&[input], std::mem::size_of::<INPUT>() as i32) };
+
+        if sent == 0 {
+            anyhow::bail!("SendInput failed: {}", windows::core::Error::from_thread());
+        }
+
         Ok(())
     }
 }
