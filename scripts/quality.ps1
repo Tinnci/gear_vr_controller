@@ -23,6 +23,20 @@ function Test-Tool {
     return $null -ne (Get-Command $Name -ErrorAction SilentlyContinue)
 }
 
+function Invoke-OptionalTool {
+    param(
+        [Parameter(Mandatory = $true)][string]$Tool,
+        [Parameter(Mandatory = $true)][string]$Description,
+        [Parameter(Mandatory = $true)][scriptblock]$Command
+    )
+
+    if (Test-Tool $Tool) {
+        & $Command
+    } else {
+        Write-Warning "Skipping ${Description}: ${Tool} is not installed."
+    }
+}
+
 function Invoke-Native {
     param(
         [Parameter(Mandatory = $true)][string]$Command,
@@ -104,7 +118,7 @@ if ($Full) {
     }
 
     Invoke-Step "Coverage" {
-        if (Test-Tool "cargo-llvm-cov") {
+        Invoke-OptionalTool "cargo-llvm-cov" "coverage" {
             $coverageArgs = @("llvm-cov", "--workspace", "--all-features")
             if ($FailUnderLines -gt 0) {
                 $coverageArgs += @("--fail-under-lines", $FailUnderLines)
@@ -112,24 +126,18 @@ if ($Full) {
                 $coverageArgs += "--summary-only"
             }
             Invoke-Native "cargo" $coverageArgs
-        } else {
-            Write-Warning "Skipping coverage: cargo-llvm-cov is not installed."
         }
     }
 
     Invoke-Step "Dependency policy" {
-        if (Test-Tool "cargo-deny") {
+        Invoke-OptionalTool "cargo-deny" "dependency policy" {
             Invoke-Native "cargo" @("deny", "check")
-        } else {
-            Write-Warning "Skipping dependency policy: cargo-deny is not installed."
         }
     }
 
     Invoke-Step "Unused dependencies" {
-        if (Test-Tool "cargo-machete") {
+        Invoke-OptionalTool "cargo-machete" "unused dependency scan" {
             Invoke-Native "cargo" @("machete")
-        } else {
-            Write-Warning "Skipping unused dependency scan: cargo-machete is not installed."
         }
     }
 
@@ -143,7 +151,7 @@ if ($Full) {
     }
 
     Invoke-Step "Module structure" {
-        if (Test-Tool "cargo-modules") {
+        Invoke-OptionalTool "cargo-modules" "module structure report" {
             Invoke-Native "cargo" @(
                 "modules",
                 "structure",
@@ -155,16 +163,20 @@ if ($Full) {
                 "--max-depth",
                 "4"
             )
-        } else {
-            Write-Warning "Skipping module structure report: cargo-modules is not installed."
         }
     }
 
     Invoke-Step "Duplication scan" {
-        if (Test-Tool "jscpd") {
-            Invoke-Native "jscpd" @("src", "--threshold", "5", "--min-lines", "8", "--min-tokens", "80")
-        } else {
-            Write-Warning "Skipping duplication scan: jscpd is not installed."
+        Invoke-OptionalTool "jscpd" "duplication scan" {
+            Invoke-Native "jscpd" @(
+                "src",
+                "--threshold",
+                "5",
+                "--min-lines",
+                "8",
+                "--min-tokens",
+                "80"
+            )
         }
     }
 }
