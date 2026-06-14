@@ -142,6 +142,24 @@ if ($Full) {
         }
     }
 
+    Invoke-Step "Module structure" {
+        if (Test-Tool "cargo-modules") {
+            Invoke-Native "cargo" @(
+                "modules",
+                "structure",
+                "--bin",
+                "gear_vr_controller_rust",
+                "--no-fns",
+                "--focus-on",
+                "gear_vr_controller_rust::infrastructure::bluetooth",
+                "--max-depth",
+                "4"
+            )
+        } else {
+            Write-Warning "Skipping module structure report: cargo-modules is not installed."
+        }
+    }
+
     Invoke-Step "Duplication scan" {
         if (Test-Tool "jscpd") {
             Invoke-Native "jscpd" @("src", "--threshold", "5", "--min-lines", "8", "--min-tokens", "80")

@@ -17,8 +17,8 @@
 //! │  Scanner  │  │ Connection │  │ Protocol │
 //! │           │  │            │  │          │
 //! │ - BLE     │  │ - Pairing  │  │ - UUIDs  │
-//! │   discovery│ │ - GATT     │  │ - Commands│
-//! │           │  │   access   │  │ - Parsing │
+//! │ discovery │  │ - GATT     │  │ - Commands│
+//! │           │  │ - Notify   │  │ - Parsing │
 //! └───────────┘  └────────────┘  └──────────┘
 //! ```
 //!
@@ -26,7 +26,7 @@
 //!
 //! - [`protocol`] - Controller protocol definitions, commands, and data parsing
 //! - [`scanner`] - BLE device discovery
-//! - [`connection`] - Device connection, pairing, and GATT service handling
+//! - [`connection`] - Device connection orchestration, pairing, GATT access, and notification setup
 //! - [`service`] - Main service coordinator
 
 pub mod connection;

@@ -26,8 +26,8 @@ This roadmap outlines the path to full parity with the original C# implementatio
     - Implemented Mouse Acceleration (Power Curve).
 - [x] **Input Configuration UI**
     - Dedicated settings group with tooltips and progressive disclosure.
-- [ ] **Input Debouncing**
-    - *Plan:* Add software debouncing (approx. 50ms) for physical buttons to prevent double-clicks.
+- [x] **Input Debouncing**
+    - Added software debouncing for trigger, touchpad, back, and volume buttons.
 - [ ] **Invert Y-Axis & Natural Scrolling**
     - *Plan:* Add options to invert touchpad Y-axis and scroll direction to match user preference.
 
@@ -64,3 +64,20 @@ This roadmap outlines the path to full parity with the original C# implementatio
     - *Plan:* Investigate and implement vibration commands.
 - [ ] **Firmware Information**
     - display Device Information (Model, Firmware Version, Serial).
+
+## Architecture and Quality Track (In Progress)
+**Goal:** Keep the Rust port maintainable without adding unnecessary build-time dependencies.
+
+- [x] **Dependency Reduction**
+    - Replaced helper crates for IPC, logging, UAC launch, and Bluetooth service recovery with local Windows API integrations.
+- [x] **Quality Pipeline**
+    - Added project Clippy thresholds, dependency policy, and a local PowerShell quality runner.
+    - Current optional reports cover coverage, dependency policy, unused dependencies, line counts, and duplication.
+- [x] **BLE Connection Decomposition**
+    - Split connection orchestration from pairing, GATT discovery, initialization, notification retry logic, and shared types.
+- [ ] **Application State Decomposition**
+    - *Plan:* Move event handling and input mapping out of `GearVRApp` after the key mapping model is introduced.
+- [ ] **Workspace Crate Split**
+    - *Plan:* Split into workspace crates only after domain APIs stabilize. Candidate boundaries are `domain`, `application`, `windows-adapters`, and `desktop-ui`.
+- [ ] **Coverage Gate**
+    - *Plan:* Add meaningful domain and protocol tests first, then enable a line coverage threshold.

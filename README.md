@@ -104,7 +104,8 @@ cargo build --release --locked
 Clippy is configured to warn on long functions, complex types, excessive
 argument lists, panic-style placeholders, and unchecked `unwrap` or `expect`
 usage. Optional tools such as `cargo-llvm-cov`, `cargo-deny`, `cargo-machete`,
-`tokei`, and `jscpd` are treated as local reports unless explicitly installed.
+`cargo-modules`, `tokei`, and `jscpd` are treated as local reports unless
+explicitly installed.
 
 The GitHub Actions CI workflow runs the format, check, clippy, and test steps
 on Windows.

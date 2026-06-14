@@ -2,51 +2,18 @@
 //!
 //! Handles device connection, pairing, and GATT service access.
 
+mod gatt;
+mod init;
+mod notifications;
+mod pairing;
+mod types;
+
 use crate::domain::models::{AppEvent, MessageSeverity, StatusMessage};
-use crate::infrastructure::bluetooth::protocol::{self, COMMAND_DELAY_MS, INIT_SEQUENCE};
 use anyhow::Result;
 use tokio::sync::mpsc;
-use tracing::{error, info, warn};
-use windows::Devices::Bluetooth::GenericAttributeProfile::{
-    GattCharacteristic, GattClientCharacteristicConfigurationDescriptorValue,
-    GattCommunicationStatus,
-};
-use windows::Devices::Bluetooth::{BluetoothCacheMode, BluetoothLEDevice};
-use windows::Devices::Enumeration::{DeviceInformation, DeviceUnpairingResultStatus};
-use windows::Storage::Streams::DataWriter;
+use tracing::{info, warn};
 
-/// Configuration for connection behavior
-#[derive(Debug, Clone)]
-pub struct ConnectionConfig {
-    /// Maximum pairing retry attempts
-    pub max_pairing_retries: u32,
-    /// Delay between pairing retries in milliseconds
-    pub pairing_retry_delay_ms: u64,
-    /// Service UUID to look for
-    pub service_uuid: String,
-    /// Data characteristic UUID
-    pub data_char_uuid: String,
-    /// Command characteristic UUID
-    pub command_char_uuid: String,
-}
-
-impl Default for ConnectionConfig {
-    fn default() -> Self {
-        Self {
-            max_pairing_retries: 3,
-            pairing_retry_delay_ms: 1000,
-            service_uuid: protocol::SERVICE_UUID.to_string(),
-            data_char_uuid: protocol::DATA_CHAR_UUID.to_string(),
-            command_char_uuid: protocol::COMMAND_CHAR_UUID.to_string(),
-        }
-    }
-}
-
-/// Result of a successful connection
-pub struct ConnectionResult {
-    pub device: BluetoothLEDevice,
-    pub data_characteristic: GattCharacteristic,
-}
+pub use types::{ConnectionConfig, ConnectionResult};
 
 /// BLE Connection handler
 pub struct BleConnection {
@@ -68,86 +35,55 @@ impl BleConnection {
         info!("Connecting to Bluetooth device: {:#X}", address);
         self.send_log("Connecting to device...", MessageSeverity::Info);
 
-        // Step 1: Connect to BLE device
         let device = self.connect_device(address).await?;
         info!("Device connected: {:?}", device.Name()?);
 
-        // Step 2: Create GattSession to maintain connection
-        // This helps prevent Windows from requiring additional pairing
         if let Ok(session) = self.create_gatt_session(&device).await {
             info!("GattSession created, MaintainConnection set to true");
-            // Keep session alive by not dropping it
+            // Keep the WinRT session alive for the lifetime of the process.
             std::mem::forget(session);
         } else {
             warn!("Failed to create GattSession, continuing anyway...");
         }
 
-        // Step 2.5: Verify system pairing status (Windows PnP Database check)
-        // We now get the actual DeviceInformation object if found, to allow "ghost busting"
         let system_device_info = self
             .check_system_paired_status(address)
             .await
             .unwrap_or(None);
         let system_paired = system_device_info.is_some();
+        self.log_system_pairing_state(system_paired);
 
-        if system_paired {
-            info!("System database confirms device is PAIRED");
-        } else {
-            info!("System database confirms device is NOT PAIRED");
-        }
-
-        // Step 3: Handle pairing
         let was_paired = self.handle_pairing(&device).await?;
-
-        // Diagnosis & Auto-Fix: Ghost Device Detection
-        // If system thinks it's paired, but our current handle thinks it's NOT,
-        // we have a "Ghost Device" situation. The system holds a stale record that blocks connection.
         if system_paired && !was_paired {
-            let ghost_msg = "检测到残留配对信息（幽灵设备），正在尝试自动清理...";
-            warn!("{}", ghost_msg);
-            self.send_log(ghost_msg, MessageSeverity::Warning);
-
-            // Ghost Busting!
-            if let Some(ghost_info) = system_device_info {
-                info!("Ghost Buster: Attempting to unpair system record for device");
-                match ghost_info.Pairing()?.UnpairAsync()?.await {
-                    Ok(result) => {
-                        let status = result.Status()?;
-                        info!("Ghost Buster Result: {:?}", status);
-                        if status == DeviceUnpairingResultStatus::Unpaired
-                            || status == DeviceUnpairingResultStatus::AlreadyUnpaired
-                        {
-                            self.send_log(
-                                "残留配对已清除！请立刻重试连接。",
-                                MessageSeverity::Success,
-                            );
-                            // We could auto-retry here, but asking user to click once is safer for now
-                            anyhow::bail!("已清除残留系统配对。请点击‘连接’重试。");
-                        } else {
-                            self.send_log(
-                                "自动清理失败，请在Windows设置中手动删除设备。",
-                                MessageSeverity::Error,
-                            );
-                        }
-                    }
-                    Err(e) => {
-                        error!("Ghost Buster Failed: {:?}", e);
-                        self.send_log(
-                            "自动清理出错，请手动检查Windows设置。",
-                            MessageSeverity::Error,
-                        );
-                    }
-                }
-            }
+            self.clear_stale_pairing_record(system_device_info).await?;
         }
 
-        // Step 4: Get GATT services and characteristics
         let (data_char, cmd_char) = self.get_characteristics(&device).await?;
+        // Try notifications before init because it can surface the Windows pairing dialog earlier.
+        let notifications_enabled = self
+            .try_enable_notifications(&data_char, was_paired, &device)
+            .await;
 
-        // Step 5: Try enabling notifications BEFORE sending init commands
-        // Some devices need this order, and it may trigger the pairing dialog earlier
-        let notifications_enabled = match self
-            .enable_notifications(&data_char, was_paired, &device)
+        self.send_init_commands(&cmd_char).await?;
+        if !notifications_enabled {
+            self.retry_notifications_after_init(&data_char, was_paired, &device)
+                .await;
+        }
+
+        Ok(ConnectionResult {
+            device,
+            data_characteristic: data_char,
+        })
+    }
+
+    async fn try_enable_notifications(
+        &self,
+        data_char: &windows::Devices::Bluetooth::GenericAttributeProfile::GattCharacteristic,
+        was_paired: bool,
+        device: &windows::Devices::Bluetooth::BluetoothLEDevice,
+    ) -> bool {
+        match self
+            .enable_notifications(data_char, was_paired, device)
             .await
         {
             Ok(()) => true,
@@ -158,323 +94,40 @@ impl BleConnection {
                 );
                 false
             }
-        };
-
-        // Step 6: Send initialization commands
-        self.send_init_commands(&cmd_char).await?;
-
-        // Step 7: If notifications weren't enabled earlier, try again
-        if !notifications_enabled {
-            info!("Retrying notification subscription after init commands...");
-            if let Err(e) = self
-                .enable_notifications(&data_char, was_paired, &device)
-                .await
-            {
-                // If still failing, log warning but continue - device may auto-send data
-                warn!(
-                    "Notification subscription still failing: {}. Controller may still work.",
-                    e
-                );
-                self.send_log(
-                    "Connected (notifications may be limited)",
-                    MessageSeverity::Warning,
-                );
-            }
         }
-
-        Ok(ConnectionResult {
-            device,
-            data_characteristic: data_char,
-        })
     }
 
-    /// Create a GattSession to maintain the BLE connection
-    async fn create_gatt_session(
+    async fn retry_notifications_after_init(
         &self,
-        device: &BluetoothLEDevice,
-    ) -> Result<windows::Devices::Bluetooth::GenericAttributeProfile::GattSession> {
-        use windows::Devices::Bluetooth::GenericAttributeProfile::GattSession;
-
-        let device_id = device.BluetoothDeviceId()?;
-        let session = GattSession::FromDeviceIdAsync(&device_id)?.await?;
-        session.SetMaintainConnection(true)?;
-        Ok(session)
-    }
-
-    /// Connect to BLE device
-    async fn connect_device(&self, address: u64) -> Result<BluetoothLEDevice> {
-        let device_async = BluetoothLEDevice::FromBluetoothAddressAsync(address)?;
-        let device = device_async.await?;
-        Ok(device)
-    }
-
-    /// Handle device pairing
-    ///
-    /// For BLE devices, traditional pairing is often not needed.
-    /// We skip pairing and directly access GATT services.
-    /// If that fails due to access issues, we can try pairing then.
-    async fn handle_pairing(&self, device: &BluetoothLEDevice) -> Result<bool> {
-        let device_info = device.DeviceInformation()?;
-        let pairing = device_info.Pairing()?;
-        let is_paired = pairing.IsPaired()?;
-
-        info!("Device reports pairing status - IsPaired: {}", is_paired);
-
-        if is_paired {
-            info!("Device already paired according to handle");
-            self.send_log("Device reports as paired", MessageSeverity::Info);
-        } else {
-            // For BLE devices like Gear VR Controller, we often don't need traditional pairing
-            // The device uses "Just Works" pairing or no pairing at all
-            // Skip pairing attempt and proceed directly to GATT access
-            info!("BLE device not paired - will attempt direct GATT access (no traditional pairing needed)");
-            self.send_log(
-                "Connecting without traditional pairing...",
-                MessageSeverity::Info,
-            );
-        }
-
-        Ok(is_paired)
-    }
-
-    /// Check system-wide paired status via Windows PnP database
-    /// Returns the DeviceInformation of the paired device if found, allowing for unpairing.
-    pub async fn check_system_paired_status(
-        &self,
-        target_address: u64,
-    ) -> Result<Option<DeviceInformation>> {
-        // 1. Get AQS filter for paired BLE devices
-        let aqs_filter = BluetoothLEDevice::GetDeviceSelectorFromPairingState(true)?;
-
-        // 2. Search system database
-        let devices = DeviceInformation::FindAllAsyncAqsFilter(&aqs_filter)?.await?;
-
-        for device_info in devices {
-            // We need to check if this device_info matches our target address.
-            // Creating a BluetoothLEDevice from ID confirms the address.
-            if let Ok(le_device) = BluetoothLEDevice::FromIdAsync(&device_info.Id()?)?.await {
-                if le_device.BluetoothAddress()? == target_address {
-                    // Match found! Return the DeviceInformation (the "system record")
-                    // NOT the BluetoothLEDevice, because we want to operate on the PnP record itself
-                    return Ok(Some(device_info));
-                }
-            }
-        }
-
-        Ok(None)
-    }
-
-    /// Attempt to unpair the device
-    pub async fn unpair_device(&self, device: &BluetoothLEDevice) -> Result<()> {
-        let device_info = device.DeviceInformation()?;
-        let pairing = device_info.Pairing()?;
-
-        info!("Attempting to unpair device...");
-        self.send_log(
-            "Attempting to unpair device to fix connection...",
-            MessageSeverity::Warning,
-        );
-
-        match pairing.UnpairAsync()?.await {
-            Ok(result) => {
-                let status = result.Status()?;
-                info!("Unpair status: {:?}", status);
-
-                if status == DeviceUnpairingResultStatus::Unpaired
-                    || status == DeviceUnpairingResultStatus::AlreadyUnpaired
-                {
-                    self.send_log(
-                        "Device successfully unpaired. Please restart the application.",
-                        MessageSeverity::Success,
-                    );
-                } else {
-                    let msg = format!("Unpair failed with status: {:?}", status);
-                    warn!("{}", msg);
-                    self.send_log(&msg, MessageSeverity::Error);
-                }
-            }
-            Err(e) => {
-                error!("Unpair error: {:?}", e);
-                self.send_log(
-                    "Failed to unpair device (may require setup in Windows settings).",
-                    MessageSeverity::Error,
-                );
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Get GATT characteristics
-    async fn get_characteristics(
-        &self,
-        device: &BluetoothLEDevice,
-    ) -> Result<(GattCharacteristic, GattCharacteristic)> {
-        let service_uuid = protocol::parse_uuid(&self.config.service_uuid)?;
-        let data_uuid = protocol::parse_uuid(&self.config.data_char_uuid)?;
-        let cmd_uuid = protocol::parse_uuid(&self.config.command_char_uuid)?;
-
-        // Get services - Force Uncached mode to skip Windows GATT cache
-        let services_result = device
-            .GetGattServicesForUuidWithCacheModeAsync(service_uuid, BluetoothCacheMode::Uncached)?
-            .await?;
-
-        if services_result.Status()? != GattCommunicationStatus::Success {
-            error!(
-                "Failed to get GATT services: {:?}",
-                services_result.Status()?
-            );
-            anyhow::bail!("Failed to get GATT services");
-        }
-
-        let services = services_result.Services()?;
-        if services.Size()? == 0 {
-            anyhow::bail!("Controller service not found");
-        }
-
-        let service = services.GetAt(0)?;
-        info!("Found controller service (Cache Refreshed)");
-
-        // Request access
-        info!("Requesting service access...");
-        let access_status = service.RequestAccessAsync()?.await?;
-        info!("Service access status: {:?}", access_status);
-
-        // Get characteristics - Force Uncached mode
-        let chars_result = service
-            .GetCharacteristicsWithCacheModeAsync(BluetoothCacheMode::Uncached)?
-            .await?;
-        if chars_result.Status()? != GattCommunicationStatus::Success {
-            anyhow::bail!("Failed to get characteristics");
-        }
-
-        let characteristics = chars_result.Characteristics()?;
-        info!("Found {} characteristics", characteristics.Size()?);
-
-        let mut data_char = None;
-        let mut cmd_char = None;
-
-        for i in 0..characteristics.Size()? {
-            let c = characteristics.GetAt(i)?;
-            let uuid = c.Uuid()?;
-
-            if uuid == data_uuid {
-                data_char = Some(c);
-                info!("Found data characteristic");
-            } else if uuid == cmd_uuid {
-                cmd_char = Some(c.clone());
-                info!("Found command characteristic");
-            }
-        }
-
-        let data = data_char.ok_or_else(|| anyhow::anyhow!("Data characteristic not found"))?;
-        let cmd = cmd_char.ok_or_else(|| anyhow::anyhow!("Command characteristic not found"))?;
-
-        Ok((data, cmd))
-    }
-
-    /// Send initialization commands to the controller
-    async fn send_init_commands(&self, cmd_char: &GattCharacteristic) -> Result<()> {
-        info!("Sending initialization commands...");
-        self.send_log("Initializing controller...", MessageSeverity::Info);
-
-        for (command, repeat) in INIT_SEQUENCE {
-            for _ in 0..*repeat {
-                let writer = DataWriter::new()?;
-                writer.WriteBytes(command.as_bytes())?;
-                let buffer = writer.DetachBuffer()?;
-
-                // Fire-and-forget write
-                let _ = cmd_char.WriteValueAsync(&buffer)?;
-                tokio::time::sleep(tokio::time::Duration::from_millis(COMMAND_DELAY_MS)).await;
-            }
-        }
-
-        info!("Initialization commands sent");
-        Ok(())
-    }
-
-    /// Enable notifications on data characteristic with retry logic
-    async fn enable_notifications(
-        &self,
-        data_char: &GattCharacteristic,
+        data_char: &windows::Devices::Bluetooth::GenericAttributeProfile::GattCharacteristic,
         was_paired: bool,
-        device: &BluetoothLEDevice,
-    ) -> Result<()> {
-        info!("Enabling notifications...");
-
-        let max_attempts = self.config.max_pairing_retries.max(1);
-
-        for attempt in 1..=max_attempts {
-            match data_char
-                .WriteClientCharacteristicConfigurationDescriptorAsync(
-                    GattClientCharacteristicConfigurationDescriptorValue::Notify,
-                )?
-                .await
-            {
-                Ok(status) => {
-                    if status == GattCommunicationStatus::Success {
-                        info!("Notifications enabled successfully");
-                        self.send_log("Connection established!", MessageSeverity::Success);
-                        return Ok(());
-                    } else {
-                        warn!("Notification subscription returned status: {:?}", status);
-
-                        // Handle Unreachable (status 1) when already paired
-                        if status == GattCommunicationStatus::Unreachable && was_paired {
-                            let warn_msg = "检测到设备已在系统中配对，请尝试在 Windows 设置中‘删除设备’后重试。";
-                            self.send_log(warn_msg, MessageSeverity::Error);
-                            warn!("{}", warn_msg);
-
-                            // Attempt automatic unpairing
-                            let _ = self.unpair_device(device).await;
-                        }
-
-                        if attempt < max_attempts {
-                            info!("Retrying notification subscription...");
-                            tokio::time::sleep(tokio::time::Duration::from_millis(
-                                self.config.pairing_retry_delay_ms,
-                            ))
-                            .await;
-                        }
-                    }
-                }
-                Err(e) => {
-                    let error_str = format!("{:?}", e);
-                    warn!(
-                        "Notification subscription attempt {} failed: {}",
-                        attempt, error_str
-                    );
-
-                    // Check for user cancelled error (0x800704C7)
-                    if error_str.contains("800704C7") {
-                        self.send_log(
-                            "Please accept the pairing dialog when it appears",
-                            MessageSeverity::Warning,
-                        );
-                    }
-
-                    if attempt < max_attempts {
-                        info!("Retrying in {} ms...", self.config.pairing_retry_delay_ms);
-                        tokio::time::sleep(tokio::time::Duration::from_millis(
-                            self.config.pairing_retry_delay_ms,
-                        ))
-                        .await;
-                    } else {
-                        // On final attempt failure, return error
-                        error!("Failed to enable notifications after {} attempts", attempt);
-                        anyhow::bail!("Failed to enable notifications: {}", e);
-                    }
-                }
-            }
+        device: &windows::Devices::Bluetooth::BluetoothLEDevice,
+    ) {
+        info!("Retrying notification subscription after init commands...");
+        if let Err(e) = self
+            .enable_notifications(data_char, was_paired, device)
+            .await
+        {
+            warn!(
+                "Notification subscription still failing: {}. Controller may still work.",
+                e
+            );
+            self.send_log(
+                "Connected (notifications may be limited)",
+                MessageSeverity::Warning,
+            );
         }
-
-        error!("Failed to enable notifications after all attempts");
-        anyhow::bail!("Failed to enable notifications")
     }
 
-    /// Send a log message
-    fn send_log(&self, message: &str, severity: MessageSeverity) {
+    fn log_system_pairing_state(&self, system_paired: bool) {
+        if system_paired {
+            info!("System database confirms device is PAIRED");
+        } else {
+            info!("System database confirms device is NOT PAIRED");
+        }
+    }
+
+    pub(super) fn send_log(&self, message: &str, severity: MessageSeverity) {
         let _ = self.event_sender.send(AppEvent::LogMessage(StatusMessage {
             message: message.to_string(),
             severity,
