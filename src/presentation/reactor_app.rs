@@ -1,9 +1,10 @@
 //! Native WinUI 3 Presentation Layer using Windows Reactor
 //!
 //! Implements a modern Fluent Design 2 experience powered by the Windows App SDK
-//! following official WinUI 3 guidelines (hierarchical page header, SettingsCard pattern,
-//! clean typography, zero emoji) while connecting to Domain, Application, and Infrastructure layers.
+//! following official WinUI 3 guidelines (NavigationView, SettingsCard pattern,
+//! 4-language i18n auto-detection, clean typography, zero emoji).
 
+use crate::domain::i18n::{Language, I18nStrings};
 use crate::domain::models::{
     AppEvent, BluetoothCommand, ConnectionStatus, ControllerData, ScannedDevice,
 };
@@ -17,6 +18,7 @@ use windows_reactor::*;
 #[derive(Debug, Clone)]
 pub enum ReactorMessage {
     SelectTab(usize),
+    SelectLanguage(Language),
     UpdateAddressInput(String),
     PickAddress(u64),
     Connect,
@@ -34,6 +36,7 @@ pub enum ReactorMessage {
 
 pub struct GearVRReactorApp {
     pub selected_tab: usize,
+    pub language: Language,
     pub connection_status: ConnectionStatus,
     pub status_message: Option<String>,
     pub latest_data: Option<ControllerData>,
@@ -44,6 +47,7 @@ pub struct GearVRReactorApp {
     pub enable_anti_sleep: bool,
     pub enable_auto_profile: bool,
     pub enable_background_tray: bool,
+    pub settings_service: Arc<Mutex<SettingsService>>,
     pub bt_cmd_tx: Option<mpsc::UnboundedSender<BluetoothCommand>>,
     pub shared_event_rx: Arc<Mutex<mpsc::UnboundedReceiver<AppEvent>>>,
 }
@@ -68,6 +72,11 @@ impl Component for GearVRReactorApp {
             .map(|a| format!("{:X}", a))
             .unwrap_or_default();
 
+        let initial_lang = settings_service.get().language;
+        let anti_sleep = settings_service.get().enable_presentation_anti_sleep;
+        let auto_profile = settings_service.get().enable_auto_profile_switching;
+        let tray = settings_service.get().minimize_to_tray;
+
         let settings = Arc::new(Mutex::new(settings_service));
         let bt_settings = settings.clone();
 
@@ -83,6 +92,7 @@ impl Component for GearVRReactorApp {
 
         Self {
             selected_tab: 0,
+            language: initial_lang,
             connection_status: ConnectionStatus::Disconnected,
             status_message: None,
             latest_data: None,
@@ -90,9 +100,10 @@ impl Component for GearVRReactorApp {
             current_mode: ControlMode::Mouse,
             address_input: initial_address,
             is_scanning: false,
-            enable_anti_sleep: true,
-            enable_auto_profile: false,
-            enable_background_tray: true,
+            enable_anti_sleep: anti_sleep,
+            enable_auto_profile: auto_profile,
+            enable_background_tray: tray,
+            settings_service: settings,
             bt_cmd_tx: Some(bt_cmd_tx),
             shared_event_rx,
         }
@@ -102,6 +113,13 @@ impl Component for GearVRReactorApp {
         match message {
             ReactorMessage::SelectTab(tab) => {
                 self.selected_tab = tab;
+            }
+            ReactorMessage::SelectLanguage(lang) => {
+                self.language = lang;
+                if let Ok(mut svc) = self.settings_service.lock() {
+                    svc.get_mut().language = lang;
+                    let _ = svc.save();
+                }
             }
             ReactorMessage::UpdateAddressInput(input) => {
                 self.address_input = input;
@@ -139,12 +157,24 @@ impl Component for GearVRReactorApp {
             }
             ReactorMessage::ToggleAntiSleep(val) => {
                 self.enable_anti_sleep = val;
+                if let Ok(mut svc) = self.settings_service.lock() {
+                    svc.get_mut().enable_presentation_anti_sleep = val;
+                    let _ = svc.save();
+                }
             }
             ReactorMessage::ToggleAutoProfile(val) => {
                 self.enable_auto_profile = val;
+                if let Ok(mut svc) = self.settings_service.lock() {
+                    svc.get_mut().enable_auto_profile_switching = val;
+                    let _ = svc.save();
+                }
             }
             ReactorMessage::ToggleBackgroundTray(val) => {
                 self.enable_background_tray = val;
+                if let Ok(mut svc) = self.settings_service.lock() {
+                    svc.get_mut().minimize_to_tray = val;
+                    let _ = svc.save();
+                }
             }
             ReactorMessage::ChangeMode(mode) => {
                 self.current_mode = mode;
@@ -168,8 +198,8 @@ impl Component for GearVRReactorApp {
                     AppEvent::ConnectionStatus(status) => {
                         self.connection_status = status;
                         if let ConnectionStatus::Connected = status {
-                            self.status_message =
-                                Some("Gear VR Controller connected successfully.".to_string());
+                            let s = self.language.strings();
+                            self.status_message = Some(s.status_ready.to_string());
                         }
                     }
                     AppEvent::LogMessage(log) => {
@@ -196,15 +226,17 @@ impl Component for GearVRReactorApp {
     }
 
     fn view(&self, _input: &(), context: &mut ViewContext<Self>) -> View {
+        let s = self.language.strings();
+
         // Fluent Header & Status Infobar
         let (info_title, info_msg, is_info_open) = match (&self.connection_status, &self.status_message) {
-            (ConnectionStatus::Connected, Some(msg)) => ("Connected", msg.as_str(), true),
-            (ConnectionStatus::Connected, None) => ("Connected", "Ready for motion and button input", true),
-            (ConnectionStatus::Connecting, _) => ("Connecting", "Negotiating Bluetooth Low Energy GATT link...", true),
-            (ConnectionStatus::Disconnected, Some(msg)) => ("Disconnected", msg.as_str(), true),
-            (ConnectionStatus::Disconnected, None) => ("Disconnected", "No active controller link", false),
-            (ConnectionStatus::Error, Some(msg)) => ("Error", msg.as_str(), true),
-            (ConnectionStatus::Error, None) => ("Error", "Connection error occurred", true),
+            (ConnectionStatus::Connected, Some(msg)) => (s.status_connected, msg.as_str(), true),
+            (ConnectionStatus::Connected, None) => (s.status_connected, s.status_ready, true),
+            (ConnectionStatus::Connecting, _) => (s.status_connecting, s.status_negotiating, true),
+            (ConnectionStatus::Disconnected, Some(msg)) => (s.status_disconnected, msg.as_str(), true),
+            (ConnectionStatus::Disconnected, None) => (s.status_disconnected, s.status_no_link, false),
+            (ConnectionStatus::Error, Some(msg)) => (s.status_error, msg.as_str(), true),
+            (ConnectionStatus::Error, None) => (s.status_error, s.status_error, true),
         };
 
         let status_infobar = InfoBar::new()
@@ -217,16 +249,16 @@ impl Component for GearVRReactorApp {
             .spacing(4.0)
             .children((
                 TextBlock::new()
-                    .text("Samsung Gear VR Controller")
+                    .text(s.app_title)
                     .font_size(24.0)
                     .font_weight(FontWeight::SEMI_BOLD),
                 TextBlock::new()
-                    .text("Universal Windows Bluetooth Input Driver & Motion Translation Service")
+                    .text(s.app_subtitle)
                     .font_size(13.0)
                     .foreground(ThemeBrush::PrimaryText),
             ));
 
-        // Fluent NavigationView (Windows 11 Navigation Architecture)
+        // Fluent NavigationView Items (Windows 11 Navigation Architecture)
         let nav_items = [
             KeyedView::new(
                 "0",
@@ -235,7 +267,7 @@ impl Component for GearVRReactorApp {
                     .is_selected(self.selected_tab == 0)
                     .slot(
                         NavigationViewItemSlot::Content,
-                        TextBlock::new().text("Dashboard"),
+                        TextBlock::new().text(s.nav_dashboard),
                     ),
             ),
             KeyedView::new(
@@ -245,7 +277,7 @@ impl Component for GearVRReactorApp {
                     .is_selected(self.selected_tab == 1)
                     .slot(
                         NavigationViewItemSlot::Content,
-                        TextBlock::new().text("Calibration"),
+                        TextBlock::new().text(s.nav_calibration),
                     ),
             ),
             KeyedView::new(
@@ -255,7 +287,7 @@ impl Component for GearVRReactorApp {
                     .is_selected(self.selected_tab == 2)
                     .slot(
                         NavigationViewItemSlot::Content,
-                        TextBlock::new().text("Settings"),
+                        TextBlock::new().text(s.nav_settings),
                     ),
             ),
             KeyedView::new(
@@ -265,17 +297,17 @@ impl Component for GearVRReactorApp {
                     .is_selected(self.selected_tab == 3)
                     .slot(
                         NavigationViewItemSlot::Content,
-                        TextBlock::new().text("Diagnostics"),
+                        TextBlock::new().text(s.nav_diagnostics),
                     ),
             ),
         ];
 
         // Tab Content
         let tab_content: View = match self.selected_tab {
-            0 => self.render_dashboard_tab(context),
-            1 => self.render_calibration_tab(),
-            2 => self.render_settings_tab(context),
-            _ => self.render_diagnostics_tab(context),
+            0 => self.render_dashboard_tab(context, s),
+            1 => self.render_calibration_tab(s),
+            2 => self.render_settings_tab(context, s),
+            _ => self.render_diagnostics_tab(context, s),
         };
 
         let content_area = Border::new()
@@ -290,7 +322,7 @@ impl Component for GearVRReactorApp {
             );
 
         NavigationView::new()
-            .pane_title("Gear VR Controller")
+            .pane_title(s.nav_pane_title)
             .pane_display_mode(NavigationViewPaneDisplayMode::Left)
             .is_back_button_visible(NavigationViewBackButtonVisible::Collapsed)
             .is_settings_visible(false)
@@ -387,21 +419,21 @@ impl GearVRReactorApp {
             .into()
     }
 
-    fn render_dashboard_tab(&self, context: &mut ViewContext<Self>) -> View {
+    fn render_dashboard_tab(&self, context: &mut ViewContext<Self>, s: &I18nStrings) -> View {
         // Card 1: Connection & Bluetooth Scanning
         let connect_button = if self.connection_status == ConnectionStatus::Connected {
             Button::new()
                 .on_click(context.message(ReactorMessage::Disconnect))
-                .content("Disconnect")
+                .content(s.disconnect_button)
         } else {
             Button::new()
                 .on_click(context.message(ReactorMessage::Connect))
-                .content("Connect")
+                .content(s.connect_button)
         };
 
         let scan_button = Button::new()
             .on_click(context.message(ReactorMessage::ToggleScan))
-            .content(if self.is_scanning { "Stop Scan" } else { "Scan Devices" });
+            .content(if self.is_scanning { s.stop_scan_button } else { s.scan_button });
 
         let scan_ring = if self.is_scanning {
             ProgressRing::new().is_active(true)
@@ -411,7 +443,7 @@ impl GearVRReactorApp {
 
         let address_box = TextBox::new()
             .text(&self.address_input)
-            .placeholder_text("Bluetooth Address (e.g. 2C41A1001234)")
+            .placeholder_text(s.address_placeholder)
             .on_text_changed(context.callback(ReactorMessage::UpdateAddressInput));
 
         let connection_controls = StackPanel::new()
@@ -425,8 +457,8 @@ impl GearVRReactorApp {
             ));
 
         let connection_card = Self::render_card(
-            "Bluetooth Controller Link",
-            "Pair and manage low-latency connection to Samsung Gear VR Controller",
+            s.conn_card_title,
+            s.conn_card_desc,
             connection_controls.into(),
         );
 
@@ -438,29 +470,29 @@ impl GearVRReactorApp {
                 Button::new()
                     .on_click(context.message(ReactorMessage::ChangeMode(ControlMode::Mouse)))
                     .content(if self.current_mode == ControlMode::Mouse {
-                        "[ Active: Air Mouse ]"
+                        s.active_prefix.replace("{}", s.mode_air_mouse)
                     } else {
-                        "Air Mouse"
+                        s.mode_air_mouse.to_string()
                     }),
                 Button::new()
                     .on_click(context.message(ReactorMessage::ChangeMode(ControlMode::Touchpad)))
                     .content(if self.current_mode == ControlMode::Touchpad {
-                        "[ Active: Trackpad ]"
+                        s.active_prefix.replace("{}", s.mode_trackpad)
                     } else {
-                        "Trackpad"
+                        s.mode_trackpad.to_string()
                     }),
                 Button::new()
                     .on_click(context.message(ReactorMessage::ChangeMode(ControlMode::Presentation)))
                     .content(if self.current_mode == ControlMode::Presentation {
-                        "[ Active: Presenter ]"
+                        s.active_prefix.replace("{}", s.mode_presenter)
                     } else {
-                        "Presenter"
+                        s.mode_presenter.to_string()
                     }),
             ));
 
         let mode_card = Self::render_card(
-            "Active Control Profile",
-            "Choose motion translation model and input behavior",
+            s.mode_card_title,
+            s.mode_card_desc,
             mode_buttons.into(),
         );
 
@@ -468,7 +500,7 @@ impl GearVRReactorApp {
         let (tp_text, btn_text, sample_text) = if let Some(data) = &self.latest_data {
             (
                 format!(
-                    "Touchpad Position: (X: {:.3}, Y: {:.3}) | Raw: ({}, {})",
+                    "Touchpad: Normalized (X: {:+.3}, Y: {:+.3}) | Raw: ({}, {})",
                     data.processed_touchpad_x,
                     data.processed_touchpad_y,
                     data.touchpad_x,
@@ -483,19 +515,19 @@ impl GearVRReactorApp {
                     if data.volume_up_button { "Active" } else { "Idle" },
                     if data.volume_down_button { "Active" } else { "Idle" },
                 ),
-                format!("Controller Timestamp: {} ms | Battery/Status: Normal", data.timestamp),
+                format!("Timestamp: {} ms | Status: Normal", data.timestamp),
             )
         } else {
             (
-                "Touchpad Position: Awaiting input stream...".to_string(),
-                "Buttons: Trigger: Idle | Back: Idle | Home: Idle".to_string(),
-                "Controller Timestamp: No active transmission".to_string(),
+                s.telemetry_awaiting.to_string(),
+                s.buttons_idle.to_string(),
+                s.timestamp_no_tx.to_string(),
             )
         };
 
         let telemetry_card = Self::render_card(
-            "Real-Time Input Telemetry",
-            "Live stream of controller sensor events, touch coordinates, and button states",
+            s.telemetry_card_title,
+            s.telemetry_card_desc,
             StackPanel::new()
                 .spacing(4.0)
                 .children((
@@ -516,32 +548,32 @@ impl GearVRReactorApp {
             .into()
     }
 
-    fn render_calibration_tab(&self) -> View {
+    fn render_calibration_tab(&self, s: &I18nStrings) -> View {
         let touch_card = Self::render_card(
-            "Touchpad Boundary Normalization",
-            "Glide your thumb across the extreme edges of the touchpad to calibrate sensor bounds",
+            s.touch_cal_title,
+            s.touch_cal_desc,
             StackPanel::new()
                 .spacing(8.0)
                 .children((
                     ProgressBar::new().value(100.0),
                     TextBlock::new()
-                        .text("Normalized Domain: [-1.0, 1.0] across horizontal and vertical axes")
+                        .text(s.touch_cal_status)
                         .font_size(12.0),
                 ))
                 .into(),
         );
 
         let imu_card = Self::render_card(
-            "IMU Gyroscope Zero-Point Reference",
-            "Place controller completely flat and motionless on a level desk to eliminate rotational drift",
+            s.imu_cal_title,
+            s.imu_cal_desc,
             StackPanel::new()
                 .spacing(8.0)
                 .children((
                     TextBlock::new()
-                        .text("Sensor Calibration Status: Reference Tare Balanced")
+                        .text(s.imu_cal_status)
                         .font_size(13.0),
                     TextBlock::new()
-                        .text("Dynamic drift compensation filter is continuously active during runtime.")
+                        .text(s.imu_cal_filter)
                         .font_size(12.0),
                 ))
                 .into(),
@@ -556,26 +588,75 @@ impl GearVRReactorApp {
             .into()
     }
 
-    fn render_settings_tab(&self, context: &mut ViewContext<Self>) -> View {
+    fn render_settings_tab(&self, context: &mut ViewContext<Self>, s: &I18nStrings) -> View {
+        // Language Selection Card (4 Languages + Auto)
+        let resolved_lang = self.language.resolve();
+        let lang_buttons = StackPanel::new()
+            .orientation(Orientation::Horizontal)
+            .spacing(8.0)
+            .children((
+                Button::new()
+                    .on_click(context.message(ReactorMessage::SelectLanguage(Language::Auto)))
+                    .content(if self.language == Language::Auto {
+                        format!("[ Active: Auto ({}) ]", resolved_lang.display_name())
+                    } else {
+                        "Auto".to_string()
+                    }),
+                Button::new()
+                    .on_click(context.message(ReactorMessage::SelectLanguage(Language::SimplifiedChinese)))
+                    .content(if self.language == Language::SimplifiedChinese {
+                        "[ Active: 简体中文 ]"
+                    } else {
+                        "简体中文"
+                    }),
+                Button::new()
+                    .on_click(context.message(ReactorMessage::SelectLanguage(Language::English)))
+                    .content(if self.language == Language::English {
+                        "[ Active: English ]"
+                    } else {
+                        "English"
+                    }),
+                Button::new()
+                    .on_click(context.message(ReactorMessage::SelectLanguage(Language::Japanese)))
+                    .content(if self.language == Language::Japanese {
+                        "[ Active: 日本語 ]"
+                    } else {
+                        "日本語"
+                    }),
+                Button::new()
+                    .on_click(context.message(ReactorMessage::SelectLanguage(Language::Korean)))
+                    .content(if self.language == Language::Korean {
+                        "[ Active: 한국어 ]"
+                    } else {
+                        "한국어"
+                    }),
+            ));
+
+        let language_card = Self::render_card(
+            s.language_card_title,
+            s.language_card_desc,
+            lang_buttons.into(),
+        );
+
         let anti_sleep_row = Self::render_toggle_card(
-            "Prevent Display Sleep",
-            "Keep Windows displays awake while in Presenter mode to ensure uninterrupted slideshows",
+            s.anti_sleep_title,
+            s.anti_sleep_desc,
             ToggleSwitch::new()
                 .is_on(self.enable_anti_sleep)
                 .on_toggled(context.callback(ReactorMessage::ToggleAntiSleep)),
         );
 
         let auto_profile_row = Self::render_toggle_card(
-            "Context-Aware Auto Switching",
-            "Automatically switch profile to Presenter mode when PowerPoint, Keynote, or PDF viewer is focused",
+            s.auto_profile_title,
+            s.auto_profile_desc,
             ToggleSwitch::new()
                 .is_on(self.enable_auto_profile)
                 .on_toggled(context.callback(ReactorMessage::ToggleAutoProfile)),
         );
 
         let tray_row = Self::render_toggle_card(
-            "System Tray Background Execution",
-            "Keep background Bluetooth link running in the Windows taskbar notification area",
+            s.tray_title,
+            s.tray_desc,
             ToggleSwitch::new()
                 .is_on(self.enable_background_tray)
                 .on_toggled(context.callback(ReactorMessage::ToggleBackgroundTray)),
@@ -584,6 +665,7 @@ impl GearVRReactorApp {
         StackPanel::new()
             .spacing(12.0)
             .children((
+                language_card,
                 anti_sleep_row,
                 auto_profile_row,
                 tray_row,
@@ -591,24 +673,24 @@ impl GearVRReactorApp {
             .into()
     }
 
-    fn render_diagnostics_tab(&self, context: &mut ViewContext<Self>) -> View {
+    fn render_diagnostics_tab(&self, context: &mut ViewContext<Self>, s: &I18nStrings) -> View {
         let (accel, gyro, mag) = if let Some(d) = &self.latest_data {
             (
-                format!("Accelerometer Vector (g):       X: {:+.4} | Y: {:+.4} | Z: {:+.4}", d.accel_x, d.accel_y, d.accel_z),
-                format!("Gyroscope Angular Rate (rad/s): X: {:+.4} | Y: {:+.4} | Z: {:+.4}", d.gyro_x, d.gyro_y, d.gyro_z),
-                format!("Magnetometer Compass (uT):      X: {:+.4} | Y: {:+.4} | Z: {:+.4}", d.mag_x, d.mag_y, d.mag_z),
+                format!("Accelerometer (g):     X: {:+.4} | Y: {:+.4} | Z: {:+.4}", d.accel_x, d.accel_y, d.accel_z),
+                format!("Gyroscope (rad/s):       X: {:+.4} | Y: {:+.4} | Z: {:+.4}", d.gyro_x, d.gyro_y, d.gyro_z),
+                format!("Magnetometer (uT):       X: {:+.4} | Y: {:+.4} | Z: {:+.4}", d.mag_x, d.mag_y, d.mag_z),
             )
         } else {
             (
-                "Accelerometer Vector (g):       Awaiting transmission...".to_string(),
-                "Gyroscope Angular Rate (rad/s): Awaiting transmission...".to_string(),
-                "Magnetometer Compass (uT):      Awaiting transmission...".to_string(),
+                "Accelerometer (g):     Awaiting transmission...".to_string(),
+                "Gyroscope (rad/s):       Awaiting transmission...".to_string(),
+                "Magnetometer (uT):       Awaiting transmission...".to_string(),
             )
         };
 
         let imu_card = Self::render_card(
-            "9-DOF IMU Raw Sensor Readings",
-            "Direct telemetry stream decoded from Gear VR Controller GATT characteristic packets",
+            s.imu_diag_title,
+            s.imu_diag_desc,
             StackPanel::new()
                 .spacing(6.0)
                 .children((
@@ -620,17 +702,17 @@ impl GearVRReactorApp {
         );
 
         let bt_recovery_card = Self::render_card(
-            "Windows Bluetooth Subsystem Diagnostics",
-            "System-level troubleshooting actions to unpair stale GATT handles and clear ghost devices",
+            s.bt_recovery_title,
+            s.bt_recovery_desc,
             StackPanel::new()
                 .spacing(8.0)
                 .children((
                     TextBlock::new()
-                        .text("If Bluetooth discovery fails, check paired state in Windows Settings.")
+                        .text(s.bt_troubleshoot_hint)
                         .font_size(12.0),
                     Button::new()
                         .on_click(context.message(ReactorMessage::OpenBtSettings))
-                        .content("Open Windows Bluetooth Settings"),
+                        .content(s.open_bt_settings),
                 ))
                 .into(),
         );

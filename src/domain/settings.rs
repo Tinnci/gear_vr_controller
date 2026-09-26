@@ -113,6 +113,10 @@ pub struct Settings {
     pub enable_auto_profile_switching: bool,
     #[serde(default = "default_true")]
     pub minimize_to_tray: bool,
+
+    // Interface Language
+    #[serde(default)]
+    pub language: crate::domain::i18n::Language,
 }
 
 impl Default for Settings {
@@ -150,6 +154,9 @@ impl Default for Settings {
             enable_presentation_anti_sleep: true,
             enable_auto_profile_switching: false,
             minimize_to_tray: true,
+
+            // Interface Language
+            language: crate::domain::i18n::Language::Auto,
         }
     }
 }
