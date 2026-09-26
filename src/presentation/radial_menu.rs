@@ -28,10 +28,10 @@ impl ControlMode {
 
     pub fn icon(&self) -> &'static str {
         match self {
-            ControlMode::Mouse => "✈️",
-            ControlMode::Touchpad => "🖱️",
-            ControlMode::Presentation => "📽️",
-            ControlMode::Settings => "⚙️",
+            ControlMode::Mouse => "[M]",
+            ControlMode::Touchpad => "[TP]",
+            ControlMode::Presentation => "[PPT]",
+            ControlMode::Settings => "[SET]",
         }
     }
 
@@ -229,9 +229,9 @@ impl RadialMenu {
 
                 // Draw center icon
                 let center_text = if self.selected_index.is_some() {
-                    "✓"
+                    "OK"
                 } else {
-                    "✕"
+                    "-"
                 };
                 painter.text(
                     center,

@@ -45,7 +45,7 @@ pub fn render(app: &mut GearVRApp, ui: &mut egui::Ui) {
 
             ui.add_space(15.0);
 
-            if ui.button("✅ Save & Apply Profile").clicked() {
+            if ui.button("Save & Apply Profile").clicked() {
                 app.is_calibrating = false;
 
                 let calibration = TouchpadCalibration {

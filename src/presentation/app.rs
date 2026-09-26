@@ -638,9 +638,9 @@ impl eframe::App for GearVRApp {
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let switch_icon = if self.is_dark_mode {
-                        "☀ Light"
+                        "Light Theme"
                     } else {
-                        "🌙 Dark"
+                        "Dark Theme"
                     };
                     if ui.button(switch_icon).clicked() {
                         self.is_dark_mode = !self.is_dark_mode;

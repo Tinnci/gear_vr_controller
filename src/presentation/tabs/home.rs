@@ -116,7 +116,7 @@ fn ui_status_panel(app: &mut GearVRApp, ui: &mut egui::Ui) {
                 ui.label(egui::RichText::new(&msg.message).color(color).strong());
                 if (msg.severity == MessageSeverity::Error
                     || msg.severity == MessageSeverity::Warning)
-                    && ui.button("✖").on_hover_text("Clear Message").clicked()
+                    && ui.button("Dismiss").on_hover_text("Clear Message").clicked()
                 {
                     app.status_message = None;
                 }
@@ -133,7 +133,7 @@ fn ui_status_panel(app: &mut GearVRApp, ui: &mut egui::Ui) {
                 ui.add_space(4.0);
 
                 ui.label(
-                    egui::RichText::new("🔍 Troubleshooting Suggestions:")
+                    egui::RichText::new("Troubleshooting Suggestions:")
                         .small()
                         .italics(),
                 );
@@ -146,7 +146,7 @@ fn ui_status_panel(app: &mut GearVRApp, ui: &mut egui::Ui) {
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     if ui
-                        .button("🛡️ Restart BT Stack (Admin)")
+                        .button("Restart BT Stack (Admin)")
                         .on_hover_text("Kills ghost processes and restarts Bluetooth service")
                         .clicked()
                     {
@@ -178,7 +178,7 @@ fn ui_status_panel(app: &mut GearVRApp, ui: &mut egui::Ui) {
                         }
                     }
 
-                    if ui.button("⚙ Open BT Settings").clicked() {
+                    if ui.button("Open BT Settings").clicked() {
                         let _ = std::process::Command::new("explorer")
                             .arg("ms-settings:bluetooth")
                             .spawn();
