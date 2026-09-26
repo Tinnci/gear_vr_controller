@@ -28,6 +28,7 @@ pub enum ReactorMessage {
     ChangeMode(ControlMode),
     FromAppEvent(AppEvent),
     OpenBtSettings,
+    NavSelectionChanged(Option<String>),
     Noop,
 }
 
@@ -153,6 +154,12 @@ impl Component for GearVRReactorApp {
                     .arg("ms-settings:bluetooth")
                     .spawn();
             }
+            ReactorMessage::NavSelectionChanged(Some(tag)) => {
+                if let Ok(idx) = tag.parse::<usize>() {
+                    self.selected_tab = idx;
+                }
+            }
+            ReactorMessage::NavSelectionChanged(None) => {}
             ReactorMessage::FromAppEvent(event) => {
                 match event {
                     AppEvent::ControllerData(data) => {
@@ -219,24 +226,49 @@ impl Component for GearVRReactorApp {
                     .foreground(ThemeBrush::PrimaryText),
             ));
 
-        // Navigation Bar (Segmented Tab Bar)
-        let nav_bar = StackPanel::new()
-            .orientation(Orientation::Horizontal)
-            .spacing(8.0)
-            .children((
-                Button::new()
-                    .on_click(context.message(ReactorMessage::SelectTab(0)))
-                    .content(if self.selected_tab == 0 { "[ Dashboard ]" } else { "Dashboard" }),
-                Button::new()
-                    .on_click(context.message(ReactorMessage::SelectTab(1)))
-                    .content(if self.selected_tab == 1 { "[ Calibration ]" } else { "Calibration" }),
-                Button::new()
-                    .on_click(context.message(ReactorMessage::SelectTab(2)))
-                    .content(if self.selected_tab == 2 { "[ Settings ]" } else { "Settings" }),
-                Button::new()
-                    .on_click(context.message(ReactorMessage::SelectTab(3)))
-                    .content(if self.selected_tab == 3 { "[ Diagnostics ]" } else { "Diagnostics" }),
-            ));
+        // Fluent NavigationView (Windows 11 Navigation Architecture)
+        let nav_items = [
+            KeyedView::new(
+                "0",
+                NavigationViewItem::new()
+                    .tag("0")
+                    .is_selected(self.selected_tab == 0)
+                    .slot(
+                        NavigationViewItemSlot::Content,
+                        TextBlock::new().text("Dashboard"),
+                    ),
+            ),
+            KeyedView::new(
+                "1",
+                NavigationViewItem::new()
+                    .tag("1")
+                    .is_selected(self.selected_tab == 1)
+                    .slot(
+                        NavigationViewItemSlot::Content,
+                        TextBlock::new().text("Calibration"),
+                    ),
+            ),
+            KeyedView::new(
+                "2",
+                NavigationViewItem::new()
+                    .tag("2")
+                    .is_selected(self.selected_tab == 2)
+                    .slot(
+                        NavigationViewItemSlot::Content,
+                        TextBlock::new().text("Settings"),
+                    ),
+            ),
+            KeyedView::new(
+                "3",
+                NavigationViewItem::new()
+                    .tag("3")
+                    .is_selected(self.selected_tab == 3)
+                    .slot(
+                        NavigationViewItemSlot::Content,
+                        TextBlock::new().text("Diagnostics"),
+                    ),
+            ),
+        ];
 
         // Tab Content
         let tab_content: View = match self.selected_tab {
@@ -246,18 +278,28 @@ impl Component for GearVRReactorApp {
             _ => self.render_diagnostics_tab(context),
         };
 
-        let main_layout = StackPanel::new()
-            .spacing(16.0)
-            .children((
-                page_header,
-                status_infobar,
-                nav_bar,
-                tab_content,
-            ));
+        let content_area = Border::new()
+            .padding(Thickness::new(24.0, 16.0, 24.0, 24.0))
+            .content(
+                StackPanel::new()
+                    .spacing(16.0)
+                    .children((
+                        status_infobar,
+                        tab_content,
+                    )),
+            );
 
-        Border::new()
-            .padding(Thickness::new(24.0, 20.0, 24.0, 24.0))
-            .content(main_layout)
+        NavigationView::new()
+            .pane_title("Gear VR Controller")
+            .pane_display_mode(NavigationViewPaneDisplayMode::Left)
+            .is_back_button_visible(NavigationViewBackButtonVisible::Collapsed)
+            .is_settings_visible(false)
+            .on_selected_tag_changed(context.callback(ReactorMessage::NavSelectionChanged))
+            .slots([
+                SlotView::collection(NavigationViewSlot::MenuItems, nav_items),
+                SlotView::new(NavigationViewSlot::Header, page_header),
+                SlotView::new(NavigationViewSlot::Content, content_area),
+            ])
             .into()
     }
 }
