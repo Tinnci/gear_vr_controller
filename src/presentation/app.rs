@@ -81,6 +81,13 @@ pub struct GearVRApp {
     pub(crate) radial_menu: RadialMenu,
     pub(crate) current_control_mode: ControlMode,
     pub(crate) back_hold_start: Option<Instant>,
+
+    // Windows System Integration
+    pub(crate) power_manager: Box<dyn crate::infrastructure::power::PowerInhibitor>,
+    pub(crate) context_service: crate::application::context_switcher::ContextProfileService<
+        crate::infrastructure::window_tracker::WindowsForegroundWatcher,
+    >,
+    pub(crate) tray_manager: Option<Box<dyn crate::presentation::tray::TrayController>>,
 }
 
 impl GearVRApp {
@@ -168,6 +175,14 @@ impl GearVRApp {
             radial_menu: RadialMenu::new(),
             current_control_mode: ControlMode::default(),
             back_hold_start: None,
+            power_manager: Box::new(crate::infrastructure::power::WindowsPowerManager::new()),
+            context_service: crate::application::context_switcher::ContextProfileService::new(
+                crate::infrastructure::window_tracker::WindowsForegroundWatcher::default(),
+            ),
+            tray_manager: crate::presentation::tray::WindowsTrayManager::new("Gear VR Controller")
+                .map_err(|e| tracing::warn!("Failed to initialize system tray: {}", e))
+                .ok()
+                .map(|t| Box::new(t) as Box<dyn crate::presentation::tray::TrayController>),
         }
     }
 
@@ -544,10 +559,74 @@ impl eframe::App for GearVRApp {
             }
         }
 
+        // Context-Aware Automatic Profile Switching
+        if let Ok(settings) = self.settings.lock() {
+            let auto_enabled = settings.get().enable_auto_profile_switching;
+            if auto_enabled {
+                if let Some(new_mode) = self.context_service.evaluate_context(true) {
+                    if self.current_control_mode != new_mode {
+                        self.current_control_mode = new_mode;
+                        self.status_message = Some(StatusMessage {
+                            message: format!(
+                                "Auto Profile Switched: {} ({})",
+                                new_mode.name(),
+                                new_mode.description()
+                            ),
+                            severity: MessageSeverity::Info,
+                        });
+                    }
+                }
+            }
+        }
+
+        // System Display Sleep Management (PowerInhibitor)
+        let should_prevent_sleep = match self.settings.lock() {
+            Ok(s) => {
+                s.get().enable_presentation_anti_sleep
+                    && self.current_control_mode == ControlMode::Presentation
+                    && self.connection_status == ConnectionStatus::Connected
+            }
+            Err(_) => false,
+        };
+
+        if should_prevent_sleep {
+            let _ = self.power_manager.prevent_sleep();
+        } else {
+            let _ = self.power_manager.allow_sleep();
+        }
+
+        // System Tray Tooltip Synchronization
+        if let Some(tray) = &mut self.tray_manager {
+            let tooltip = match self.connection_status {
+                ConnectionStatus::Connected => {
+                    format!("Gear VR: Connected [{}]", self.current_control_mode.name())
+                }
+                ConnectionStatus::Connecting => "Gear VR: Connecting...".to_string(),
+                ConnectionStatus::Disconnected => "Gear VR: Disconnected".to_string(),
+                ConnectionStatus::Error => "Gear VR: Connection Error".to_string(),
+            };
+            let _ = tray.update_tooltip(&tooltip);
+        }
+
         // Event-driven reactive repaint: background BLE events trigger ctx.request_repaint() via the bridge
-        // Only request periodic repaint when timers, active scanning, or overlays are in progress
-        if self.reconnect_timer.is_some() || self.is_scanning || self.radial_menu.is_visible {
-            ctx.request_repaint_after(Duration::from_millis(16));
+        // Only request periodic repaint when timers, active scanning, overlays, or auto-profile checks are active
+        let auto_profile_active = self
+            .settings
+            .lock()
+            .map(|s| s.get().enable_auto_profile_switching)
+            .unwrap_or(false);
+
+        if self.reconnect_timer.is_some()
+            || self.is_scanning
+            || self.radial_menu.is_visible
+            || auto_profile_active
+        {
+            let repaint_interval = if self.radial_menu.is_visible {
+                Duration::from_millis(16)
+            } else {
+                Duration::from_millis(500)
+            };
+            ctx.request_repaint_after(repaint_interval);
         }
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {

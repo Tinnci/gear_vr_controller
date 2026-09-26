@@ -12,10 +12,43 @@ pub fn render(app: &mut GearVRApp, ui: &mut egui::Ui) {
 
         render_input_settings(settings_mut, ui);
         ui.add_space(10.0);
+        render_system_integration_settings(settings_mut, ui);
+        ui.add_space(10.0);
         render_bluetooth_settings(settings_mut, ui);
         ui.add_space(10.0);
         render_logging_settings(settings_mut, ui);
     }
+}
+
+fn render_system_integration_settings(settings: &mut Settings, ui: &mut egui::Ui) {
+    Components::brutalist_card(ui, "Windows System Integration", |ui| {
+        ui.checkbox(
+            &mut settings.enable_presentation_anti_sleep,
+            "Prevent Screen Sleep in Presenter Mode",
+        );
+        ui.label(
+            egui::RichText::new("Keeps system display awake during slide presentations.")
+                .italics()
+                .size(11.0),
+        );
+
+        ui.add_space(4.0);
+        ui.checkbox(
+            &mut settings.enable_auto_profile_switching,
+            "Context-Aware Auto Profile Switching",
+        );
+        ui.label(
+            egui::RichText::new("Auto-switches to Presenter mode for PPT/WPS, and Touchpad for Media apps.")
+                .italics()
+                .size(11.0),
+        );
+
+        ui.add_space(4.0);
+        ui.checkbox(
+            &mut settings.minimize_to_tray,
+            "System Tray Integration (Background Operation)",
+        );
+    });
 }
 
 fn render_input_settings(settings: &mut Settings, ui: &mut egui::Ui) {

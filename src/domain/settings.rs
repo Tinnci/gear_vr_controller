@@ -105,6 +105,14 @@ pub struct Settings {
     pub pairing_max_retries: u32,
     #[serde(default = "default_pairing_retry_delay_ms")]
     pub pairing_retry_delay_ms: u64,
+
+    // Windows System Integration Settings
+    #[serde(default = "default_true")]
+    pub enable_presentation_anti_sleep: bool,
+    #[serde(default = "default_false")]
+    pub enable_auto_profile_switching: bool,
+    #[serde(default = "default_true")]
+    pub minimize_to_tray: bool,
 }
 
 impl Default for Settings {
@@ -137,6 +145,11 @@ impl Default for Settings {
             // Pairing Settings
             pairing_max_retries: default_pairing_max_retries(),
             pairing_retry_delay_ms: default_pairing_retry_delay_ms(),
+
+            // Windows System Integration Settings
+            enable_presentation_anti_sleep: true,
+            enable_auto_profile_switching: false,
+            minimize_to_tray: true,
         }
     }
 }
