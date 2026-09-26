@@ -244,20 +244,6 @@ impl Component for GearVRReactorApp {
             .message(info_msg)
             .is_open(is_info_open);
 
-        // Fluent Header (Title & Subtitle)
-        let page_header = StackPanel::new()
-            .spacing(4.0)
-            .children((
-                TextBlock::new()
-                    .text(s.app_title)
-                    .font_size(24.0)
-                    .font_weight(FontWeight::SEMI_BOLD),
-                TextBlock::new()
-                    .text(s.app_subtitle)
-                    .font_size(13.0)
-                    .foreground(ThemeBrush::PrimaryText),
-            ));
-
         // Fluent NavigationView Items (Windows 11 Navigation Architecture)
         let nav_items = [
             KeyedView::new(
@@ -321,7 +307,15 @@ impl Component for GearVRReactorApp {
                     )),
             );
 
-        NavigationView::new()
+        // Windows 11 Settings & Microsoft Store Custom TitleBar
+        let title_bar = TitleBar::new()
+            .title(s.app_title)
+            .subtitle(s.app_subtitle)
+            .preferred_height(WindowTitleBarHeight::Tall)
+            .is_back_button_visible(false)
+            .is_pane_toggle_button_visible(false);
+
+        let nav_view = NavigationView::new()
             .pane_title(s.nav_pane_title)
             .pane_display_mode(NavigationViewPaneDisplayMode::Left)
             .is_back_button_visible(NavigationViewBackButtonVisible::Collapsed)
@@ -329,9 +323,14 @@ impl Component for GearVRReactorApp {
             .on_selected_tag_changed(context.callback(ReactorMessage::NavSelectionChanged))
             .slots([
                 SlotView::collection(NavigationViewSlot::MenuItems, nav_items),
-                SlotView::new(NavigationViewSlot::Header, page_header),
                 SlotView::new(NavigationViewSlot::Content, content_area),
-            ])
+            ]);
+
+        StackPanel::new()
+            .children((
+                title_bar,
+                nav_view,
+            ))
             .into()
     }
 }
