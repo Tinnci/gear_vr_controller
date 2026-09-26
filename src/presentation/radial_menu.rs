@@ -224,7 +224,7 @@ impl RadialMenu {
                 painter.circle_stroke(
                     center,
                     self.inner_radius,
-                    Stroke::new(2.0, Color32::from_rgb(100, 100, 120)),
+                    Stroke::new(2.0_f32, Color32::from_rgb(100, 100, 120)),
                 );
 
                 // Draw center icon
@@ -281,7 +281,7 @@ impl RadialMenu {
         painter.add(egui::Shape::convex_polygon(
             points,
             fill_color,
-            Stroke::new(1.5, Color32::from_rgb(100, 100, 120)),
+            Stroke::new(1.5_f32, Color32::from_rgb(100, 100, 120)),
         ));
 
         // Draw divider lines between segments
@@ -295,7 +295,7 @@ impl RadialMenu {
         );
         painter.line_segment(
             [line_start, line_end],
-            Stroke::new(2.0, Color32::from_rgb(50, 50, 60)),
+            Stroke::new(2.0_f32, Color32::from_rgb(50, 50, 60)),
         );
 
         // Draw icon and label using precomputed relative center

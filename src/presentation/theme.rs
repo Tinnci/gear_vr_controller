@@ -58,41 +58,41 @@ pub fn configure_neubrutalism(ctx: &egui::Context, is_dark: bool) {
 
     // Visuals
     // Non-interactive (Labels / Frames)
-    style.visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(2.0, palette.stroke);
+    style.visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(2.0_f32, palette.stroke);
     style.visuals.widgets.noninteractive.rounding = egui::Rounding::ZERO;
-    style.visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, palette.fg);
+    style.visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0_f32, palette.fg);
     style.visuals.widgets.noninteractive.bg_fill = palette.bg;
 
     // Inactive (Buttons normal)
-    style.visuals.widgets.inactive.bg_stroke = egui::Stroke::new(2.0, palette.stroke);
+    style.visuals.widgets.inactive.bg_stroke = egui::Stroke::new(2.0_f32, palette.stroke);
     style.visuals.widgets.inactive.rounding = egui::Rounding::ZERO;
     style.visuals.widgets.inactive.bg_fill = if is_dark {
         egui::Color32::from_gray(30)
     } else {
         egui::Color32::WHITE
     };
-    style.visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, palette.fg);
+    style.visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0_f32, palette.fg);
 
     // Hovered
-    style.visuals.widgets.hovered.bg_stroke = egui::Stroke::new(2.5, palette.stroke);
+    style.visuals.widgets.hovered.bg_stroke = egui::Stroke::new(2.5_f32, palette.stroke);
     style.visuals.widgets.hovered.rounding = egui::Rounding::ZERO;
     style.visuals.widgets.hovered.bg_fill = palette.accent_yellow;
-    style.visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, egui::Color32::BLACK);
+    style.visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0_f32, egui::Color32::BLACK);
     style.visuals.widgets.hovered.expansion = 2.0;
 
     // Active
-    style.visuals.widgets.active.bg_stroke = egui::Stroke::new(3.0, palette.stroke);
+    style.visuals.widgets.active.bg_stroke = egui::Stroke::new(3.0_f32, palette.stroke);
     style.visuals.widgets.active.rounding = egui::Rounding::ZERO;
     style.visuals.widgets.active.bg_fill = palette.accent_green;
-    style.visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, egui::Color32::BLACK);
+    style.visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0_f32, egui::Color32::BLACK);
 
     // Selection
-    style.visuals.selection.stroke = egui::Stroke::new(1.0, palette.stroke);
+    style.visuals.selection.stroke = egui::Stroke::new(1.0_f32, palette.stroke);
     style.visuals.selection.bg_fill = palette.accent_cyan;
 
     // Window
     style.visuals.window_rounding = egui::Rounding::ZERO;
-    style.visuals.window_stroke = egui::Stroke::new(2.0, palette.stroke);
+    style.visuals.window_stroke = egui::Stroke::new(2.0_f32, palette.stroke);
     style.visuals.window_shadow = egui::Shadow {
         offset: egui::vec2(8.0, 8.0),
         blur: 0.0,
