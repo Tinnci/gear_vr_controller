@@ -1,8 +1,6 @@
 use crate::domain::models::ControllerData;
-use crate::domain::settings::SettingsService;
 use std::collections::VecDeque;
 use std::f64::consts::PI;
-use std::sync::{Arc, Mutex};
 use tracing::{debug, trace};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -22,7 +20,6 @@ struct TouchpadPoint {
 }
 
 pub struct GestureRecognizer {
-    settings: Arc<Mutex<SettingsService>>,
     points: VecDeque<TouchpadPoint>,
     start_point: Option<TouchpadPoint>,
     is_gesture_in_progress: bool,
@@ -32,10 +29,15 @@ pub struct GestureRecognizer {
     min_gesture_distance: f64,
 }
 
+impl Default for GestureRecognizer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GestureRecognizer {
-    pub fn new(settings: Arc<Mutex<SettingsService>>) -> Self {
+    pub fn new() -> Self {
         Self {
-            settings,
             points: VecDeque::new(),
             start_point: None,
             is_gesture_in_progress: false,
@@ -44,19 +46,12 @@ impl GestureRecognizer {
         }
     }
 
-    fn get_recognition_threshold(&self) -> f64 {
-        if let Ok(settings_guard) = self.settings.lock() {
-            let settings = settings_guard.get();
-            // Scale threshold inversely with sensitivity
-            // Base sensitivity is 2.0.
-            let scale_factor = settings.mouse_sensitivity.max(0.1) / 2.0;
-            self.min_gesture_distance / scale_factor
-        } else {
-            self.min_gesture_distance
-        }
+    fn get_recognition_threshold(&self, sensitivity: f64) -> f64 {
+        let scale_factor = sensitivity.max(0.1) / 2.0;
+        self.min_gesture_distance / scale_factor
     }
 
-    pub fn process(&mut self, data: &ControllerData) -> Option<GestureDirection> {
+    pub fn process(&mut self, data: &ControllerData, sensitivity: f64) -> Option<GestureDirection> {
         let point = TouchpadPoint {
             x: data.processed_touchpad_x,
             y: data.processed_touchpad_y,
@@ -71,7 +66,7 @@ impl GestureRecognizer {
                 self.update_gesture(point);
                 None
             } else {
-                self.end_gesture()
+                self.end_gesture(sensitivity)
             }
         } else {
             None
@@ -93,14 +88,14 @@ impl GestureRecognizer {
         }
     }
 
-    fn end_gesture(&mut self) -> Option<GestureDirection> {
+    fn end_gesture(&mut self, sensitivity: f64) -> Option<GestureDirection> {
         let mut result = GestureDirection::None;
 
         if self.points.len() >= 2 {
             if let Some(start) = self.start_point {
                 // Use the last point in buffer as end point
                 if let Some(end) = self.points.back() {
-                    result = self.calculate_direction(start, *end);
+                    result = self.calculate_direction(start, *end, sensitivity);
                 }
             }
         }
@@ -121,29 +116,24 @@ impl GestureRecognizer {
         }
     }
 
-    fn calculate_direction(&self, start: TouchpadPoint, end: TouchpadPoint) -> GestureDirection {
+    fn calculate_direction(
+        &self,
+        start: TouchpadPoint,
+        end: TouchpadPoint,
+        sensitivity: f64,
+    ) -> GestureDirection {
         let dx = end.x - start.x;
-        // Invert Y because screen Y (down is positive) vs standard math (up is positive)?
-        // Touchpad Y: 0 (top) to 315 (bottom).
-        // Normalized Y: -1 (top) to 1 (bottom)?
-        // Let's check normalization in controller.rs.
-        // center = 157. (y - center) / range.
-        // If y=0 (top), norm = -1. If y=315 (bottom), norm = 1.
-        // So Y increases downwards.
-        // Math.Atan2(y, x).
-        // If gesture is UP (swiping from bottom to top), end.y < start.y -> dy is negative.
-        // If gesture is DOWN (swiping top to bottom), dy is positive.
         let dy = end.y - start.y;
 
-        let distance = (dx * dx + dy * dy).sqrt();
+        let dist_sq = dx * dx + dy * dy;
+        let threshold = self.get_recognition_threshold(sensitivity);
+        let threshold_sq = threshold * threshold;
 
-        let threshold = self.get_recognition_threshold();
-
-        if distance < threshold {
+        if dist_sq < threshold_sq {
             trace!(
-                "Gesture rejected: distance {:.2} < threshold {:.2}",
-                distance,
-                threshold
+                "Gesture rejected: dist_sq {:.4} < threshold_sq {:.4}",
+                dist_sq,
+                threshold_sq
             );
             return GestureDirection::None;
         }
@@ -171,7 +161,7 @@ impl GestureRecognizer {
 
         debug!(
             "Gesture check: Dist={:.2}, Angle={:.1}°, Result={:?}",
-            distance, degrees, direction
+            dist_sq.sqrt(), degrees, direction
         );
         direction
     }

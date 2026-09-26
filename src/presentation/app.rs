@@ -23,13 +23,6 @@ fn debounce_ready(last: Option<Instant>, now: Instant, duration: Duration) -> bo
     last.is_none_or(|last| now.duration_since(last) > duration)
 }
 
-#[derive(Default)]
-struct InputFeatureFlags {
-    touchpad: bool,
-    buttons: bool,
-    gestures: bool,
-}
-
 pub struct GearVRApp {
     // Services
     pub(crate) settings: Arc<Mutex<SettingsService>>,
@@ -111,19 +104,29 @@ impl GearVRApp {
         tracing::info!("Starting Gear VR Controller Application");
 
         let settings = Arc::new(Mutex::new(settings_service));
-        let (data_tx, data_rx) = mpsc::unbounded_channel();
+        let (raw_data_tx, mut internal_rx) = mpsc::unbounded_channel::<AppEvent>();
+        let (data_tx, data_rx) = mpsc::unbounded_channel::<AppEvent>();
         let (bt_cmd_tx, bt_cmd_rx) = mpsc::unbounded_channel();
         let bt_settings = settings.clone();
 
+        // Reactive bridge: trigger egui repaint immediately when any BLE/system event arrives
+        let ctx_bridge = cc.egui_ctx.clone();
+        std::thread::spawn(move || {
+            while let Some(event) = internal_rx.blocking_recv() {
+                let _ = data_tx.send(event);
+                ctx_bridge.request_repaint();
+            }
+        });
+
         crate::application::bluetooth_worker::spawn_bluetooth_worker(
-            data_tx,
+            raw_data_tx,
             bt_cmd_rx,
             bt_settings,
         );
 
-        let touchpad_processor = Some(TouchpadProcessor::new(settings.clone()));
-        let gesture_recognizer = Some(GestureRecognizer::new(settings.clone()));
-        let imu_processor = Some(ImuProcessor::new(settings.clone()));
+        let touchpad_processor = Some(TouchpadProcessor::new());
+        let gesture_recognizer = Some(GestureRecognizer::new());
+        let imu_processor = Some(ImuProcessor::new());
         let last_connected_address = match settings.lock() {
             Ok(settings) => settings.get().last_connected_address,
             Err(_) => {
@@ -169,19 +172,33 @@ impl GearVRApp {
     }
 
     fn process_controller_data(&mut self, mut data: ControllerData) {
-        let flags = self.input_feature_flags();
+        // Fetch snapshot of settings and calibration once per packet to eliminate lock contention
+        let (settings, calibration) = match self.settings.lock() {
+            Ok(s) => {
+                let current = s.get();
+                (current.clone(), current.touchpad_calibration.clone())
+            }
+            Err(_) => {
+                tracing::warn!("Settings lock poisoned; skipping controller input for this frame");
+                return;
+            }
+        };
+
         let menu_active = self.radial_menu.is_visible;
 
-        self.normalize_touchpad(&mut data);
+        // Process touchpad data for normalization without locking
+        if let Some(processor) = &mut self.touchpad_processor {
+            processor.process(&mut data, &calibration);
+        }
 
         if !menu_active {
-            self.process_motion_input(&data, flags.touchpad);
-            if flags.gestures {
-                self.process_gesture_input(&data);
+            self.process_motion_input(&data, settings.enable_touchpad, &settings);
+            if settings.enable_gestures {
+                self.process_gesture_input(&data, settings.mouse_sensitivity);
             }
         }
 
-        if flags.buttons {
+        if settings.enable_buttons {
             self.process_button_input(&data, Instant::now());
         }
 
@@ -189,40 +206,31 @@ impl GearVRApp {
         self.latest_controller_data = Some(data);
     }
 
-    fn input_feature_flags(&self) -> InputFeatureFlags {
-        match self.settings.lock() {
-            Ok(settings) => {
-                let settings = settings.get();
-                InputFeatureFlags {
-                    touchpad: settings.enable_touchpad,
-                    buttons: settings.enable_buttons,
-                    gestures: settings.enable_gestures,
-                }
-            }
-            Err(_) => {
-                tracing::warn!("Settings lock poisoned; disabling controller input for this frame");
-                InputFeatureFlags::default()
-            }
-        }
-    }
-
-    fn normalize_touchpad(&mut self, data: &mut ControllerData) {
-        if let Some(processor) = &mut self.touchpad_processor {
-            processor.process(data);
-        }
-    }
-
-    fn process_motion_input(&mut self, data: &ControllerData, touchpad_enabled: bool) {
+    fn process_motion_input(
+        &mut self,
+        data: &ControllerData,
+        touchpad_enabled: bool,
+        settings: &crate::domain::settings::Settings,
+    ) {
         match self.current_control_mode {
-            ControlMode::Mouse => self.process_mouse_mode_input(data, touchpad_enabled),
-            ControlMode::Touchpad => self.process_touchpad_mode_input(data, touchpad_enabled),
+            ControlMode::Mouse => {
+                self.process_mouse_mode_input(data, touchpad_enabled, settings.mouse_sensitivity)
+            }
+            ControlMode::Touchpad => {
+                self.process_touchpad_mode_input(data, touchpad_enabled, settings)
+            }
             ControlMode::Presentation | ControlMode::Settings => {}
         }
     }
 
-    fn process_mouse_mode_input(&mut self, data: &ControllerData, touchpad_enabled: bool) {
+    fn process_mouse_mode_input(
+        &mut self,
+        data: &ControllerData,
+        touchpad_enabled: bool,
+        sensitivity: f64,
+    ) {
         if let Some(imu) = &mut self.imu_processor {
-            if let Some((dx, dy)) = imu.calculate_airmouse_delta(data) {
+            if let Some((dx, dy)) = imu.calculate_airmouse_delta(data, sensitivity) {
                 let _ = self.input_simulator.move_mouse(dx, dy);
             }
         }
@@ -253,23 +261,28 @@ impl GearVRApp {
         }
     }
 
-    fn process_touchpad_mode_input(&mut self, data: &ControllerData, touchpad_enabled: bool) {
+    fn process_touchpad_mode_input(
+        &mut self,
+        data: &ControllerData,
+        touchpad_enabled: bool,
+        settings: &crate::domain::settings::Settings,
+    ) {
         if !touchpad_enabled || !data.touchpad_touched {
             return;
         }
 
         if let Some(processor) = &mut self.touchpad_processor {
-            if let Some((dx, dy)) = processor.calculate_mouse_delta(data) {
+            if let Some((dx, dy)) = processor.calculate_mouse_delta(data, settings) {
                 let _ = self.input_simulator.move_mouse(dx, dy);
             }
         }
     }
 
-    fn process_gesture_input(&mut self, data: &ControllerData) {
+    fn process_gesture_input(&mut self, data: &ControllerData, sensitivity: f64) {
         let Some(recognizer) = &mut self.gesture_recognizer else {
             return;
         };
-        let Some(direction) = recognizer.process(data) else {
+        let Some(direction) = recognizer.process(data, sensitivity) else {
             return;
         };
 
@@ -370,18 +383,19 @@ impl GearVRApp {
     }
 
     fn handle_back_released(&mut self, now: Instant) {
-        let Some(start_time) = self.back_hold_start else {
+        let Some(start_time) = self.back_hold_start.take() else {
             return;
         };
 
         let hold_duration = now.duration_since(start_time);
         if self.radial_menu.is_visible {
             self.apply_radial_menu_selection();
-        } else if hold_duration < RADIAL_MENU_HOLD {
-            self.handle_quick_back_tap(now);
+        } else if hold_duration < RADIAL_MENU_HOLD
+            && debounce_ready(self.back_btn_debounce, now, BUTTON_DEBOUNCE)
+        {
+            self.back_btn_debounce = Some(now);
+            self.handle_quick_back_action();
         }
-
-        self.back_hold_start = None;
     }
 
     fn apply_radial_menu_selection(&mut self) {
@@ -405,12 +419,7 @@ impl GearVRApp {
         });
     }
 
-    fn handle_quick_back_tap(&mut self, now: Instant) {
-        if !debounce_ready(self.back_btn_debounce, now, BUTTON_DEBOUNCE) {
-            return;
-        }
-
-        self.back_btn_debounce = Some(now);
+    fn handle_quick_back_action(&mut self) {
         match self.current_control_mode {
             ControlMode::Mouse | ControlMode::Touchpad => {
                 let _ = self.input_simulator.mouse_right_click();
@@ -500,8 +509,6 @@ impl eframe::App for GearVRApp {
                             self.reconnect_timer =
                                 Some(Instant::now() + Duration::from_millis(2000));
 
-                            // Optimization: Only set "Reconnecting" message if there is no current Error message
-                            // This prevents hiding critical diagnostic buttons that help fix the root cause.
                             let should_update_msg = self
                                 .status_message
                                 .as_ref()
@@ -517,8 +524,6 @@ impl eframe::App for GearVRApp {
                     }
                 }
                 AppEvent::LogMessage(msg) => {
-                    // Optimization: If a critical error occurs, stop auto-reconnecting
-                    // to give the user time to use diagnostic tools.
                     if msg.severity == MessageSeverity::Error {
                         self.auto_reconnect = false;
                         self.reconnect_timer = None;
@@ -539,7 +544,11 @@ impl eframe::App for GearVRApp {
             }
         }
 
-        ctx.request_repaint();
+        // Event-driven reactive repaint: background BLE events trigger ctx.request_repaint() via the bridge
+        // Only request periodic repaint when timers, active scanning, or overlays are in progress
+        if self.reconnect_timer.is_some() || self.is_scanning || self.radial_menu.is_visible {
+            ctx.request_repaint_after(Duration::from_millis(16));
+        }
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {

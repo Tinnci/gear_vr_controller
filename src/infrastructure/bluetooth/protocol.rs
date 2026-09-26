@@ -78,14 +78,15 @@ pub const COMMAND_DELAY_MS: u64 = 50;
 
 /// IMU scaling factors from decompiled Samsung APK
 /// Based on: com.samsung.android.app.vr.input.service/ui/c.class
+#[allow(dead_code)]
 pub mod imu_scale {
-    /// Accelerometer: value * 10000.0 * 9.80665 / 2048.0 * ACCEL_FACTOR
-    /// ACCEL_FACTOR = 0.00001 (to g)
+    /// Accelerometer combined scale factor: value * 10000.0 * 9.80665 / 2048.0 * 0.00001
+    pub const ACCEL_SCALE: f32 = 10000.0 * 9.80665 / 2048.0 * 0.00001;
     pub const ACCEL_RAW: f32 = 10000.0 * 9.80665 / 2048.0;
     pub const ACCEL_FACTOR: f32 = 0.00001;
 
-    /// Gyroscope: value * 10000.0 * 0.017453292 / 14.285 * GYRO_FACTOR
-    /// GYRO_FACTOR = 0.0001 (to radians/s)
+    /// Gyroscope combined scale factor: value * 10000.0 * 0.017453292 / 14.285 * 0.0001
+    pub const GYRO_SCALE: f32 = 10000.0 * 0.017453292 / 14.285 * 0.0001;
     pub const GYRO_RAW: f32 = 10000.0 * 0.017453292 / 14.285;
     pub const GYRO_FACTOR: f32 = 0.0001;
 
@@ -140,7 +141,8 @@ pub fn parse_data_packet(buffer: &IBuffer) -> Result<ControllerData> {
         return Err(anyhow::anyhow!("Invalid packet size: {}", length));
     }
 
-    let mut bytes = vec![0u8; length];
+    // Zero-heap-allocation: read directly into a stack-allocated 60-byte buffer
+    let mut bytes = [0u8; 60];
     reader.ReadBytes(&mut bytes)?;
 
     // Debug logging for protocol analysis
@@ -174,16 +176,14 @@ pub fn parse_raw_bytes(bytes: &[u8]) -> Result<ControllerData> {
     let raw_gyro_y = i16::from_le_bytes([bytes[12], bytes[13]]);
     let raw_gyro_z = i16::from_le_bytes([bytes[14], bytes[15]]);
 
-    // Apply Samsung APK scaling formulas
-    // Accel: value * 10000.0 * 9.80665 / 2048.0 * 0.00001
-    let accel_x = raw_accel_x as f32 * imu_scale::ACCEL_RAW * imu_scale::ACCEL_FACTOR;
-    let accel_y = raw_accel_y as f32 * imu_scale::ACCEL_RAW * imu_scale::ACCEL_FACTOR;
-    let accel_z = raw_accel_z as f32 * imu_scale::ACCEL_RAW * imu_scale::ACCEL_FACTOR;
+    // Apply precomputed scaling constants (single float multiplication per axis)
+    let accel_x = raw_accel_x as f32 * imu_scale::ACCEL_SCALE;
+    let accel_y = raw_accel_y as f32 * imu_scale::ACCEL_SCALE;
+    let accel_z = raw_accel_z as f32 * imu_scale::ACCEL_SCALE;
 
-    // Gyro: value * 10000.0 * 0.017453292 / 14.285 * 0.0001
-    let gyro_x = raw_gyro_x as f32 * imu_scale::GYRO_RAW * imu_scale::GYRO_FACTOR;
-    let gyro_y = raw_gyro_y as f32 * imu_scale::GYRO_RAW * imu_scale::GYRO_FACTOR;
-    let gyro_z = raw_gyro_z as f32 * imu_scale::GYRO_RAW * imu_scale::GYRO_FACTOR;
+    let gyro_x = raw_gyro_x as f32 * imu_scale::GYRO_SCALE;
+    let gyro_y = raw_gyro_y as f32 * imu_scale::GYRO_SCALE;
+    let gyro_z = raw_gyro_z as f32 * imu_scale::GYRO_SCALE;
 
     // Magnetometer at bytes 32-37 (JS: offset 32 + 0/2/4)
     let raw_mag_x = i16::from_le_bytes([bytes[32], bytes[33]]);

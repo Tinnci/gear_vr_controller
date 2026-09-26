@@ -49,8 +49,14 @@ impl ControlMode {
 #[derive(Debug, Clone)]
 pub struct RadialMenuItem {
     pub mode: ControlMode,
+    #[allow(dead_code)]
     pub angle_start: f32, // in radians
+    #[allow(dead_code)]
     pub angle_end: f32,   // in radians
+    pub vertices_rel: Vec<Pos2>,
+    pub divider_start_rel: Pos2,
+    pub divider_end_rel: Pos2,
+    pub label_pos_rel: Pos2,
 }
 
 /// Radial menu state and rendering
@@ -79,8 +85,12 @@ impl RadialMenu {
             ControlMode::Settings,
         ];
 
+        let inner_radius = 40.0;
+        let outer_radius = 120.0;
+
         let item_count = modes.len();
         let angle_per_item = 2.0 * PI / item_count as f32;
+        let segments = 32;
 
         let items: Vec<RadialMenuItem> = modes
             .iter()
@@ -88,21 +98,54 @@ impl RadialMenu {
             .map(|(i, &mode)| {
                 let angle_start = -PI / 2.0 + (i as f32) * angle_per_item - angle_per_item / 2.0;
                 let angle_end = angle_start + angle_per_item;
+                let angle_step = (angle_end - angle_start) / segments as f32;
+
+                // Precompute relative vertices to eliminate trig calculations in render loop
+                let mut vertices_rel = Vec::with_capacity((segments + 1) * 2);
+                for j in 0..=segments {
+                    let a = angle_start + j as f32 * angle_step;
+                    vertices_rel.push(Pos2::new(inner_radius * a.cos(), inner_radius * a.sin()));
+                }
+                for j in (0..=segments).rev() {
+                    let a = angle_start + j as f32 * angle_step;
+                    vertices_rel.push(Pos2::new(outer_radius * a.cos(), outer_radius * a.sin()));
+                }
+
+                let divider_start_rel = Pos2::new(
+                    inner_radius * angle_start.cos(),
+                    inner_radius * angle_start.sin(),
+                );
+                let divider_end_rel = Pos2::new(
+                    outer_radius * angle_start.cos(),
+                    outer_radius * angle_start.sin(),
+                );
+
+                let mid_angle = (angle_start + angle_end) / 2.0;
+                let label_radius = (inner_radius + outer_radius) / 2.0;
+                let label_pos_rel = Pos2::new(
+                    label_radius * mid_angle.cos(),
+                    label_radius * mid_angle.sin(),
+                );
+
                 RadialMenuItem {
                     mode,
                     angle_start,
                     angle_end,
+                    vertices_rel,
+                    divider_start_rel,
+                    divider_end_rel,
+                    label_pos_rel,
                 }
             })
             .collect();
 
         Self {
+            items,
             is_visible: false,
             center_pos: Pos2::ZERO,
             selected_index: None,
-            items,
-            outer_radius: 120.0,
-            inner_radius: 40.0,
+            outer_radius,
+            inner_radius,
             dead_zone_threshold: 0.3,
         }
     }
@@ -120,12 +163,12 @@ impl RadialMenu {
         self.selected_index.map(|i| self.items[i].mode)
     }
 
-    /// Update selection based on touchpad position (-1 to 1 range)
+    /// Update selection based on touchpad position (-1 to 1 range) in O(1)
     pub fn update_selection(&mut self, touchpad_x: f64, touchpad_y: f64) {
-        let distance = (touchpad_x * touchpad_x + touchpad_y * touchpad_y).sqrt();
+        let dist_sq = touchpad_x * touchpad_x + touchpad_y * touchpad_y;
 
-        // Dead zone in center - no selection
-        if distance < self.dead_zone_threshold {
+        // Dead zone in center - no selection without sqrt
+        if dist_sq < self.dead_zone_threshold * self.dead_zone_threshold {
             self.selected_index = None;
             return;
         }
@@ -133,38 +176,11 @@ impl RadialMenu {
         // Calculate angle from touchpad position
         let angle = (touchpad_y as f32).atan2(touchpad_x as f32);
 
-        // Find which item this angle falls into
-        for (i, item) in self.items.iter().enumerate() {
-            let mut item_start = item.angle_start;
-            let mut item_end = item.angle_end;
-
-            // Normalize angles for comparison
-            while item_start > PI {
-                item_start -= 2.0 * PI;
-            }
-            while item_start < -PI {
-                item_start += 2.0 * PI;
-            }
-            while item_end > PI {
-                item_end -= 2.0 * PI;
-            }
-            while item_end < -PI {
-                item_end += 2.0 * PI;
-            }
-
-            // Check if angle falls within this item's range
-            let in_range = if item_start <= item_end {
-                angle >= item_start && angle < item_end
-            } else {
-                // Wraps around -PI/PI
-                angle >= item_start || angle < item_end
-            };
-
-            if in_range {
-                self.selected_index = Some(i);
-                return;
-            }
-        }
+        // O(1) direct mapping for 4 segments evenly aligned at Top (-PI/2), Right (0), Bottom (PI/2), Left (PI)
+        let normalized =
+            (angle + 3.0 * std::f32::consts::FRAC_PI_4).rem_euclid(2.0 * std::f32::consts::PI);
+        let idx = (normalized / std::f32::consts::FRAC_PI_2) as usize;
+        self.selected_index = Some(idx.min(3));
     }
 
     /// Render the radial menu
@@ -248,9 +264,6 @@ impl RadialMenu {
         item: &RadialMenuItem,
         is_selected: bool,
     ) {
-        let segments = 32;
-        let angle_step = (item.angle_end - item.angle_start) / segments as f32;
-
         // Draw filled arc
         let fill_color = if is_selected {
             Color32::from_rgb(80, 140, 220)
@@ -258,25 +271,12 @@ impl RadialMenu {
             Color32::from_rgb(60, 60, 80)
         };
 
-        let mut points = Vec::new();
-
-        // Inner arc points
-        for i in 0..=segments {
-            let angle = item.angle_start + i as f32 * angle_step;
-            points.push(Pos2::new(
-                center.x + self.inner_radius * angle.cos(),
-                center.y + self.inner_radius * angle.sin(),
-            ));
-        }
-
-        // Outer arc points (reverse order)
-        for i in (0..=segments).rev() {
-            let angle = item.angle_start + i as f32 * angle_step;
-            points.push(Pos2::new(
-                center.x + self.outer_radius * angle.cos(),
-                center.y + self.outer_radius * angle.sin(),
-            ));
-        }
+        // Offset precalculated relative vertices by center (no trig calls during render)
+        let points: Vec<Pos2> = item
+            .vertices_rel
+            .iter()
+            .map(|p| Pos2::new(center.x + p.x, center.y + p.y))
+            .collect();
 
         painter.add(egui::Shape::convex_polygon(
             points,
@@ -286,24 +286,22 @@ impl RadialMenu {
 
         // Draw divider lines between segments
         let line_start = Pos2::new(
-            center.x + self.inner_radius * item.angle_start.cos(),
-            center.y + self.inner_radius * item.angle_start.sin(),
+            center.x + item.divider_start_rel.x,
+            center.y + item.divider_start_rel.y,
         );
         let line_end = Pos2::new(
-            center.x + self.outer_radius * item.angle_start.cos(),
-            center.y + self.outer_radius * item.angle_start.sin(),
+            center.x + item.divider_end_rel.x,
+            center.y + item.divider_end_rel.y,
         );
         painter.line_segment(
             [line_start, line_end],
             Stroke::new(2.0, Color32::from_rgb(50, 50, 60)),
         );
 
-        // Draw icon and label
-        let mid_angle = (item.angle_start + item.angle_end) / 2.0;
-        let label_radius = (self.inner_radius + self.outer_radius) / 2.0;
+        // Draw icon and label using precomputed relative center
         let label_pos = Pos2::new(
-            center.x + label_radius * mid_angle.cos(),
-            center.y + label_radius * mid_angle.sin(),
+            center.x + item.label_pos_rel.x,
+            center.y + item.label_pos_rel.y,
         );
 
         let text_color = if is_selected {

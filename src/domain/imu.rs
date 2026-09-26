@@ -3,21 +3,20 @@
 //! Processes gyroscope and accelerometer data for air-mouse style control.
 
 use crate::domain::models::ControllerData;
-use crate::domain::settings::{Settings, SettingsService};
-use std::sync::{Arc, Mutex};
+use std::collections::VecDeque;
 
 /// IMU Processor for air-mouse and motion-based control
 pub struct ImuProcessor {
-    settings: Arc<Mutex<SettingsService>>,
-
     // Calibration offsets (gyro drift compensation)
     gyro_offset_x: f32,
     gyro_offset_y: f32,
     gyro_offset_z: f32,
 
-    // Smoothing buffers
-    gyro_buffer_x: Vec<f32>,
-    gyro_buffer_y: Vec<f32>,
+    // Smoothing ring buffers with rolling sum for O(1) performance
+    gyro_buffer_x: VecDeque<f32>,
+    gyro_buffer_y: VecDeque<f32>,
+    gyro_sum_x: f32,
+    gyro_sum_y: f32,
     buffer_size: usize,
 
     // Calibration state
@@ -26,15 +25,22 @@ pub struct ImuProcessor {
     calibration_target: usize,
 }
 
+impl Default for ImuProcessor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ImuProcessor {
-    pub fn new(settings: Arc<Mutex<SettingsService>>) -> Self {
+    pub fn new() -> Self {
         Self {
-            settings,
             gyro_offset_x: 0.0,
             gyro_offset_y: 0.0,
             gyro_offset_z: 0.0,
-            gyro_buffer_x: Vec::new(),
-            gyro_buffer_y: Vec::new(),
+            gyro_buffer_x: VecDeque::with_capacity(4),
+            gyro_buffer_y: VecDeque::with_capacity(4),
+            gyro_sum_x: 0.0,
+            gyro_sum_y: 0.0,
             buffer_size: 3,
             calibration_samples: Vec::new(),
             is_calibrating: false,
@@ -59,8 +65,12 @@ impl ImuProcessor {
         self.calibration_samples.len() as f32 / self.calibration_target as f32
     }
 
-    /// Process IMU data and return mouse delta for air-mouse mode
-    pub fn calculate_airmouse_delta(&mut self, data: &ControllerData) -> Option<(i32, i32)> {
+    /// Process IMU data and return mouse delta for air-mouse mode with O(1) rolling average
+    pub fn calculate_airmouse_delta(
+        &mut self,
+        data: &ControllerData,
+        sensitivity: f64,
+    ) -> Option<(i32, i32)> {
         // Handle calibration
         if self.is_calibrating {
             self.calibration_samples
@@ -77,33 +87,24 @@ impl ImuProcessor {
         let gyro_y = data.gyro_y - self.gyro_offset_y;
         let _gyro_z = data.gyro_z - self.gyro_offset_z;
 
-        // For air-mouse:
-        // - Gyro Y (pitch) controls vertical mouse movement
-        // - Gyro Z (yaw) controls horizontal mouse movement
-        // Controller orientation matters - adjust mapping based on how user holds it
-
-        // Get sensitivity from settings
-        let sensitivity = match self.settings.lock() {
-            Ok(settings) => settings.get().mouse_sensitivity,
-            Err(_) => {
-                tracing::warn!("IMU settings lock poisoned; using default mouse sensitivity");
-                Settings::default().mouse_sensitivity
-            }
-        };
-
-        // Apply smoothing
-        self.gyro_buffer_x.push(gyro_x);
-        self.gyro_buffer_y.push(gyro_y);
+        // Apply O(1) rolling average smoothing
+        self.gyro_buffer_x.push_back(gyro_x);
+        self.gyro_sum_x += gyro_x;
+        self.gyro_buffer_y.push_back(gyro_y);
+        self.gyro_sum_y += gyro_y;
 
         while self.gyro_buffer_x.len() > self.buffer_size {
-            self.gyro_buffer_x.remove(0);
-            self.gyro_buffer_y.remove(0);
+            if let Some(old_x) = self.gyro_buffer_x.pop_front() {
+                self.gyro_sum_x -= old_x;
+            }
+            if let Some(old_y) = self.gyro_buffer_y.pop_front() {
+                self.gyro_sum_y -= old_y;
+            }
         }
 
-        let smoothed_x: f32 =
-            self.gyro_buffer_x.iter().sum::<f32>() / self.gyro_buffer_x.len() as f32;
-        let smoothed_y: f32 =
-            self.gyro_buffer_y.iter().sum::<f32>() / self.gyro_buffer_y.len() as f32;
+        let count = self.gyro_buffer_x.len() as f32;
+        let smoothed_x: f32 = self.gyro_sum_x / count;
+        let smoothed_y: f32 = self.gyro_sum_y / count;
 
         // Dead zone to filter noise
         let dead_zone = 0.5; // Adjust based on gyro noise level
@@ -123,12 +124,9 @@ impl ImuProcessor {
         }
 
         // Scale factor for converting gyro units to pixels
-        // Gyro values are in radians/second after scaling
-        // Typical gyro range: -2000 to +2000 deg/s raw, scaled down
         let scale = 50.0 * sensitivity as f32;
 
         // Map gyro axes to mouse axes
-        // This mapping may need adjustment based on controller orientation
         let mouse_dx = (dx * scale) as i32;
         let mouse_dy = (dy * scale) as i32;
 
@@ -155,24 +153,24 @@ impl ImuProcessor {
         }
     }
 
-    /// Detect shake gesture using accelerometer
+    /// Detect shake gesture using accelerometer (using squared magnitude to avoid sqrt)
     pub fn detect_shake(&mut self, data: &ControllerData) -> bool {
-        // Calculate acceleration magnitude
-        let magnitude = (data.accel_x * data.accel_x
+        let mag_sq = data.accel_x * data.accel_x
             + data.accel_y * data.accel_y
-            + data.accel_z * data.accel_z)
-            .sqrt();
+            + data.accel_z * data.accel_z;
 
-        // Shake threshold (significantly above gravity ~1.0)
-        let shake_threshold = 2.5;
+        // Shake threshold squared (significantly above gravity 1.0^2 = 1.0, 2.5^2 = 6.25)
+        const SHAKE_THRESHOLD_SQ: f32 = 2.5 * 2.5;
 
-        magnitude > shake_threshold
+        mag_sq > SHAKE_THRESHOLD_SQ
     }
 
     /// Reset filtered motion history.
     pub fn reset_orientation(&mut self) {
         self.gyro_buffer_x.clear();
         self.gyro_buffer_y.clear();
+        self.gyro_sum_x = 0.0;
+        self.gyro_sum_y = 0.0;
         tracing::info!("IMU filter state reset");
     }
 

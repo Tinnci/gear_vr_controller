@@ -1,40 +1,41 @@
-use crate::domain::models::ControllerData;
-use crate::domain::settings::SettingsService;
+use crate::domain::models::{ControllerData, TouchpadCalibration};
+use crate::domain::settings::Settings;
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
 
 pub struct TouchpadProcessor {
-    settings: Arc<Mutex<SettingsService>>,
     pub last_processed_pos: Option<(f64, f64)>,
     delta_buffer_x: VecDeque<f64>,
     delta_buffer_y: VecDeque<f64>,
+    delta_sum_x: f64,
+    delta_sum_y: f64,
+}
+
+impl Default for TouchpadProcessor {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TouchpadProcessor {
-    pub fn new(settings: Arc<Mutex<SettingsService>>) -> Self {
+    pub fn new() -> Self {
         Self {
-            settings,
             last_processed_pos: None,
             delta_buffer_x: VecDeque::new(),
             delta_buffer_y: VecDeque::new(),
+            delta_sum_x: 0.0,
+            delta_sum_y: 0.0,
         }
     }
 
-    /// Process raw controller data and update processed touchpad coordinates
-    pub fn process(&mut self, data: &mut ControllerData) {
-        let Ok(settings) = self.settings.lock() else {
-            tracing::warn!("Touchpad settings lock poisoned; skipping coordinate normalization");
-            return;
-        };
-        let calibration = &settings.get().touchpad_calibration;
-
+    /// Process raw controller data and update processed touchpad coordinates without locking
+    pub fn process(&mut self, data: &mut ControllerData, calibration: &TouchpadCalibration) {
         // Reset buffers if touch ended
         if !data.touchpad_touched {
             self.last_processed_pos = None;
             self.delta_buffer_x.clear();
             self.delta_buffer_y.clear();
-
-            // Still process coordinates for display/debug
+            self.delta_sum_x = 0.0;
+            self.delta_sum_y = 0.0;
         }
 
         // Normalize touchpad coordinates to [-1, 1] range
@@ -44,70 +45,88 @@ impl TouchpadProcessor {
         // Calculate normalized coordinates
         let center_x = calibration.center_x as f64;
         let center_y = calibration.center_y as f64;
-        let range_x = (calibration.max_x - calibration.min_x) as f64 / 2.0;
-        let range_y = (calibration.max_y - calibration.min_y) as f64 / 2.0;
+        let range_x = (calibration.max_x.saturating_sub(calibration.min_x)) as f64 / 2.0;
+        let range_y = (calibration.max_y.saturating_sub(calibration.min_y)) as f64 / 2.0;
 
         // Avoid division by zero
         let range_x = if range_x == 0.0 { 1.0 } else { range_x };
         let range_y = if range_y == 0.0 { 1.0 } else { range_y };
 
-        data.processed_touchpad_x = ((x as f64) - center_x) / range_x;
-        data.processed_touchpad_y = ((y as f64) - center_y) / range_y;
-
-        // Clamp to [-1, 1]
-        data.processed_touchpad_x = data.processed_touchpad_x.clamp(-1.0, 1.0);
-        data.processed_touchpad_y = data.processed_touchpad_y.clamp(-1.0, 1.0);
+        data.processed_touchpad_x = (((x as f64) - center_x) / range_x).clamp(-1.0, 1.0);
+        data.processed_touchpad_y = (((y as f64) - center_y) / range_y).clamp(-1.0, 1.0);
     }
 
-    /// Calculate mouse delta from touchpad movement with smoothing, deadzone, and acceleration
+    /// Calculate mouse delta from touchpad movement with O(1) rolling average smoothing, deadzone, and acceleration
     /// Includes Joystick behavior when holding near edges.
-    pub fn calculate_mouse_delta(&mut self, data: &ControllerData) -> Option<(i32, i32)> {
+    pub fn calculate_mouse_delta(
+        &mut self,
+        data: &ControllerData,
+        settings: &Settings,
+    ) -> Option<(i32, i32)> {
         if !data.touchpad_touched {
             return None;
         }
 
-        // Correct for controller orientation (90 degree rotation often seen in Gear VR implementations)
-        // If "Top" area moves it "Left", we need to rotate.
-        // Let's assume standard orientation for now but refine based on user report.
         let current_x = data.processed_touchpad_x;
         let current_y = data.processed_touchpad_y;
 
         let mut total_dx = 0.0;
         let mut total_dy = 0.0;
 
-        let Ok(settings_guard) = self.settings.lock() else {
-            tracing::warn!("Touchpad settings lock poisoned; skipping mouse delta");
-            return None;
-        };
-        let settings = settings_guard.get();
         let sensitivity = settings.mouse_sensitivity;
-        let enable_smoothing = settings.enable_smoothing;
-        let smoothing_factor = settings.smoothing_factor;
-        let enable_acceleration = settings.enable_acceleration;
-        let acceleration_power = settings.acceleration_power;
-        drop(settings_guard);
 
         // 1. RELATIVE MOVEMENT (Trackpad Mode)
         if let Some((last_x, last_y)) = self.last_processed_pos {
             let mut rel_dx = current_x - last_x;
             let mut rel_dy = current_y - last_y;
 
-            // Apply Smoothing to relative movement
-            if enable_smoothing {
+            // Apply O(1) Smoothing to relative movement
+            if settings.enable_smoothing {
                 self.delta_buffer_x.push_back(rel_dx);
+                self.delta_sum_x += rel_dx;
                 self.delta_buffer_y.push_back(rel_dy);
-                while self.delta_buffer_x.len() > smoothing_factor {
-                    self.delta_buffer_x.pop_front();
-                    self.delta_buffer_y.pop_front();
+                self.delta_sum_y += rel_dy;
+
+                while self.delta_buffer_x.len() > settings.smoothing_factor {
+                    if let Some(old_x) = self.delta_buffer_x.pop_front() {
+                        self.delta_sum_x -= old_x;
+                    }
+                    if let Some(old_y) = self.delta_buffer_y.pop_front() {
+                        self.delta_sum_y -= old_y;
+                    }
                 }
-                rel_dx = self.delta_buffer_x.iter().sum::<f64>() / self.delta_buffer_x.len() as f64;
-                rel_dy = self.delta_buffer_y.iter().sum::<f64>() / self.delta_buffer_y.len() as f64;
+
+                let count = self.delta_buffer_x.len() as f64;
+                if count > 0.0 {
+                    rel_dx = self.delta_sum_x / count;
+                    rel_dy = self.delta_sum_y / count;
+                }
             }
 
-            // Apply Acceleration
-            if enable_acceleration {
-                rel_dx = rel_dx.signum() * rel_dx.abs().powf(acceleration_power);
-                rel_dy = rel_dy.signum() * rel_dy.abs().powf(acceleration_power);
+            // Apply Acceleration (fast-path for common power curve exponents)
+            if settings.enable_acceleration {
+                let power = settings.acceleration_power;
+                let abs_x = rel_dx.abs();
+                let abs_y = rel_dy.abs();
+
+                let accel_x = if (power - 1.0).abs() < 1e-4 {
+                    abs_x
+                } else if (power - 2.0).abs() < 1e-4 {
+                    abs_x * abs_x
+                } else {
+                    abs_x.powf(power)
+                };
+
+                let accel_y = if (power - 1.0).abs() < 1e-4 {
+                    abs_y
+                } else if (power - 2.0).abs() < 1e-4 {
+                    abs_y * abs_y
+                } else {
+                    abs_y.powf(power)
+                };
+
+                rel_dx = rel_dx.signum() * accel_x;
+                rel_dy = rel_dy.signum() * accel_y;
             }
 
             let scale_factor = 800.0; // Adjusted for sensitivity
@@ -117,7 +136,7 @@ impl TouchpadProcessor {
         self.last_processed_pos = Some((current_x, current_y));
 
         // 2. ABSOLUTE MOVEMENT (Joystick Mode)
-        // If finger is held near the edges (abs > 0.7), add continuous movement
+        // If finger is held near the edges (abs > 0.6), add continuous movement
         let joy_threshold = 0.6;
         let joy_speed = 5.0; // Base speed for continuous movement
 
