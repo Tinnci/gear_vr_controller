@@ -296,26 +296,108 @@ impl Component for GearVRReactorApp {
             _ => self.render_diagnostics_tab(context, s),
         };
 
-        let content_area = Border::new()
-            .padding(Thickness::new(24.0, 16.0, 24.0, 24.0))
+        // Responsive scrolling content container
+        let content_area = ScrollViewer::new()
+            .vertical_scroll_bar_visibility(ScrollBarVisibility::Auto)
+            .horizontal_scroll_bar_visibility(ScrollBarVisibility::Disabled)
+            .content(
+                Border::new()
+                    .padding(Thickness::new(24.0, 16.0, 24.0, 24.0))
+                    .content(
+                        StackPanel::new()
+                            .spacing(16.0)
+                            .children((
+                                status_infobar,
+                                tab_content,
+                            )),
+                    ),
+            );
+
+        // Dynamic subtitle reflecting current page and device state
+        let dynamic_subtitle = match self.selected_tab {
+            0 => match self.connection_status {
+                ConnectionStatus::Connected => {
+                    if let Some(data) = &self.latest_data {
+                        format!("{} - {} ({} ms)", s.nav_dashboard, s.status_connected, data.timestamp)
+                    } else {
+                        format!("{} - {}", s.nav_dashboard, s.status_connected)
+                    }
+                }
+                ConnectionStatus::Connecting => format!("{} - {}", s.nav_dashboard, s.status_connecting),
+                ConnectionStatus::Disconnected => {
+                    if self.is_scanning {
+                        format!("{} - {}", s.nav_dashboard, s.scan_button)
+                    } else {
+                        format!("{} - {}", s.nav_dashboard, s.app_subtitle)
+                    }
+                }
+                ConnectionStatus::Error => format!("{} - {}", s.nav_dashboard, s.status_error),
+            },
+            1 => format!("{} - {}", s.nav_calibration, s.touch_cal_status),
+            2 => format!("{} - {}", s.nav_settings, self.language.display_name()),
+            _ => format!("{} - {}", s.nav_diagnostics, s.imu_diag_title),
+        };
+
+        // TitleBar RightHeader: Status capsule badge & Quick actions
+        let (status_badge_text, ring_active) = match self.connection_status {
+            ConnectionStatus::Connected => (s.status_connected.to_string(), false),
+            ConnectionStatus::Connecting => (s.status_connecting.to_string(), true),
+            ConnectionStatus::Disconnected => {
+                if self.is_scanning {
+                    (s.scan_button.to_string(), true)
+                } else {
+                    (s.status_disconnected.to_string(), false)
+                }
+            }
+            ConnectionStatus::Error => (s.status_error.to_string(), false),
+        };
+
+        let status_pill = Border::new()
+            .background(ThemeBrush::CardBackground)
+            .border_brush(ThemeBrush::CardStroke)
+            .border_thickness(1.0)
+            .corner_radius(12.0)
+            .padding(Thickness::new(10.0, 4.0, 10.0, 4.0))
             .content(
                 StackPanel::new()
-                    .spacing(16.0)
+                    .orientation(Orientation::Horizontal)
+                    .spacing(6.0)
                     .children((
-                        status_infobar,
-                        tab_content,
+                        ProgressRing::new()
+                            .is_active(ring_active)
+                            .width(12.0)
+                            .height(12.0),
+                        TextBlock::new()
+                            .text(status_badge_text)
+                            .font_size(12.0)
+                            .font_weight(FontWeight::SEMI_BOLD),
                     )),
             );
 
+        let quick_bt_btn = Button::new()
+            .on_click(context.message(ReactorMessage::OpenBtSettings))
+            .content(s.open_bt_settings);
+
+        let title_bar_right = StackPanel::new()
+            .orientation(Orientation::Horizontal)
+            .spacing(8.0)
+            .children((
+                status_pill,
+                quick_bt_btn,
+            ));
+
         // Windows 11 Settings & Microsoft Store Custom TitleBar
         let title_bar = TitleBar::new()
+            .grid_row(0)
             .title(s.app_title)
-            .subtitle(s.app_subtitle)
+            .subtitle(dynamic_subtitle)
             .preferred_height(WindowTitleBarHeight::Tall)
             .is_back_button_visible(false)
-            .is_pane_toggle_button_visible(false);
+            .is_pane_toggle_button_visible(false)
+            .slot(TitleBarSlot::RightHeader, title_bar_right);
 
         let nav_view = NavigationView::new()
+            .grid_row(1)
             .pane_title(s.nav_pane_title)
             .pane_display_mode(NavigationViewPaneDisplayMode::Left)
             .is_back_button_visible(NavigationViewBackButtonVisible::Collapsed)
@@ -326,7 +408,8 @@ impl Component for GearVRReactorApp {
                 SlotView::new(NavigationViewSlot::Content, content_area),
             ]);
 
-        StackPanel::new()
+        Grid::new()
+            .rows([GridLength::Auto, GridLength::STAR])
             .children((
                 title_bar,
                 nav_view,
