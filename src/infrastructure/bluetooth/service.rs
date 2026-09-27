@@ -184,13 +184,13 @@ impl BluetoothService {
                 let _ = connection.device.RemoveConnectionStatusChanged(token);
             }
             drop(connection);
+            info!(event = "ble.disconnected", "Controller disconnected");
+            let _ = self.event_sender.send(AppEvent::LogMessage(StatusMessage {
+                message: "Disconnected from device".to_string(),
+                severity: MessageSeverity::Info,
+            }));
         }
 
-        info!(event = "ble.disconnected", "Controller disconnected");
-        let _ = self.event_sender.send(AppEvent::LogMessage(StatusMessage {
-            message: "Disconnected from device".to_string(),
-            severity: MessageSeverity::Info,
-        }));
         let _ = self
             .event_sender
             .send(AppEvent::ConnectionStatus(ConnectionStatus::Disconnected));
