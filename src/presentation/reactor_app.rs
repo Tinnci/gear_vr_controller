@@ -33,6 +33,7 @@ pub enum ReactorMessage {
     NavSelectionChanged(Option<String>),
     TogglePane,
     PaneOpenChanged(bool),
+    DismissStatusInfo,
     Noop,
 }
 
@@ -233,6 +234,12 @@ impl Component for GearVRReactorApp {
                 // Chain next listener task
                 Self::spawn_event_listener(context, self.shared_event_rx.clone());
             }
+            ReactorMessage::DismissStatusInfo => {
+                self.status_message = None;
+                if self.connection_status == ConnectionStatus::Error {
+                    self.connection_status = ConnectionStatus::Disconnected;
+                }
+            }
             ReactorMessage::Noop => {}
         }
     }
@@ -240,21 +247,24 @@ impl Component for GearVRReactorApp {
     fn view(&self, _input: &(), context: &mut ViewContext<Self>) -> View {
         let s = self.language.strings();
 
-        // Fluent Header & Status Infobar
-        let (info_title, info_msg, is_info_open) = match (&self.connection_status, &self.status_message) {
-            (ConnectionStatus::Connected, Some(msg)) => (s.status_connected, msg.as_str(), true),
-            (ConnectionStatus::Connected, None) => (s.status_connected, s.status_ready, true),
-            (ConnectionStatus::Connecting, _) => (s.status_connecting, s.status_negotiating, true),
-            (ConnectionStatus::Disconnected, Some(msg)) => (s.status_disconnected, msg.as_str(), true),
-            (ConnectionStatus::Disconnected, None) => (s.status_disconnected, s.status_no_link, false),
-            (ConnectionStatus::Error, Some(msg)) => (s.status_error, msg.as_str(), true),
-            (ConnectionStatus::Error, None) => (s.status_error, s.status_error, true),
+        // Fluent Header & Status Infobar (Windows 11 Contextual Status Feedback)
+        let (info_title, info_msg, info_severity, is_info_open) = match (&self.connection_status, &self.status_message) {
+            (ConnectionStatus::Connected, Some(msg)) => (s.status_connected, msg.as_str(), InfoBarSeverity::Success, true),
+            (ConnectionStatus::Connected, None) => (s.status_connected, s.status_ready, InfoBarSeverity::Success, false),
+            (ConnectionStatus::Connecting, _) => (s.status_connecting, s.status_negotiating, InfoBarSeverity::Informational, true),
+            (ConnectionStatus::Disconnected, Some(msg)) => (s.status_disconnected, msg.as_str(), InfoBarSeverity::Warning, true),
+            (ConnectionStatus::Disconnected, None) => (s.status_disconnected, s.status_no_link, InfoBarSeverity::Informational, false),
+            (ConnectionStatus::Error, Some(msg)) => (s.status_error, msg.as_str(), InfoBarSeverity::Error, true),
+            (ConnectionStatus::Error, None) => (s.status_error, s.status_error, InfoBarSeverity::Error, true),
         };
 
         let status_infobar = InfoBar::new()
             .title(info_title)
             .message(info_msg)
-            .is_open(is_info_open);
+            .severity(info_severity)
+            .is_open(is_info_open)
+            .is_closable(true)
+            .on_closed(context.message(ReactorMessage::DismissStatusInfo));
 
         // Fluent NavigationView Items (Windows 11 Navigation Architecture with native SymbolIcons)
         let nav_items = [
@@ -388,6 +398,16 @@ impl Component for GearVRReactorApp {
             ConnectionStatus::Error => (s.status_error.to_string(), false),
         };
 
+        let status_icon: View = if ring_active {
+            ProgressRing::new()
+                .is_active(true)
+                .width(12.0)
+                .height(12.0)
+                .into()
+        } else {
+            InfoBadge::new().into()
+        };
+
         let status_pill = Border::new()
             .background(ThemeBrush::CardBackground)
             .border_brush(ThemeBrush::CardStroke)
@@ -399,10 +419,7 @@ impl Component for GearVRReactorApp {
                     .orientation(Orientation::Horizontal)
                     .spacing(6.0)
                     .children((
-                        ProgressRing::new()
-                            .is_active(ring_active)
-                            .width(12.0)
-                            .height(12.0),
+                        status_icon,
                         TextBlock::new()
                             .text(status_badge_text)
                             .font_size(12.0)
@@ -542,6 +559,48 @@ impl GearVRReactorApp {
             .into()
     }
 
+    fn format_telemetry(data: Option<&ControllerData>, s: &I18nStrings) -> (String, String, String) {
+        if let Some(d) = data {
+            let tp = format!(
+                "Touchpad: Normalized (X: {:+.3}, Y: {:+.3}) | Raw: ({}, {})",
+                d.processed_touchpad_x, d.processed_touchpad_y, d.touchpad_x, d.touchpad_y
+            );
+            let btn = format!(
+                "Buttons: Trigger: {} | Back: {} | Home: {} | Touchpad: {} | Vol+: {} | Vol-: {}",
+                if d.trigger_button { "Active" } else { "Inactive" },
+                if d.back_button { "Active" } else { "Inactive" },
+                if d.home_button { "Active" } else { "Inactive" },
+                if d.touchpad_button { "Active" } else { "Inactive" },
+                if d.volume_up_button { "Active" } else { "Inactive" },
+                if d.volume_down_button { "Active" } else { "Inactive" },
+            );
+            let sample = format!("Timestamp: {} ms | Status: OK", d.timestamp);
+            (tp, btn, sample)
+        } else {
+            (
+                s.telemetry_awaiting.to_string(),
+                s.buttons_idle.to_string(),
+                s.timestamp_no_tx.to_string(),
+            )
+        }
+    }
+
+    fn format_imu_diagnostics(data: Option<&ControllerData>) -> (String, String, String) {
+        if let Some(d) = data {
+            (
+                format!("Accelerometer (g):     X: {:+.4} | Y: {:+.4} | Z: {:+.4}", d.accel_x, d.accel_y, d.accel_z),
+                format!("Gyroscope (rad/s):       X: {:+.4} | Y: {:+.4} | Z: {:+.4}", d.gyro_x, d.gyro_y, d.gyro_z),
+                format!("Magnetometer (uT):       X: {:+.4} | Y: {:+.4} | Z: {:+.4}", d.mag_x, d.mag_y, d.mag_z),
+            )
+        } else {
+            (
+                "Accelerometer (g):     Waiting for data...".to_string(),
+                "Gyroscope (rad/s):       Waiting for data...".to_string(),
+                "Magnetometer (uT):       Waiting for data...".to_string(),
+            )
+        }
+    }
+
     fn render_dashboard_tab(&self, context: &mut ViewContext<Self>, s: &I18nStrings) -> View {
         // Card 1: Connection & Bluetooth Scanning
         let connect_button = if self.connection_status == ConnectionStatus::Connected {
@@ -561,9 +620,9 @@ impl GearVRReactorApp {
             .content(if self.is_scanning { s.stop_scan_button } else { s.scan_button });
 
         let scan_ring = if self.is_scanning {
-            ProgressRing::new().is_active(true)
+            ProgressRing::new().is_active(true).width(18.0).height(18.0)
         } else {
-            ProgressRing::new().is_active(false)
+            ProgressRing::new().is_active(false).width(18.0).height(18.0)
         };
 
         let address_box = TextBox::new()
@@ -625,33 +684,7 @@ impl GearVRReactorApp {
         );
 
         // Card 3: Real-Time Input Telemetry Monitor
-        let (tp_text, btn_text, sample_text) = if let Some(data) = &self.latest_data {
-            (
-                format!(
-                    "Touchpad: Normalized (X: {:+.3}, Y: {:+.3}) | Raw: ({}, {})",
-                    data.processed_touchpad_x,
-                    data.processed_touchpad_y,
-                    data.touchpad_x,
-                    data.touchpad_y
-                ),
-                format!(
-                    "Buttons: Trigger: {} | Back: {} | Home: {} | Touchpad: {} | Vol+: {} | Vol-: {}",
-                    if data.trigger_button { "Active" } else { "Inactive" },
-                    if data.back_button { "Active" } else { "Inactive" },
-                    if data.home_button { "Active" } else { "Inactive" },
-                    if data.touchpad_button { "Active" } else { "Inactive" },
-                    if data.volume_up_button { "Active" } else { "Inactive" },
-                    if data.volume_down_button { "Active" } else { "Inactive" },
-                ),
-                format!("Timestamp: {} ms | Status: OK", data.timestamp),
-            )
-        } else {
-            (
-                s.telemetry_awaiting.to_string(),
-                s.buttons_idle.to_string(),
-                s.timestamp_no_tx.to_string(),
-            )
-        };
+        let (tp_text, btn_text, sample_text) = Self::format_telemetry(self.latest_data.as_ref(), s);
 
         let telemetry_card = Self::render_card(
             s.telemetry_card_title,
@@ -677,19 +710,41 @@ impl GearVRReactorApp {
     }
 
     fn render_calibration_tab(&self, s: &I18nStrings) -> View {
+        // Dynamic Touchpad Calibration: compute radial displacement [0.0, 100.0]
+        let (touch_progress, touch_status_text) = if let Some(d) = &self.latest_data {
+            let mag = (d.processed_touchpad_x.powi(2) + d.processed_touchpad_y.powi(2)).sqrt();
+            let val = (mag.min(1.0) * 100.0) as f64;
+            (
+                val,
+                format!(
+                    "{} (X: {:+.2}, Y: {:+.2})",
+                    s.touch_cal_status, d.processed_touchpad_x, d.processed_touchpad_y
+                ),
+            )
+        } else {
+            (100.0, s.touch_cal_status.to_string())
+        };
+
         let touch_card = Self::render_card(
             s.touch_cal_title,
             s.touch_cal_desc,
             StackPanel::new()
                 .spacing(8.0)
                 .children((
-                    ProgressBar::new().value(100.0),
+                    ProgressBar::new().value(touch_progress),
                     TextBlock::new()
-                        .text(s.touch_cal_status)
+                        .text(touch_status_text)
                         .font_size(12.0),
                 ))
                 .into(),
         );
+
+        // Gyroscope Calibration: indeterminate running bar indicates real-time drift cancellation
+        let imu_progress_bar = if self.connection_status == ConnectionStatus::Connected {
+            ProgressBar::new().is_indeterminate(true)
+        } else {
+            ProgressBar::new().is_indeterminate(false).value(0.0)
+        };
 
         let imu_card = Self::render_card(
             s.imu_cal_title,
@@ -697,6 +752,7 @@ impl GearVRReactorApp {
             StackPanel::new()
                 .spacing(8.0)
                 .children((
+                    imu_progress_bar,
                     TextBlock::new()
                         .text(s.imu_cal_status)
                         .font_size(13.0),
@@ -808,19 +864,7 @@ impl GearVRReactorApp {
     }
 
     fn render_diagnostics_tab(&self, context: &mut ViewContext<Self>, s: &I18nStrings) -> View {
-        let (accel, gyro, mag) = if let Some(d) = &self.latest_data {
-            (
-                format!("Accelerometer (g):     X: {:+.4} | Y: {:+.4} | Z: {:+.4}", d.accel_x, d.accel_y, d.accel_z),
-                format!("Gyroscope (rad/s):       X: {:+.4} | Y: {:+.4} | Z: {:+.4}", d.gyro_x, d.gyro_y, d.gyro_z),
-                format!("Magnetometer (uT):       X: {:+.4} | Y: {:+.4} | Z: {:+.4}", d.mag_x, d.mag_y, d.mag_z),
-            )
-        } else {
-            (
-                "Accelerometer (g):     Waiting for data...".to_string(),
-                "Gyroscope (rad/s):       Waiting for data...".to_string(),
-                "Magnetometer (uT):       Waiting for data...".to_string(),
-            )
-        };
+        let (accel, gyro, mag) = Self::format_imu_diagnostics(self.latest_data.as_ref());
 
         let imu_card = Self::render_card(
             s.imu_diag_title,
@@ -835,16 +879,22 @@ impl GearVRReactorApp {
                 .into(),
         );
 
+        let bt_infobar = InfoBar::new()
+            .is_open(true)
+            .is_closable(false)
+            .severity(InfoBarSeverity::Warning)
+            .title(s.bt_recovery_title)
+            .message(s.bt_troubleshoot_hint);
+
         let bt_recovery_card = Self::render_card(
             s.bt_recovery_title,
             s.bt_recovery_desc,
             StackPanel::new()
-                .spacing(8.0)
+                .spacing(12.0)
                 .children((
-                    TextBlock::new()
-                        .text(s.bt_troubleshoot_hint)
-                        .font_size(12.0),
+                    bt_infobar,
                     Button::new()
+                        .style(ButtonStyle::Default)
                         .on_click(context.message(ReactorMessage::OpenBtSettings))
                         .content(s.open_bt_settings),
                 ))
