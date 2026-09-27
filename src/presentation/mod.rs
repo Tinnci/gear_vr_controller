@@ -1,10 +1,11 @@
 pub mod app;
 pub mod components;
 pub mod radial_menu;
+pub mod reactor_app;
 pub mod tabs;
 pub mod theme;
 pub mod tray;
-pub mod reactor_app;
+pub mod winui;
 
 pub use app::GearVRApp;
-pub use reactor_app::run_reactor_app;
+pub use winui::run_reactor_app;
