@@ -174,6 +174,64 @@ identifies the failed stage; it does not prove a stale pairing or a wrong device
 Wake the controller, check its battery and Bluetooth state, then rescan before
 retrying. Do not remove a Windows pairing automatically based on this status.
 
+## Bluetooth DEBUG observations
+
+Close any running controller app, then use `./scripts/start-diagnostics.ps1` to
+launch the packaged app. An explicit `-Executable` accepts another build path.
+The script passes `info,gear_vr_controller_rust::infrastructure::bluetooth=debug`
+to the child and restores the caller's `RUST_LOG`; saved preferences stay intact.
+Reproduce the connection failure and close the app to drain the logger. File
+logging must be enabled in settings. The default folder is
+`%LOCALAPPDATA%/GearVRController/logs`; custom folders remain supported.
+
+| Event | Diagnostic evidence |
+| --- | --- |
+| `ble.adapter.snapshot` | Native architecture, Classic/LE and central/peripheral support |
+| `ble.radio.snapshot` | Radio state name and native code |
+| `ble.windows_service.snapshot` | Local `bthserv` and `BthLEEnum` state, exit codes, pending-state checkpoint and wait hint |
+| `ble.connection.scan_context`, `ble.connection.target` | Visible matches, address type, availability, known/service match, smoothed RSSI, presence of a name |
+| `ble.device.snapshot` | Connection status, address type, enabled/paired/can-pair, pairing protection and current access |
+| `ble.session.snapshot`, `ble.session.unavailable` | Session status, maintain-connection flag, maximum PDU size, or unavailable-session cause |
+| `ble.operation.started`, `ble.operation.finished` | Operation, elapsed milliseconds, `api_success`, hexadecimal HRESULT on API failure |
+| `ble.service.result`, `ble.characteristics.result` | Native communication status and optional ATT protocol error |
+| `ble.characteristic.snapshot` | Protocol UUID, attribute handle, property flags and protection level |
+| `ble.notifications.attempt`, `ble.init.command.result` | Retry number or initialization step and returned status |
+| `ble.diagnostic.property.failed`, `ble.diagnostic.timeout` | Unavailable observation with HRESULT, or observation deadline |
+
+Properties use native JSON booleans/numbers. An absent field means unavailable,
+not false or zero; nullable ATT protocol errors are normal when none exists.
+`api_success` means the WinRT call returned a result; inspect the separate GATT
+status for communication success. A successful API call may report an unreachable
+device. `connection.finished.success` describes the overall connection outcome.
+Native codes follow Windows enums: connection 0=disconnected/1=connected;
+address type 0=public/1=random/2=unspecified; device access
+0=unspecified/1=allowed/2=denied by user/3=denied by system.
+Scan visibility is the current UI-filtered snapshot, not the entire Windows
+device cache. A service match may come from the 60-second discovery cache.
+Neither a scan match nor an open handle proves a working GATT connection.
+
+Connection records carry `attempt_id` and a pseudonymous `device_key`, also
+included in the connection span. Keys are stable within one process and use a
+new randomized hash seed in each process. Full MAC addresses, device names,
+Windows device IDs and raw input packets are not added by these observations.
+
+DEBUG-disabled observation helpers make no additional Windows diagnostic calls.
+DEBUG-enabled adapter/radio queries share a two-second future deadline, once
+per connection attempt, inside the existing 30-second attempt budget. Optional
+property failures do not fail the connection or alter radio/pairing state.
+Dropping a timed-out WinRT future does not guarantee cancellation in Windows.
+The two synchronous local service queries request read-only SCM rights, release
+handles with guards and are outside that future deadline. A stopped service or
+missing driver alone does not prove the cause of a device connection failure.
+There is no continuous device enumeration or per-advertisement logging.
+Scan-context lookup is bounded by the 128-entry catalog; other work is per
+attempt, protocol characteristic, initialization write or configured retry.
+Existing queue, record-size, rotation and retention limits still apply.
+
+For a read-only hardware probe, set the same filter and run
+`cargo run --locked --example scan_diagnostics`. It observes the adapter/radio
+and scans for 15 seconds without connecting or injecting desktop input.
+
 ## Prior implementation assessment
 
 Before this change, producers took a shared mutex and synchronously wrote each

@@ -24,6 +24,12 @@ impl BleConnection {
         let max_attempts = self.config.max_pairing_retries.max(1);
 
         for attempt in 1..=max_attempts {
+            tracing::debug!(
+                event = "ble.notifications.attempt",
+                attempt,
+                max_attempts,
+                "Notification subscription attempt started"
+            );
             match self.write_notify_descriptor(data_char).await {
                 Ok(status) => {
                     if self.handle_notify_status(status, was_paired).await? {
@@ -53,11 +59,14 @@ impl BleConnection {
         &self,
         data_char: &GattCharacteristic,
     ) -> Result<GattCommunicationStatus, windows::core::Error> {
-        data_char
-            .WriteClientCharacteristicConfigurationDescriptorAsync(
-                GattClientCharacteristicConfigurationDescriptorValue::Notify,
-            )?
-            .await
+        super::super::diagnostics::operation("write_notification_descriptor", async {
+            data_char
+                .WriteClientCharacteristicConfigurationDescriptorAsync(
+                    GattClientCharacteristicConfigurationDescriptorValue::Notify,
+                )?
+                .await
+        })
+        .await
     }
 
     async fn handle_notify_status(

@@ -74,6 +74,7 @@ impl BluetoothService {
     /// Connect to a device by address
     pub async fn connect(&mut self, address: u64) -> Result<()> {
         self.disconnect();
+        self.scanner.log_connection_target(address);
         self.stop_scan()?;
         let _ = self.event_sender.send(AppEvent::ScanState(false));
         // Get configuration from settings

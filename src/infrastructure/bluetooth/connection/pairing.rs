@@ -8,8 +8,10 @@ use windows::Devices::Bluetooth::GenericAttributeProfile::GattSession;
 impl BleConnection {
     /// Connect to BLE device.
     pub(super) async fn connect_device(&self, address: u64) -> Result<BluetoothLEDevice> {
-        let device_async = BluetoothLEDevice::FromBluetoothAddressAsync(address)?;
-        let device = device_async.await?;
+        let device = super::super::diagnostics::operation("open_device", async {
+            BluetoothLEDevice::FromBluetoothAddressAsync(address)?.await
+        })
+        .await?;
         Ok(device)
     }
 
@@ -19,7 +21,10 @@ impl BleConnection {
         device: &BluetoothLEDevice,
     ) -> Result<GattSession> {
         let device_id = device.BluetoothDeviceId()?;
-        let session = GattSession::FromDeviceIdAsync(&device_id)?.await?;
+        let session = super::super::diagnostics::operation("create_session", async {
+            GattSession::FromDeviceIdAsync(&device_id)?.await
+        })
+        .await?;
         session.SetMaintainConnection(true)?;
         Ok(session)
     }

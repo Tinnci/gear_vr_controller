@@ -34,6 +34,12 @@ impl BleConnection {
     pub async fn connect(&self, address: u64) -> Result<ConnectionResult> {
         info!(event = "ble.connect", "Connecting to controller");
         self.send_log("Connecting to device...", MessageSeverity::Info);
+        super::diagnostics::adapter_snapshot("before_connect").await;
+        tracing::debug!(event = "ble.connection.config",
+            service_uuid = %self.config.service_uuid,
+            data_uuid = %self.config.data_char_uuid, command_uuid = %self.config.command_char_uuid,
+            max_retries = self.config.max_pairing_retries, retry_delay_ms = self.config.pairing_retry_delay_ms,
+            "Controller protocol configuration");
 
         let device = self.connect_device(address).await?;
         let mut device_guard = DeviceGuard(Some(device.clone()));
@@ -41,8 +47,20 @@ impl BleConnection {
             event = "ble.device.opened",
             "Bluetooth device handle opened"
         );
+        super::diagnostics::device_snapshot(&device, "opened");
 
-        let mut session_guard = SessionGuard(self.create_gatt_session(&device).await.ok());
+        let session = match self.create_gatt_session(&device).await {
+            Ok(session) => {
+                super::diagnostics::session_snapshot(&session);
+                Some(session)
+            }
+            Err(error) => {
+                tracing::debug!(event = "ble.session.unavailable", error = %error,
+                    "GATT session unavailable; direct service discovery continues");
+                None
+            }
+        };
+        let mut session_guard = SessionGuard(session);
 
         let was_paired = self.handle_pairing(&device).await?;
 

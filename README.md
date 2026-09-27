@@ -171,6 +171,14 @@ smoke test. Release tags must exactly match `v` plus the Cargo package version;
 the release job publishes only the already-checked ZIP and checksum. PDB symbols
 are retained as a separate CI artifact for diagnosis.
 
+## Connection diagnostics
+
+For connection diagnosis, close the app and run `./scripts/start-diagnostics.ps1`.
+It enables Bluetooth DEBUG logs for that process without changing saved settings.
+Inside an extracted release package, run the bundled `./start-diagnostics.ps1`.
+Reproduce the failure, then close the app to flush logs. See
+[LOGGING.md](docs/LOGGING.md#bluetooth-debug-observations) for fields and limits.
+
 ## Verification limits
 
 Unit tests exercise packet decoding, input edges and releases, settings,

@@ -30,6 +30,7 @@
 //! - [`service`] - Main service coordinator
 
 pub mod connection;
+pub mod diagnostics;
 pub mod protocol;
 pub mod scanner;
 pub mod service;

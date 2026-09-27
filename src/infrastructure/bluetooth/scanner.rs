@@ -203,6 +203,32 @@ impl BleScanner {
             }
         }
     }
+    pub fn log_connection_target(&self, address: u64) {
+        if !tracing::enabled!(tracing::Level::DEBUG) {
+            return;
+        }
+        if let Ok(state) = self.state.lock() {
+            let snapshot = state.catalog.snapshot(Instant::now());
+            let matches: Vec<_> = snapshot
+                .iter()
+                .filter(|device| device.address == address)
+                .collect();
+            tracing::debug!(
+                event = "ble.connection.scan_context",
+                scan_id = state.generation,
+                visible_matches = matches.len(),
+                scanning = state.active,
+                "Selected device compared with current scan results"
+            );
+            for device in matches {
+                tracing::debug!(event = "ble.connection.target", scan_id = state.generation,
+                    address_type = ?device.address_kind, available = device.available,
+                    known = device.known, service_match = device.matches_service,
+                    rssi_dbm = device.signal_strength, has_name = !device.name.is_empty(),
+                    "Selected device scan observation");
+            }
+        }
+    }
 }
 fn read_advertisement(
     args: &BluetoothLEAdvertisementReceivedEventArgs,

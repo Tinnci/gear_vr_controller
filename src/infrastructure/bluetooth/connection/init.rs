@@ -15,13 +15,23 @@ impl BleConnection {
         );
         self.send_log("Initializing controller...", MessageSeverity::Info);
 
-        for (command, repeat) in INIT_SEQUENCE {
-            for _ in 0..*repeat {
+        for (step, (command, repeat)) in INIT_SEQUENCE.iter().enumerate() {
+            for iteration in 0..*repeat {
                 let writer = DataWriter::new()?;
                 writer.WriteBytes(command.as_bytes())?;
                 let buffer = writer.DetachBuffer()?;
 
-                let status = cmd_char.WriteValueAsync(&buffer)?.await?;
+                let status = super::super::diagnostics::operation("write_init_command", async {
+                    cmd_char.WriteValueAsync(&buffer)?.await
+                })
+                .await?;
+                tracing::debug!(
+                    event = "ble.init.command.result",
+                    step,
+                    iteration,
+                    status = status.0,
+                    "Controller initialization command result"
+                );
                 super::gatt::check_status("Write controller initialization command", status)?;
                 tokio::time::sleep(tokio::time::Duration::from_millis(COMMAND_DELAY_MS)).await;
             }

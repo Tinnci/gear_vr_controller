@@ -408,10 +408,12 @@ impl WorkerState {
             .ui
             .send(AppEvent::ConnectionStatus(ConnectionStatus::Connecting));
         let attempt_id = CONNECTION_ATTEMPT.fetch_add(1, Ordering::Relaxed);
+        let device_key = crate::infrastructure::bluetooth::diagnostics::device_key(address);
         let started = Instant::now();
         tracing::info!(
             event = "connection.started",
             attempt_id,
+            device_key = %device_key,
             timeout_ms = 30_000,
             "Connection attempt started"
         );
@@ -429,7 +431,8 @@ impl WorkerState {
                 return next;
             }
             result = tokio::time::timeout(Duration::from_secs(30), self.service.connect(address)
-                .instrument(tracing::info_span!("connection", attempt_id))) => {
+                .instrument(tracing::info_span!("connection", attempt_id,
+                    device_key = %device_key))) => {
                 result.unwrap_or_else(|_| Err(ConnectionFailure::new(
                     ConnectionFailureKind::Timeout, "Connection timed out after 30000 ms"
                 ).into()))
@@ -452,7 +455,7 @@ impl WorkerState {
             let kind = error
                 .downcast_ref::<ConnectionFailure>()
                 .map_or(ConnectionFailureKind::Other, |failure| failure.kind);
-            tracing::error!(event = "connection.failed", attempt_id, ?kind, error = %message,
+            tracing::error!(event = "connection.failed", attempt_id, device_key = %device_key, ?kind, error = %message,
                 "Connection attempt failed");
             let _ = self
                 .ui
