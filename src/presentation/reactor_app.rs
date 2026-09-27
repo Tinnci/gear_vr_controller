@@ -636,14 +636,14 @@ impl GearVRReactorApp {
                 ),
                 format!(
                     "Buttons: Trigger: {} | Back: {} | Home: {} | Touchpad: {} | Vol+: {} | Vol-: {}",
-                    if data.trigger_button { "Active" } else { "Idle" },
-                    if data.back_button { "Active" } else { "Idle" },
-                    if data.home_button { "Active" } else { "Idle" },
-                    if data.touchpad_button { "Active" } else { "Idle" },
-                    if data.volume_up_button { "Active" } else { "Idle" },
-                    if data.volume_down_button { "Active" } else { "Idle" },
+                    if data.trigger_button { "Active" } else { "Inactive" },
+                    if data.back_button { "Active" } else { "Inactive" },
+                    if data.home_button { "Active" } else { "Inactive" },
+                    if data.touchpad_button { "Active" } else { "Inactive" },
+                    if data.volume_up_button { "Active" } else { "Inactive" },
+                    if data.volume_down_button { "Active" } else { "Inactive" },
                 ),
-                format!("Timestamp: {} ms | Status: Normal", data.timestamp),
+                format!("Timestamp: {} ms | Status: OK", data.timestamp),
             )
         } else {
             (
@@ -816,9 +816,9 @@ impl GearVRReactorApp {
             )
         } else {
             (
-                "Accelerometer (g):     Awaiting transmission...".to_string(),
-                "Gyroscope (rad/s):       Awaiting transmission...".to_string(),
-                "Magnetometer (uT):       Awaiting transmission...".to_string(),
+                "Accelerometer (g):     Waiting for data...".to_string(),
+                "Gyroscope (rad/s):       Waiting for data...".to_string(),
+                "Magnetometer (uT):       Waiting for data...".to_string(),
             )
         };
 
