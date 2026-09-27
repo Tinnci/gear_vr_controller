@@ -55,7 +55,7 @@ pub fn render_dashboard_view(
     let connection_card = render_card(
         s.conn_card_title,
         s.conn_card_desc,
-        connection_controls.into(),
+        connection_controls,
     );
 
     // Card 2: Operational Mode Selection (Segmented Control)
@@ -82,7 +82,7 @@ pub fn render_dashboard_view(
     let mode_card = render_card(
         s.mode_card_title,
         s.mode_card_desc,
-        mode_buttons.into(),
+        mode_buttons,
     );
 
     // Card 3: Real-Time Input Telemetry Monitor
@@ -100,8 +100,7 @@ pub fn render_dashboard_view(
                     .text(sample_text)
                     .font_size(FluentTokens::FONT_CAPTION)
                     .foreground(ThemeBrush::PrimaryText),
-            ))
-            .into(),
+            )),
     );
 
     StackPanel::new()
@@ -111,5 +110,4 @@ pub fn render_dashboard_view(
             mode_card,
             telemetry_card,
         ))
-        .into()
 }

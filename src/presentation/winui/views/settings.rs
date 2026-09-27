@@ -40,7 +40,7 @@ pub fn render_settings_view(
     let language_card = render_card(
         s.language_card_title,
         s.language_card_desc,
-        lang_buttons.into(),
+        lang_buttons,
     );
 
     let anti_sleep_row = render_toggle_card(
@@ -75,5 +75,4 @@ pub fn render_settings_view(
             auto_profile_row,
             tray_row,
         ))
-        .into()
 }

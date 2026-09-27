@@ -11,7 +11,7 @@ pub fn render_calibration_view(app: &GearVRReactorApp, s: &I18nStrings) -> View 
     // Dynamic Touchpad Calibration: compute radial displacement [0.0, 100.0]
     let (touch_progress, touch_status_text) = if let Some(d) = &app.latest_data {
         let mag = (d.processed_touchpad_x.powi(2) + d.processed_touchpad_y.powi(2)).sqrt();
-        let val = (mag.min(1.0) * 100.0) as f64;
+        let val = mag.min(1.0) * 100.0;
         (
             val,
             format!(
@@ -33,8 +33,7 @@ pub fn render_calibration_view(app: &GearVRReactorApp, s: &I18nStrings) -> View 
                 TextBlock::new()
                     .text(touch_status_text)
                     .font_size(FluentTokens::FONT_CAPTION),
-            ))
-            .into(),
+            )),
     );
 
     // Gyroscope Calibration: indeterminate running bar indicates real-time drift cancellation
@@ -57,8 +56,7 @@ pub fn render_calibration_view(app: &GearVRReactorApp, s: &I18nStrings) -> View 
                 TextBlock::new()
                     .text(s.imu_cal_filter)
                     .font_size(FluentTokens::FONT_CAPTION),
-            ))
-            .into(),
+            )),
     );
 
     StackPanel::new()
@@ -67,5 +65,4 @@ pub fn render_calibration_view(app: &GearVRReactorApp, s: &I18nStrings) -> View 
             touch_card,
             imu_card,
         ))
-        .into()
 }

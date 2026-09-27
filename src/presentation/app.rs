@@ -490,6 +490,7 @@ impl GearVRApp {
 }
 
 impl eframe::App for GearVRApp {
+    #[allow(clippy::too_many_lines)]
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if let Some(time) = self.reconnect_timer {
             if Instant::now() >= time {

@@ -23,8 +23,7 @@ pub fn render_diagnostics_view(
                 TextBlock::new().text(accel).font_size(FluentTokens::FONT_BODY),
                 TextBlock::new().text(gyro).font_size(FluentTokens::FONT_BODY),
                 TextBlock::new().text(mag).font_size(FluentTokens::FONT_BODY),
-            ))
-            .into(),
+            )),
     );
 
     let bt_infobar = InfoBar::new()
@@ -45,8 +44,7 @@ pub fn render_diagnostics_view(
                     .style(ButtonStyle::Default)
                     .on_click(context.message(ReactorMessage::OpenBtSettings))
                     .content(s.open_bt_settings),
-            ))
-            .into(),
+            )),
     );
 
     StackPanel::new()
@@ -55,5 +53,4 @@ pub fn render_diagnostics_view(
             imu_card,
             bt_recovery_card,
         ))
-        .into()
 }

@@ -30,7 +30,6 @@ pub fn render_card(title: &str, description: &str, content: View) -> View {
                     content,
                 )),
         )
-        .into()
 }
 
 /// Renders a Fluent SettingsCard pattern for right-aligned toggle switches.
@@ -61,5 +60,4 @@ pub fn render_toggle_card(title: &str, description: &str, toggle: ToggleSwitch) 
                     toggle.grid_column(1),
                 )),
         )
-        .into()
 }

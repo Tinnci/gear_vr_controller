@@ -4,7 +4,7 @@
 //! following official WinUI 3 guidelines (NavigationView, SettingsCard pattern,
 //! 4-language i18n auto-detection, clean typography, zero emoji).
 
-use crate::domain::i18n::Language;
+use crate::domain::i18n::{Language, I18nStrings};
 use crate::domain::models::{
     AppEvent, BluetoothCommand, ConnectionStatus, ControllerData, ScannedDevice,
 };
@@ -209,34 +209,7 @@ impl Component for GearVRReactorApp {
                 }
             }
             ReactorMessage::FromAppEvent(event) => {
-                match event {
-                    AppEvent::ControllerData(data) => {
-                        self.latest_data = Some(data);
-                    }
-                    AppEvent::ConnectionStatus(status) => {
-                        self.connection_status = status;
-                        if let ConnectionStatus::Connected = status {
-                            let s = self.language.strings();
-                            self.status_message = Some(s.status_ready.to_string());
-                        }
-                    }
-                    AppEvent::LogMessage(log) => {
-                        self.status_message = Some(log.message);
-                    }
-                    AppEvent::DeviceFound(device) => {
-                        if let Some(existing) = self
-                            .scanned_devices
-                            .iter_mut()
-                            .find(|d| d.address == device.address)
-                        {
-                            existing.signal_strength = device.signal_strength;
-                        } else {
-                            self.scanned_devices.push(device);
-                        }
-                    }
-                }
-
-                // Chain next listener task
+                self.handle_app_event(event);
                 Self::spawn_event_listener(context, self.shared_event_rx.clone());
             }
             ReactorMessage::DismissStatusInfo => {
@@ -271,73 +244,7 @@ impl Component for GearVRReactorApp {
             .is_closable(true)
             .on_closed(context.message(ReactorMessage::DismissStatusInfo));
 
-        // Fluent NavigationView Items (Windows 11 Navigation Architecture with native SymbolIcons)
-        let nav_items = [
-            KeyedView::new(
-                "0",
-                NavigationViewItem::new()
-                    .tag("0")
-                    .is_selected(self.selected_tab == 0)
-                    .slots([
-                        SlotView::new(
-                            NavigationViewItemSlot::Icon,
-                            SymbolIcon::new().symbol(Symbol::Home),
-                        ),
-                        SlotView::new(
-                            NavigationViewItemSlot::Content,
-                            TextBlock::new().text(s.nav_dashboard),
-                        ),
-                    ]),
-            ),
-            KeyedView::new(
-                "1",
-                NavigationViewItem::new()
-                    .tag("1")
-                    .is_selected(self.selected_tab == 1)
-                    .slots([
-                        SlotView::new(
-                            NavigationViewItemSlot::Icon,
-                            SymbolIcon::new().symbol(Symbol::Orientation),
-                        ),
-                        SlotView::new(
-                            NavigationViewItemSlot::Content,
-                            TextBlock::new().text(s.nav_calibration),
-                        ),
-                    ]),
-            ),
-            KeyedView::new(
-                "2",
-                NavigationViewItem::new()
-                    .tag("2")
-                    .is_selected(self.selected_tab == 2)
-                    .slots([
-                        SlotView::new(
-                            NavigationViewItemSlot::Icon,
-                            SymbolIcon::new().symbol(Symbol::Setting),
-                        ),
-                        SlotView::new(
-                            NavigationViewItemSlot::Content,
-                            TextBlock::new().text(s.nav_settings),
-                        ),
-                    ]),
-            ),
-            KeyedView::new(
-                "3",
-                NavigationViewItem::new()
-                    .tag("3")
-                    .is_selected(self.selected_tab == 3)
-                    .slots([
-                        SlotView::new(
-                            NavigationViewItemSlot::Icon,
-                            SymbolIcon::new().symbol(Symbol::View),
-                        ),
-                        SlotView::new(
-                            NavigationViewItemSlot::Content,
-                            TextBlock::new().text(s.nav_diagnostics),
-                        ),
-                    ]),
-            ),
-        ];
+        let nav_items = Self::create_nav_items(self.selected_tab, s);
 
         // Tab Content Routing
         let tab_content: View = match self.selected_tab {
@@ -388,11 +295,108 @@ impl Component for GearVRReactorApp {
                 title_bar,
                 nav_view,
             ))
-            .into()
     }
 }
 
 impl GearVRReactorApp {
+    fn handle_app_event(&mut self, event: AppEvent) {
+        match event {
+            AppEvent::ControllerData(data) => {
+                self.latest_data = Some(data);
+            }
+            AppEvent::ConnectionStatus(status) => {
+                self.connection_status = status;
+                if let ConnectionStatus::Connected = status {
+                    let s = self.language.strings();
+                    self.status_message = Some(s.status_ready.to_string());
+                }
+            }
+            AppEvent::LogMessage(log) => {
+                self.status_message = Some(log.message);
+            }
+            AppEvent::DeviceFound(device) => {
+                if let Some(existing) = self
+                    .scanned_devices
+                    .iter_mut()
+                    .find(|d| d.address == device.address)
+                {
+                    existing.signal_strength = device.signal_strength;
+                } else {
+                    self.scanned_devices.push(device);
+                }
+            }
+        }
+    }
+
+    fn create_nav_items(selected_tab: usize, s: &I18nStrings) -> [KeyedView; 4] {
+        [
+            KeyedView::new(
+                "0",
+                NavigationViewItem::new()
+                    .tag("0")
+                    .is_selected(selected_tab == 0)
+                    .slots([
+                        SlotView::new(
+                            NavigationViewItemSlot::Icon,
+                            SymbolIcon::new().symbol(Symbol::Home),
+                        ),
+                        SlotView::new(
+                            NavigationViewItemSlot::Content,
+                            TextBlock::new().text(s.nav_dashboard),
+                        ),
+                    ]),
+            ),
+            KeyedView::new(
+                "1",
+                NavigationViewItem::new()
+                    .tag("1")
+                    .is_selected(selected_tab == 1)
+                    .slots([
+                        SlotView::new(
+                            NavigationViewItemSlot::Icon,
+                            SymbolIcon::new().symbol(Symbol::Orientation),
+                        ),
+                        SlotView::new(
+                            NavigationViewItemSlot::Content,
+                            TextBlock::new().text(s.nav_calibration),
+                        ),
+                    ]),
+            ),
+            KeyedView::new(
+                "2",
+                NavigationViewItem::new()
+                    .tag("2")
+                    .is_selected(selected_tab == 2)
+                    .slots([
+                        SlotView::new(
+                            NavigationViewItemSlot::Icon,
+                            SymbolIcon::new().symbol(Symbol::Setting),
+                        ),
+                        SlotView::new(
+                            NavigationViewItemSlot::Content,
+                            TextBlock::new().text(s.nav_settings),
+                        ),
+                    ]),
+            ),
+            KeyedView::new(
+                "3",
+                NavigationViewItem::new()
+                    .tag("3")
+                    .is_selected(selected_tab == 3)
+                    .slots([
+                        SlotView::new(
+                            NavigationViewItemSlot::Icon,
+                            SymbolIcon::new().symbol(Symbol::View),
+                        ),
+                        SlotView::new(
+                            NavigationViewItemSlot::Content,
+                            TextBlock::new().text(s.nav_diagnostics),
+                        ),
+                    ]),
+            ),
+        ]
+    }
+
     fn spawn_event_listener(
         context: &ComponentContext<Self>,
         rx: Arc<Mutex<mpsc::UnboundedReceiver<AppEvent>>>,
