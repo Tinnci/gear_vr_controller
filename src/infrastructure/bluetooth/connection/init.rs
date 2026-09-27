@@ -21,7 +21,8 @@ impl BleConnection {
                 writer.WriteBytes(command.as_bytes())?;
                 let buffer = writer.DetachBuffer()?;
 
-                let _ = cmd_char.WriteValueAsync(&buffer)?;
+                let status = cmd_char.WriteValueAsync(&buffer)?.await?;
+                super::gatt::check_status("Write controller initialization command", status)?;
                 tokio::time::sleep(tokio::time::Duration::from_millis(COMMAND_DELAY_MS)).await;
             }
         }

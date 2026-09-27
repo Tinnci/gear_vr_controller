@@ -2,6 +2,7 @@
 use super::text::Text;
 use crate::domain::{
     calibration::{CalibrationFailure, CalibrationStatus},
+    connection_failure::ConnectionFailureKind,
     i18n::Language,
     models::{
         AppEvent, ConnectionStatus, ControlMode, ControllerData, InputPreview, MessageSeverity,
@@ -119,8 +120,10 @@ pub struct UiState {
     pub scan_attempted: bool,
     pub scan_pending: bool,
     pub notice: Option<Text>,
+    pub notice_title: Text,
     pub severity: MessageSeverity,
     pub diagnostic_details: String,
+    pub diagnostic_export_path: String,
     pub recovery_running: bool,
     pub recovery_confirm: bool,
     pub worker_ready: bool,
@@ -158,8 +161,10 @@ impl UiState {
             scan_attempted: false,
             scan_pending: false,
             notice: None,
+            notice_title: Text::NoticeInfo,
             severity: MessageSeverity::Info,
             diagnostic_details: String::new(),
+            diagnostic_export_path: String::new(),
             recovery_running: false,
             recovery_confirm: false,
             worker_ready: false,
@@ -213,6 +218,11 @@ impl UiState {
     pub fn set_notice(&mut self, text: Text, severity: MessageSeverity) {
         self.notice = Some(text);
         self.severity = severity;
+        self.notice_title = match severity {
+            MessageSeverity::Error => Text::NoticeError,
+            MessageSeverity::Warning => Text::NoticeWarning,
+            MessageSeverity::Success | MessageSeverity::Info => Text::NoticeInfo,
+        };
     }
     pub fn error(&mut self, detail: impl Into<String>) {
         self.diagnostic_details = detail.into();
@@ -276,6 +286,21 @@ impl UiState {
     }
     pub fn event(&mut self, event: AppEvent) {
         match event {
+            AppEvent::ConnectionFailed(failure) => {
+                self.diagnostic_details = failure.detail;
+                let text = match failure.kind {
+                    ConnectionFailureKind::Unreachable => Text::DeviceUnreachable,
+                    ConnectionFailureKind::AccessDenied => Text::ConnectionDenied,
+                    ConnectionFailureKind::Protocol => Text::ConnectionProtocol,
+                    ConnectionFailureKind::Incompatible => Text::ConnectionIncompatible,
+                    ConnectionFailureKind::Timeout => Text::ConnectionTimeout,
+                    ConnectionFailureKind::Other => Text::OperationFailed,
+                };
+                self.set_notice(text, MessageSeverity::Error);
+                self.notice_title = Text::ConnectionFailed;
+                self.scan_pending = false;
+                self.output_pending = false;
+            }
             AppEvent::WorkerReady => self.worker_ready = true,
             AppEvent::ModeChanged(mode) => {
                 self.mode = mode;
@@ -310,17 +335,27 @@ impl UiState {
                 if status != ConnectionStatus::Connected {
                     self.latest = None;
                 }
-                if status == ConnectionStatus::Connected {
+                if status == ConnectionStatus::Connected
+                    && (self.notice_title == Text::ConnectionFailed
+                        || self.notice == Some(Text::Reconnecting))
+                {
                     self.notice = None;
                 }
             }
             AppEvent::LogMessage(log) => {
-                self.diagnostic_details = log.message;
                 if matches!(
                     log.severity,
                     MessageSeverity::Error | MessageSeverity::Warning
                 ) {
-                    self.set_notice(Text::OperationFailed, log.severity);
+                    self.diagnostic_details = log.message;
+                    self.set_notice(
+                        if log.severity == MessageSeverity::Warning {
+                            Text::OperationWarning
+                        } else {
+                            Text::OperationFailed
+                        },
+                        log.severity,
+                    );
                     self.scan_pending = false;
                     self.output_pending = false;
                 }
@@ -342,6 +377,39 @@ pub fn parse_address(text: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::{connection_failure::ConnectionFailure, models::StatusMessage};
+    #[test]
+    fn connection_error_survives_progress_and_clears_on_recovery() {
+        let mut state = UiState::new(&Settings::default());
+        state.event(AppEvent::ConnectionFailed(ConnectionFailure::new(
+            ConnectionFailureKind::Unreachable,
+            "Read services: GATT Unreachable (1)",
+        )));
+        state.event(AppEvent::LogMessage(StatusMessage {
+            message: "Connecting without traditional pairing".into(),
+            severity: MessageSeverity::Info,
+        }));
+        state.event(AppEvent::ConnectionStatus(ConnectionStatus::Disconnected));
+        state.page = Page::Help;
+        assert_eq!(state.notice_title, Text::ConnectionFailed);
+        assert_eq!(state.notice, Some(Text::DeviceUnreachable));
+        assert!(state.diagnostic_details.contains("Unreachable (1)"));
+        state.event(AppEvent::ConnectionStatus(ConnectionStatus::Connected));
+        assert_eq!(state.notice, None);
+        assert!(state.diagnostic_details.contains("Unreachable (1)"));
+    }
+    #[test]
+    fn connection_warning_is_not_reported_as_failure() {
+        let mut state = UiState::new(&Settings::default());
+        state.event(AppEvent::LogMessage(StatusMessage {
+            message: "Connected, but cannot save history".into(),
+            severity: MessageSeverity::Warning,
+        }));
+        state.event(AppEvent::ConnectionStatus(ConnectionStatus::Connected));
+        assert_eq!(state.notice, Some(Text::OperationWarning));
+        assert_eq!(state.notice_title, Text::NoticeWarning);
+        assert!(state.diagnostic_details.contains("cannot save history"));
+    }
     #[test]
     fn subpage_navigation_preserves_drafts_and_device_operation() {
         let mut state = UiState::new(&Settings::default());

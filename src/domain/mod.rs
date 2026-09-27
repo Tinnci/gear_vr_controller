@@ -1,5 +1,6 @@
 pub mod bindings;
 pub mod calibration;
+pub mod connection_failure;
 pub mod controller;
 pub mod discovery;
 pub mod gestures;

@@ -6,6 +6,7 @@ use crate::{
     },
     domain::{
         calibration::{CalibrationFailure, CalibrationStatus},
+        connection_failure::{ConnectionFailure, ConnectionFailureKind},
         input::InputMapper,
         models::{
             AppEvent, BluetoothCommand, ConnectionStatus, ControlMode, MessageSeverity,
@@ -429,7 +430,9 @@ impl WorkerState {
             }
             result = tokio::time::timeout(Duration::from_secs(30), self.service.connect(address)
                 .instrument(tracing::info_span!("connection", attempt_id))) => {
-                result.unwrap_or_else(|_| Err(anyhow::anyhow!("Connection timed out. Check Windows Bluetooth pairing.")))
+                result.unwrap_or_else(|_| Err(ConnectionFailure::new(
+                    ConnectionFailureKind::Timeout, "Connection timed out after 30000 ms"
+                ).into()))
             }
         };
         tracing::info!(
@@ -446,12 +449,17 @@ impl WorkerState {
                 .ui
                 .send(AppEvent::ConnectionStatus(ConnectionStatus::Disconnected));
             let message = format!("{error:#}");
-            tracing::error!(event = "connection.failed", attempt_id, error = %message,
+            let kind = error
+                .downcast_ref::<ConnectionFailure>()
+                .map_or(ConnectionFailureKind::Other, |failure| failure.kind);
+            tracing::error!(event = "connection.failed", attempt_id, ?kind, error = %message,
                 "Connection attempt failed");
-            let _ = self.ui.send(AppEvent::LogMessage(StatusMessage {
-                message,
-                severity: MessageSeverity::Error,
-            }));
+            let _ = self
+                .ui
+                .send(AppEvent::ConnectionFailed(ConnectionFailure::new(
+                    kind,
+                    format!("Connection attempt {attempt_id}: {message}"),
+                )));
         }
         None
     }

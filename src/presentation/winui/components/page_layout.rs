@@ -10,8 +10,8 @@ pub fn render_page_layout(
     context: &ViewContext<GearVRReactorApp>,
     content: View,
 ) -> View {
-    let notice = InfoBar::new()
-        .title(app.text(app.ui.page.title()))
+    let info = InfoBar::new()
+        .title(app.text(app.ui.notice_title))
         .message(app.ui.notice.map(|text| app.text(text)).unwrap_or_default())
         .severity(match app.ui.severity {
             crate::domain::models::MessageSeverity::Error => InfoBarSeverity::Error,
@@ -22,6 +22,24 @@ pub fn render_page_layout(
         .is_open(app.ui.notice.is_some())
         .is_closable(true)
         .on_closed(context.message(ReactorMessage::DismissNotice));
+    // Reactor does not expose InfoBar.ActionButton. Keep its action beside the notice.
+    let action: View = if app.ui.notice.is_some()
+        && matches!(
+            app.ui.severity,
+            crate::domain::models::MessageSeverity::Error
+                | crate::domain::models::MessageSeverity::Warning
+        ) {
+        super::controls::button(
+            app,
+            context,
+            super::super::text::Text::ViewDetails,
+            ReactorMessage::ShowDiagnostics,
+        )
+        .into()
+    } else {
+        StackPanel::new().into()
+    };
+    let notice = StackPanel::new().spacing(4.0).children((info, action));
     let heading = TextBlock::new()
         .text(app.text(app.ui.page.title()))
         .font_size(26.0)

@@ -1,4 +1,5 @@
 use super::BleConnection;
+use crate::domain::connection_failure::{ConnectionFailure, ConnectionFailureKind};
 use crate::infrastructure::bluetooth::protocol;
 use anyhow::Result;
 use tracing::{error, info};
@@ -6,6 +7,23 @@ use windows::Devices::Bluetooth::GenericAttributeProfile::{
     GattCharacteristic, GattCommunicationStatus, GattDeviceService,
 };
 use windows::Devices::Bluetooth::{BluetoothCacheMode, BluetoothLEDevice};
+use windows::Devices::Enumeration::DeviceAccessStatus;
+
+/// Keep the operation and native status in the error chain for diagnostics.
+pub(super) fn check_status(stage: &str, status: GattCommunicationStatus) -> Result<()> {
+    let (kind, name) = match status {
+        GattCommunicationStatus::Success => return Ok(()),
+        GattCommunicationStatus::Unreachable => (ConnectionFailureKind::Unreachable, "Unreachable"),
+        GattCommunicationStatus::AccessDenied => {
+            (ConnectionFailureKind::AccessDenied, "AccessDenied")
+        }
+        GattCommunicationStatus::ProtocolError => {
+            (ConnectionFailureKind::Protocol, "ProtocolError")
+        }
+        _ => (ConnectionFailureKind::Other, "Unknown"),
+    };
+    Err(ConnectionFailure::new(kind, format!("{stage}: GATT {name} ({})", status.0)).into())
+}
 
 impl BleConnection {
     /// Get GATT characteristics required by the controller protocol.
@@ -21,17 +39,22 @@ impl BleConnection {
             .GetGattServicesForUuidWithCacheModeAsync(service_uuid, BluetoothCacheMode::Uncached)?
             .await?;
 
-        if services_result.Status()? != GattCommunicationStatus::Success {
+        let status = services_result.Status()?;
+        if let Err(failure) = check_status("Read controller services", status) {
             error!(
-                event = "ble.service.failed", status = ?services_result.Status()?,
+                event = "ble.service.failed", status = status.0, error = %failure,
                 "Cannot read GATT services"
             );
-            anyhow::bail!("Failed to get GATT services");
+            return Err(failure);
         }
 
         let services = services_result.Services()?;
         if services.Size()? == 0 {
-            anyhow::bail!("Controller service not found");
+            return Err(ConnectionFailure::new(
+                ConnectionFailureKind::Incompatible,
+                "Configured controller service UUID not found",
+            )
+            .into());
         }
 
         let service = services.GetAt(0)?;
@@ -44,13 +67,18 @@ impl BleConnection {
         info!(event = "ble.access.started", "Requesting service access");
         let access_status = service.RequestAccessAsync()?.await?;
         info!(event = "ble.access.finished", status = ?access_status, "Service access request finished");
+        if access_status != DeviceAccessStatus::Allowed {
+            return Err(ConnectionFailure::new(
+                ConnectionFailureKind::AccessDenied,
+                format!("Controller service access not granted: {access_status:?}"),
+            )
+            .into());
+        }
 
         let chars_result = service
             .GetCharacteristicsWithCacheModeAsync(BluetoothCacheMode::Uncached)?
             .await?;
-        if chars_result.Status()? != GattCommunicationStatus::Success {
-            anyhow::bail!("Failed to get characteristics");
-        }
+        check_status("Read controller characteristics", chars_result.Status()?)?;
 
         let characteristics = chars_result.Characteristics()?;
         info!(
@@ -83,9 +111,53 @@ impl BleConnection {
             }
         }
 
-        let data = data_char.ok_or_else(|| anyhow::anyhow!("Data characteristic not found"))?;
-        let cmd = cmd_char.ok_or_else(|| anyhow::anyhow!("Command characteristic not found"))?;
+        let data = data_char.ok_or_else(|| {
+            ConnectionFailure::new(
+                ConnectionFailureKind::Incompatible,
+                "Data characteristic UUID not found",
+            )
+        })?;
+        let cmd = cmd_char.ok_or_else(|| {
+            ConnectionFailure::new(
+                ConnectionFailureKind::Incompatible,
+                "Command characteristic UUID not found",
+            )
+        })?;
 
         Ok((data, cmd, service))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn native_failures_keep_their_kind_and_stage() {
+        assert!(check_status("Read services", GattCommunicationStatus::Success).is_ok());
+        for (status, kind) in [
+            (
+                GattCommunicationStatus::Unreachable,
+                ConnectionFailureKind::Unreachable,
+            ),
+            (
+                GattCommunicationStatus::AccessDenied,
+                ConnectionFailureKind::AccessDenied,
+            ),
+            (
+                GattCommunicationStatus::ProtocolError,
+                ConnectionFailureKind::Protocol,
+            ),
+            (GattCommunicationStatus(99), ConnectionFailureKind::Other),
+        ] {
+            let error = check_status("Read services", status)
+                .err()
+                .unwrap_or_else(|| unreachable!());
+            assert_eq!(
+                error.downcast_ref::<ConnectionFailure>().map(|e| e.kind),
+                Some(kind)
+            );
+            assert!(error.to_string().contains("Read services"));
+            assert!(error.to_string().contains(&format!("({})", status.0)));
+        }
     }
 }

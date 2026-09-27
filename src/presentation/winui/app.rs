@@ -71,6 +71,7 @@ pub enum ReactorMessage {
     ExportDiagnostics,
     Events(Vec<AppEvent>),
     DismissNotice,
+    ShowDiagnostics,
     Noop,
 }
 pub struct GearVRReactorApp {
@@ -416,6 +417,10 @@ impl GearVRReactorApp {
             }
             ReactorMessage::ExportDiagnostics => self.export_diagnostics(),
             ReactorMessage::DismissNotice => self.ui.notice = None,
+            ReactorMessage::ShowDiagnostics => {
+                self.ui.page = Page::Help;
+                self.ui.help_page = super::state::Subpage::Details;
+            }
             _ => {}
         }
     }
@@ -465,7 +470,7 @@ impl GearVRReactorApp {
         let result = super::diagnostics::export_summary(&self.ui);
         match result {
             Ok(path) => {
-                self.ui.diagnostic_details = path.display().to_string();
+                self.ui.diagnostic_export_path = path.display().to_string();
                 self.ui
                     .set_notice(Text::ExportDone, MessageSeverity::Success);
             }

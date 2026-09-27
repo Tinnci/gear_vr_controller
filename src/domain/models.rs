@@ -68,6 +68,7 @@ pub enum AppEvent {
     ControllerData(ControllerData),
     ConnectionStatus(ConnectionStatus),
     LogMessage(StatusMessage),
+    ConnectionFailed(super::connection_failure::ConnectionFailure),
     DevicesUpdated(Vec<ScannedDevice>),
     ModeChanged(ControlMode),
     CalibrationStatus(super::calibration::CalibrationStatus),

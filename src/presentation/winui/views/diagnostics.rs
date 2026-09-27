@@ -54,6 +54,7 @@ fn details(app: &GearVRReactorApp, context: &ViewContext<GearVRReactorApp>) -> V
             Text::Export,
             ReactorMessage::ExportDiagnostics,
         ),
+        paragraph(&app.ui.diagnostic_export_path),
     ))
 }
 fn recovery(app: &GearVRReactorApp, context: &ViewContext<GearVRReactorApp>) -> View {

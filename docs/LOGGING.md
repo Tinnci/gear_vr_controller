@@ -156,6 +156,24 @@ count, service matches, unnamed devices, read errors and dropped snapshot update
 Read failures warn once per scan and are then counted. Per-device identifiers
 and names are intentionally absent from these events.
 
+## Connection failure diagnostics
+
+Connection failures retain a typed category and the operation's native GATT
+status in the error chain. `connection.failed` includes the attempt ID, category
+and full cause; the UI details retain that attempt ID. Opening a Windows device
+handle is `ble.device.opened`, not evidence of an established connection.
+Initialization writes are awaited and checked before `ble.init.finished`.
+Transient notification retries remain warnings in the file, without announcing
+a terminal UI failure while recovery is pending. Informational progress does
+not replace the last error or warning in diagnostic details. A successful
+connection clears its failure notice, while retaining the cause for review.
+
+For example, the 2026-09-27 13:49 UTC attempt failed at service discovery with
+GATT `Unreachable (1)`, after Windows reported the device as unpaired. This
+identifies the failed stage; it does not prove a stale pairing or a wrong device.
+Wake the controller, check its battery and Bluetooth state, then rescan before
+retrying. Do not remove a Windows pairing automatically based on this status.
+
 ## Prior implementation assessment
 
 Before this change, producers took a shared mutex and synchronously wrote each
@@ -175,3 +193,4 @@ legacy retention, whole-record rejection, saturation and background draining.
 
 - [tracing-appender non-blocking builder](https://docs.rs/tracing-appender/latest/tracing_appender/non_blocking/struct.NonBlockingBuilder.html): bounded queues and the lossy/backpressure tradeoff.
 - [OWASP logging guidance](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html): consistent event attributes, sanitization and data minimization. This desktop app uses the relevant diagnostic guidance; it does not claim security-audit compliance.
+- [Windows GATT communication status](https://learn.microsoft.com/en-us/uwp/api/windows.devices.bluetooth.genericattributeprofile.gattcommunicationstatus): `Unreachable (1)` means communication is currently unavailable; it does not identify the underlying cause.

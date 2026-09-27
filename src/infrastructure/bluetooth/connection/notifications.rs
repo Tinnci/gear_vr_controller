@@ -29,6 +29,9 @@ impl BleConnection {
                     if self.handle_notify_status(status, was_paired).await? {
                         return Ok(());
                     }
+                    if attempt == max_attempts {
+                        super::gatt::check_status("Subscribe to controller notifications", status)?;
+                    }
 
                     self.sleep_before_retry(attempt, max_attempts).await;
                 }
@@ -74,11 +77,9 @@ impl BleConnection {
         warn!(event = "ble.notifications.rejected", status = ?status, "Notification subscription rejected");
 
         if status == GattCommunicationStatus::Unreachable && was_paired {
-            let warn_msg = "检测到设备已在系统中配对，请尝试在 Windows 设置中‘删除设备’后重试。";
-            self.send_log(warn_msg, MessageSeverity::Error);
             warn!(
-                event = "ble.pairing.stale",
-                "Remove the existing Windows pairing before retrying"
+                event = "ble.pairing.unreachable",
+                "Paired device is unreachable; notification retry is pending"
             );
         }
 
@@ -100,7 +101,7 @@ impl BleConnection {
         if error_str.contains("800704C7") {
             self.send_log(
                 "Please accept the pairing dialog when it appears",
-                MessageSeverity::Warning,
+                MessageSeverity::Info,
             );
         }
 

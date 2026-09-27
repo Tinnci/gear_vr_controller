@@ -37,7 +37,10 @@ impl BleConnection {
 
         let device = self.connect_device(address).await?;
         let mut device_guard = DeviceGuard(Some(device.clone()));
-        info!(event = "ble.connected", "Bluetooth device connected");
+        info!(
+            event = "ble.device.opened",
+            "Bluetooth device handle opened"
+        );
 
         let mut session_guard = SessionGuard(self.create_gatt_session(&device).await.ok());
 

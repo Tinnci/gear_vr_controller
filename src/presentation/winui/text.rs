@@ -13,6 +13,17 @@ macro_rules! catalog {
     };
 }
 catalog! {
+    NoticeInfo => ["状态", "Status", "状態", "상태"],
+    NoticeError => ["操作未完成", "Operation failed", "操作が失敗しました", "작업 실패"],
+    NoticeWarning => ["需要留意", "Attention needed", "確認が必要です", "확인 필요"],
+    OperationWarning => ["部分功能需要检查。查看详情了解原因。", "Some features need attention. View details for the cause.", "一部の機能を確認してください。詳細で原因を確認できます。", "일부 기능을 확인하세요. 자세한 내용에서 원인을 확인할 수 있습니다."],
+    ViewDetails => ["查看详情", "View details", "詳細を見る", "자세히 보기"],
+    ConnectionFailed => ["连接未完成", "Connection failed", "接続が失敗しました", "연결 실패"],
+    DeviceUnreachable => ["无法与设备通信。唤醒控制器并靠近电脑，重新搜索后再连接。仍失败时，检查 Windows 蓝牙状态。", "Cannot reach the device. Wake the controller and move it near the PC. Search again, then connect. If it still fails, check Windows Bluetooth.", "デバイスと通信できません。コントローラーを起こして PC に近づけ、再検索して接続してください。失敗が続く場合は Windows の Bluetooth を確認してください。", "장치와 통신할 수 없습니다. 컨트롤러를 깨우고 PC 가까이에서 다시 검색한 후 연결하세요. 계속 실패하면 Windows Bluetooth를 확인하세요."],
+    ConnectionDenied => ["Windows 未允许访问设备。检查蓝牙权限，并确认系统提示后再连接。", "Windows did not allow device access. Check Bluetooth permissions and respond to any system prompt, then connect again.", "Windows がアクセスを許可しませんでした。Bluetooth の権限とシステムの確認画面を確認して再接続してください。", "Windows가 장치 접근을 허용하지 않았습니다. Bluetooth 권한과 시스템 요청을 확인한 후 다시 연결하세요."],
+    ConnectionProtocol => ["设备返回通信协议错误。重启控制器后再连接；仍失败时，查看详情。", "The device returned a protocol error. Restart the controller, then connect again. If it still fails, view details.", "通信プロトコルのエラーです。コントローラーを再起動して接続してください。続く場合は詳細を確認してください。", "통신 프로토콜 오류입니다. 컨트롤러를 다시 시작한 후 연결하세요. 계속 실패하면 자세한 내용을 확인하세요."],
+    ConnectionIncompatible => ["未找到所需的控制器服务或特征。确认选择的是 Gear VR 控制器，并检查高级连接配置。", "The required controller service or characteristic was not found. Select a Gear VR controller and check advanced connection settings.", "必要なサービスまたは特性がありません。Gear VR コントローラーを選び、詳細な接続設定を確認してください。", "필요한 서비스 또는 특성이 없습니다. Gear VR 컨트롤러를 선택하고 고급 연결 설정을 확인하세요."],
+    ConnectionTimeout => ["连接等待超过 30 秒。检查控制器电量和 Windows 蓝牙状态，重新搜索后再连接。", "Connection timed out after 30 seconds. Check the controller battery and Windows Bluetooth. Search again, then connect.", "接続が 30 秒でタイムアウトしました。電池と Windows の Bluetooth を確認し、再検索して接続してください。", "30초 동안 연결되지 않았습니다. 배터리와 Windows Bluetooth를 확인하고 다시 검색한 후 연결하세요."],
     InputTuning => ["输入调节", "Input", "入力調整", "입력 조정"],
     TestNav => ["输入测试", "Test", "入力テスト", "입력 테스트"],
     General => ["常规", "General", "一般", "일반"],
