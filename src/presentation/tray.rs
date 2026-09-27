@@ -1,4 +1,9 @@
 //! UI-thread-owned tray icon; minimizing hides the window, closing exits normally.
+use crate::domain::{
+    i18n::Language,
+    models::{ConnectionStatus, ControlMode, OutputTarget},
+};
+use crate::presentation::winui::text::{mode_text, Text};
 use std::cell::Cell;
 use windows::{
     core::{w, PCWSTR},
@@ -8,7 +13,7 @@ use windows::{
         UI::{
             Shell::{
                 DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass, Shell_NotifyIconW,
-                NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NOTIFYICONDATAW,
+                NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW,
             },
             WindowsAndMessaging::*,
         },
@@ -21,11 +26,17 @@ struct TrayState {
     main: Cell<HWND>,
     enabled: Cell<bool>,
     exit: Cell<bool>,
+    pause_requested: Cell<bool>,
+    language: Cell<Language>,
+    mode: Cell<ControlMode>,
+    connected: Cell<bool>,
+    output: Cell<OutputTarget>,
 }
 pub struct WindowsTrayManager {
     hwnd: HWND,
     nid: NOTIFYICONDATAW,
     state: Box<TrayState>,
+    tooltip: String,
 }
 
 unsafe extern "system" fn main_proc(
@@ -61,8 +72,32 @@ unsafe extern "system" fn tray_proc(hwnd: HWND, message: u32, wp: WPARAM, lp: LP
             WM_LBUTTONUP | WM_LBUTTONDBLCLK => restore(state.main.get()),
             WM_RBUTTONUP => {
                 if let Ok(menu) = CreatePopupMenu() {
-                    let _ = AppendMenuW(menu, MF_STRING, 1, w!("Open / 打开"));
-                    let _ = AppendMenuW(menu, MF_STRING, 2, w!("Exit / 退出"));
+                    let language = state.language.get();
+                    let label =
+                        |text: &str| text.encode_utf16().chain(Some(0)).collect::<Vec<u16>>();
+                    let status = label(mode_text(state.mode.get()).get(language));
+                    let _ = AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, PCWSTR(status.as_ptr()));
+                    let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
+                    for (id, text) in [
+                        (1, Text::Open),
+                        (
+                            3,
+                            if state.output.get() == OutputTarget::Paused {
+                                Text::Resume
+                            } else {
+                                Text::Pause
+                            },
+                        ),
+                        (2, Text::Exit),
+                    ] {
+                        let text = label(text.get(language));
+                        let flags = if id == 3 && !state.connected.get() {
+                            MF_STRING | MF_GRAYED
+                        } else {
+                            MF_STRING
+                        };
+                        let _ = AppendMenuW(menu, flags, id, PCWSTR(text.as_ptr()));
+                    }
                     let mut point = windows::Win32::Foundation::POINT::default();
                     let _ = GetCursorPos(&mut point);
                     let _ = SetForegroundWindow(hwnd);
@@ -78,6 +113,9 @@ unsafe extern "system" fn tray_proc(hwnd: HWND, message: u32, wp: WPARAM, lp: LP
                     .0;
                     if choice == 1 {
                         restore(state.main.get());
+                    }
+                    if choice == 3 {
+                        state.pause_requested.set(true);
                     }
                     if choice == 2 {
                         state.exit.set(true);
@@ -127,6 +165,11 @@ impl WindowsTrayManager {
                 main: Cell::new(HWND::default()),
                 enabled: Cell::new(true),
                 exit: Cell::new(false),
+                pause_requested: Cell::new(false),
+                language: Cell::new(Language::Auto),
+                mode: Cell::new(ControlMode::Mouse),
+                connected: Cell::new(false),
+                output: Cell::new(OutputTarget::Paused),
             });
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, (&*state as *const TrayState) as isize);
             let mut nid = NOTIFYICONDATAW {
@@ -135,7 +178,7 @@ impl WindowsTrayManager {
                 uID: 1,
                 uFlags: NIF_MESSAGE | NIF_ICON | NIF_TIP,
                 uCallbackMessage: CALLBACK,
-                hIcon: LoadIconW(None, IDI_APPLICATION)?,
+                hIcon: crate::presentation::icon::resource_icon()?,
                 ..Default::default()
             };
             for (slot, character) in nid.szTip.iter_mut().take(127).zip(name.encode_utf16()) {
@@ -145,7 +188,12 @@ impl WindowsTrayManager {
                 let _ = DestroyWindow(hwnd);
                 anyhow::bail!("Cannot register tray icon");
             }
-            Ok(Self { hwnd, nid, state })
+            Ok(Self {
+                hwnd,
+                nid,
+                state,
+                tooltip: name.to_string(),
+            })
         }
     }
     pub fn poll(&mut self, enabled: bool) {
@@ -170,6 +218,56 @@ impl WindowsTrayManager {
                 restore(self.state.main.get());
             }
         }
+    }
+    pub fn set_control_state(
+        &mut self,
+        language: Language,
+        mode: ControlMode,
+        connection: ConnectionStatus,
+        output: OutputTarget,
+    ) {
+        self.state.language.set(language);
+        self.state.mode.set(mode);
+        self.state
+            .connected
+            .set(connection == ConnectionStatus::Connected);
+        self.state.output.set(output);
+        let status = if connection == ConnectionStatus::Connected {
+            Text::Connected
+        } else {
+            Text::Disconnected
+        };
+        let input = match output {
+            OutputTarget::Desktop => Text::InputActive,
+            OutputTarget::Preview => Text::TestActive,
+            OutputTarget::Paused => Text::InputPaused,
+        };
+        let tooltip = format!(
+            "{} / {} / {} / {}",
+            Text::AppName.get(language),
+            mode_text(mode).get(language),
+            status.get(language),
+            input.get(language)
+        );
+        if tooltip != self.tooltip {
+            self.nid.szTip.fill(0);
+            for (slot, character) in self
+                .nid
+                .szTip
+                .iter_mut()
+                .take(127)
+                .zip(tooltip.encode_utf16())
+            {
+                *slot = character;
+            }
+            unsafe {
+                let _ = Shell_NotifyIconW(NIM_MODIFY, &self.nid);
+            }
+            self.tooltip = tooltip;
+        }
+    }
+    pub fn take_pause_requested(&self) -> bool {
+        self.state.pause_requested.replace(false)
     }
     pub fn exit_requested(&self) -> bool {
         self.state.exit.get()

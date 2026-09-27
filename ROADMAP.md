@@ -17,6 +17,15 @@
 - Pinned toolchain, locked dependencies, shared CI/release checks, verified
   NuGet runtime payloads, complete ZIP, checksums and startup/shutdown smoke test.
 
+- Connection-first pages, explicit pause/resume, bounded discovery lists and
+  device selection without copying addresses.
+- Separate tuning controls, draft/save/discard, safe input preview and
+  calibration progress, cancellation, movement rejection and timeouts.
+- Per-mode button bindings, language selection and bounded optional reconnect.
+- Local diagnostic summary export and recovery impact confirmation.
+- Generated app icon embedded in the EXE, window and tray; bundled ICO.
+- Fractional motion accumulation and elapsed-time motion scaling.
+
 ## Manual acceptance
 
 Before a public release, test the package on a clean Windows 10/11 x64 machine
@@ -28,12 +37,10 @@ Automated smoke tests do not claim this hardware acceptance.
 
 ## Future product work
 
-- Configurable button/gesture bindings and a visible radial selector.
-- Input preference controls in the UI (JSON currently exposes sensitivity,
-  smoothing, acceleration, enable flags and BLE configuration).
-- Persisted gyroscope profiles, timestamp-based motion integration and tuning
+- Configurable gestures and a visible radial selector.
+- Persisted gyroscope profiles and tuning
   against captured physical-device data.
-- Verified battery reporting and user-controlled automatic reconnect.
+- Verified battery reporting.
 - Code signing, installer/update support and ARM64 validation.
 - More localized diagnostic error messages and accessibility review.
 - Coverage reporting thresholds after the meaningful behavioral suite grows.

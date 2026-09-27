@@ -80,6 +80,14 @@ fn default_rotation() -> String {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
+    /// Missing values inherit legacy sensitivity until the user saves mode preferences.
+    pub air_mouse_sensitivity: Option<f64>,
+    pub touchpad_sensitivity: Option<f64>,
+    pub natural_scroll: bool,
+    pub touchpad_edge_motion: bool,
+    pub auto_connect: bool,
+    pub auto_reconnect: bool,
+    pub button_bindings: super::bindings::ButtonBindings,
     pub schema_version: u32,
     pub mouse_sensitivity: f64,
     pub touchpad_calibration: TouchpadCalibration,
@@ -137,6 +145,13 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             schema_version: 1,
+            air_mouse_sensitivity: None,
+            touchpad_sensitivity: None,
+            natural_scroll: false,
+            touchpad_edge_motion: false,
+            auto_connect: false,
+            auto_reconnect: false,
+            button_bindings: Default::default(),
             mouse_sensitivity: 2.0,
             touchpad_calibration: TouchpadCalibration::default(),
             known_bluetooth_addresses: Vec::new(),
@@ -340,26 +355,46 @@ impl SettingsService {
         &self.settings
     }
 
-    pub fn get_mut(&mut self) -> &mut Settings {
-        &mut self.settings
+    /// Persist before publishing a new snapshot. A failed write leaves live settings unchanged.
+    pub fn replace(&mut self, settings: Settings) -> anyhow::Result<()> {
+        settings.validate()?;
+        self.store.save(&settings)?;
+        self.settings = settings;
+        Ok(())
     }
 
     pub fn update_calibration(&mut self, calibration: TouchpadCalibration) -> anyhow::Result<()> {
-        self.settings.touchpad_calibration = calibration;
-        self.save()
+        let mut settings = self.settings.clone();
+        settings.touchpad_calibration = calibration;
+        self.replace(settings)
     }
 
-    pub fn add_known_address(&mut self, address: u64) -> anyhow::Result<()> {
-        if !self.settings.known_bluetooth_addresses.contains(&address) {
-            self.settings.known_bluetooth_addresses.push(address);
-            self.save()?;
+    pub fn record_connection(&mut self, address: u64) -> anyhow::Result<()> {
+        let mut settings = self.settings.clone();
+        settings.last_connected_address = Some(address);
+        if !settings.known_bluetooth_addresses.contains(&address) {
+            settings.known_bluetooth_addresses.push(address);
         }
-        Ok(())
+        self.replace(settings)
     }
 }
 
 impl Settings {
+    pub fn air_sensitivity(&self) -> f64 {
+        self.air_mouse_sensitivity.unwrap_or(self.mouse_sensitivity)
+    }
+
+    pub fn touch_sensitivity(&self) -> f64 {
+        self.touchpad_sensitivity.unwrap_or(self.mouse_sensitivity)
+    }
+
     pub fn validate(&self) -> anyhow::Result<()> {
+        for value in [self.air_sensitivity(), self.touch_sensitivity()] {
+            anyhow::ensure!(
+                value.is_finite() && (0.1..=20.0).contains(&value),
+                "Sensitivity must be between 0.1 and 20"
+            );
+        }
         anyhow::ensure!(
             self.schema_version == 1,
             "Unsupported settings schema {}",
@@ -410,10 +445,10 @@ impl Settings {
                 && self
                     .known_bluetooth_addresses
                     .iter()
-                    .all(|a| *a <= 0xFFFF_FFFF_FFFF)
+                    .all(|a| *a > 0 && *a <= 0xFFFF_FFFF_FFFF)
                 && self
                     .last_connected_address
-                    .is_none_or(|a| a <= 0xFFFF_FFFF_FFFF),
+                    .is_none_or(|a| a > 0 && a <= 0xFFFF_FFFF_FFFF),
             "Invalid Bluetooth history"
         );
         let logs = &self.log_settings;
@@ -449,6 +484,9 @@ mod tests {
         let settings: Settings = serde_json::from_str(r#"{"mouse_sensitivity":3.0}"#)?;
         settings.validate()?;
         assert_eq!(settings.mouse_sensitivity, 3.0);
+        assert_eq!(settings.air_sensitivity(), 3.0);
+        assert_eq!(settings.touch_sensitivity(), 3.0);
+        assert!(!settings.touchpad_edge_motion);
         assert_eq!(settings.schema_version, 1);
         Ok(())
     }
@@ -462,6 +500,29 @@ mod tests {
         settings.smoothing_factor = 5;
         settings.schema_version = 2;
         assert!(settings.validate().is_err());
+    }
+
+    #[test]
+    fn failed_save_does_not_publish_new_live_settings() -> anyhow::Result<()> {
+        struct FailingStore;
+        impl SettingsStore for FailingStore {
+            fn load(&self) -> anyhow::Result<Settings> {
+                Ok(Settings::default())
+            }
+            fn save(&self, _: &Settings) -> anyhow::Result<()> {
+                anyhow::bail!("disk is full")
+            }
+        }
+        let mut service = SettingsService::with_store(Box::new(FailingStore))?;
+        let changed = Settings {
+            air_mouse_sensitivity: Some(5.0),
+            ..Default::default()
+        };
+        assert!(service.replace(changed).is_err());
+        assert_eq!(service.get().air_sensitivity(), 2.0);
+        assert!(service.record_connection(42).is_err());
+        assert_eq!(service.get().last_connected_address, None);
+        Ok(())
     }
     #[test]
     fn atomic_save_keeps_backup_and_corrupt_file() -> anyhow::Result<()> {

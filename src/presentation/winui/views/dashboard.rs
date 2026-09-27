@@ -1,109 +1,237 @@
-//! Dashboard Tab View: Connection management, Mode switching, Real-time input telemetry
-
-use crate::domain::i18n::I18nStrings;
-use crate::domain::models::{ConnectionStatus, ControlMode};
-use crate::presentation::winui::app::{GearVRReactorApp, ReactorMessage};
-use crate::presentation::winui::components::cards::render_card;
-use crate::presentation::winui::components::formatters::format_telemetry;
-use crate::presentation::winui::tokens::FluentTokens;
+//! Connection-first control page. Device discovery results are selectable.
+use super::super::{
+    app::{modes, GearVRReactorApp, ReactorMessage},
+    components::controls::{button, paragraph, section},
+    state::Page,
+    text::{action_text, mode_text, Text},
+};
+use crate::domain::models::{ConnectionStatus, OutputTarget};
 use windows_reactor::*;
 
 pub fn render_dashboard_view(
     app: &GearVRReactorApp,
     context: &mut ViewContext<GearVRReactorApp>,
-    s: &I18nStrings,
 ) -> View {
-    // Card 1: Connection & Bluetooth Scanning
-    let connect_button = if app.connection_status == ConnectionStatus::Connected {
-        Button::new()
-            .style(ButtonStyle::Default)
-            .on_click(context.message(ReactorMessage::Disconnect))
-            .content(s.disconnect_button)
-    } else {
-        Button::new()
-            .style(ButtonStyle::Accent)
-            .on_click(context.message(ReactorMessage::Connect))
-            .content(s.connect_button)
+    StackPanel::new().spacing(20.0).children((
+        paragraph(app.text(Text::ControlHint)),
+        connection(app, context),
+        mode(app, context),
+        advanced_connection(app, context),
+    ))
+}
+fn connection(app: &GearVRReactorApp, context: &ViewContext<GearVRReactorApp>) -> View {
+    let status = match app.ui.connection {
+        ConnectionStatus::Connecting => Text::Connecting,
+        ConnectionStatus::Connected => Text::Connected,
+        _ => Text::Disconnected,
     };
-
-    let scan_button = Button::new()
-        .on_click(context.message(ReactorMessage::ToggleScan))
-        .content(if app.is_scanning {
-            s.stop_scan_button
+    let controls = if app.ui.connection == ConnectionStatus::Connecting {
+        StackPanel::new().spacing(8.0).children((
+            ProgressRing::new().is_active(true).width(20.0).height(20.0),
+            button(
+                app,
+                context,
+                Text::CancelConnect,
+                ReactorMessage::Disconnect,
+            ),
+        ))
+    } else if app.ui.connected() {
+        let target = if app.ui.output == OutputTarget::Desktop {
+            OutputTarget::Paused
         } else {
-            s.scan_button
-        });
-
-    let scan_ring = if app.is_scanning {
-        ProgressRing::new()
-            .is_active(true)
-            .width(FluentTokens::RING_MD)
-            .height(FluentTokens::RING_MD)
-    } else {
-        ProgressRing::new()
-            .is_active(false)
-            .width(FluentTokens::RING_MD)
-            .height(FluentTokens::RING_MD)
-    };
-
-    let address_box = TextBox::new()
-        .text(&app.address_input)
-        .placeholder_text(s.address_placeholder)
-        .on_text_changed(context.callback(ReactorMessage::UpdateAddressInput));
-
-    let connection_controls = StackPanel::new()
-        .orientation(Orientation::Horizontal)
-        .spacing(FluentTokens::SPACING_MD)
-        .children((address_box, connect_button, scan_button, scan_ring));
-
-    let connection_card = render_card(s.conn_card_title, s.conn_card_desc, connection_controls);
-
-    // Card 2: Operational Mode Selection (Segmented Control)
-    let modes = [
-        (ControlMode::Mouse, s.mode_air_mouse),
-        (ControlMode::Touchpad, s.mode_trackpad),
-        (ControlMode::Presentation, s.mode_presenter),
-    ];
-
-    let mode_buttons = StackPanel::new()
-        .orientation(Orientation::Horizontal)
-        .spacing(FluentTokens::SPACING_MD)
-        .children(modes.map(|(mode, label)| {
-            Button::new()
-                .style(if app.current_mode == mode {
-                    ButtonStyle::Accent
+            OutputTarget::Desktop
+        };
+        StackPanel::new().spacing(8.0).children((
+            paragraph(app.text(match app.ui.output {
+                OutputTarget::Desktop => Text::InputActive,
+                OutputTarget::Preview => Text::TestActive,
+                _ => Text::InputPaused,
+            })),
+            button(
+                app,
+                context,
+                if target == OutputTarget::Desktop {
+                    Text::Resume
                 } else {
-                    ButtonStyle::Default
-                })
-                .on_click(context.message(ReactorMessage::ChangeMode(mode)))
-                .content(label)
+                    Text::Pause
+                },
+                ReactorMessage::SetOutput(target),
+            )
+            .style(ButtonStyle::Accent)
+            .is_enabled(app.ui.can_output()),
+            button(
+                app,
+                context,
+                Text::Tuning,
+                ReactorMessage::Navigate(Page::Tuning),
+            ),
+            button(app, context, Text::Disconnect, ReactorMessage::Disconnect),
+        ))
+    } else {
+        discovery(app, context)
+    };
+    section(
+        app,
+        if app.ui.connected() {
+            Text::AppName
+        } else {
+            Text::AddDevice
+        },
+        status,
+        controls,
+    )
+}
+fn discovery(app: &GearVRReactorApp, context: &ViewContext<GearVRReactorApp>) -> View {
+    let found = StackPanel::new()
+        .spacing(12.0)
+        .keyed_children(app.ui.devices.iter().map(|device| {
+            let name = if device.name.is_empty() {
+                app.text(Text::UnnamedDevice).to_string()
+            } else {
+                device.name.clone()
+            };
+            KeyedView::new(
+                format!("{:X}", device.address),
+                Grid::new()
+                    .columns([GridLength::STAR, GridLength::Auto])
+                    .column_spacing(12.0)
+                    .children((
+                        Border::new().grid_column(0).content(paragraph(&name)),
+                        button(
+                            app,
+                            context,
+                            Text::Connect,
+                            ReactorMessage::ConnectDevice(device.address),
+                        )
+                        .grid_column(1)
+                        .automation_name(format!(
+                            "{} {}",
+                            app.text(Text::Connect),
+                            name
+                        )),
+                    )),
+            )
         }));
-
-    let mode_card = render_card(s.mode_card_title, s.mode_card_desc, mode_buttons);
-
-    // Card 3: Real-Time Input Telemetry Monitor
-    let (tp_text, btn_text, sample_text) = format_telemetry(app.latest_data.as_ref(), s);
-
-    let telemetry_card = render_card(
-        s.telemetry_card_title,
-        s.telemetry_card_desc,
-        StackPanel::new()
-            .spacing(FluentTokens::SPACING_XS)
-            .children((
-                TextBlock::new()
-                    .text(tp_text)
-                    .font_size(FluentTokens::FONT_BODY),
-                TextBlock::new()
-                    .text(btn_text)
-                    .font_size(FluentTokens::FONT_BODY),
-                TextBlock::new()
-                    .text(sample_text)
-                    .font_size(FluentTokens::FONT_CAPTION)
-                    .foreground(ThemeBrush::PrimaryText),
+    let found: View = if app.ui.devices.is_empty() {
+        StackPanel::new().into()
+    } else {
+        ScrollViewer::new().max_height(260.0).content(found)
+    };
+    let recent: View = app
+        .ui
+        .last_address
+        .filter(|address| {
+            !app.ui
+                .devices
+                .iter()
+                .any(|device| device.address == *address)
+        })
+        .map(|address| {
+            button(
+                app,
+                context,
+                Text::LastDevice,
+                ReactorMessage::ConnectDevice(address),
+            )
+            .into()
+        })
+        .unwrap_or_else(|| StackPanel::new().into());
+    StackPanel::new().spacing(12.0).children((
+        paragraph(app.text(Text::WakeHint)),
+        recent,
+        button(
+            app,
+            context,
+            if app.ui.scanning {
+                Text::StopSearch
+            } else {
+                Text::Search
+            },
+            ReactorMessage::ToggleScan,
+        )
+        .style(ButtonStyle::Accent)
+        .is_enabled(!app.ui.scan_pending),
+        paragraph(if app.ui.scanning {
+            app.text(Text::Searching)
+        } else if app.ui.scan_attempted && app.ui.devices.is_empty() {
+            app.text(Text::NoResults)
+        } else {
+            ""
+        }),
+        found,
+        button(
+            app,
+            context,
+            Text::BluetoothSettings,
+            ReactorMessage::OpenBluetooth,
+        ),
+    ))
+}
+fn mode(app: &GearVRReactorApp, context: &ViewContext<GearVRReactorApp>) -> View {
+    let language = app.ui.language();
+    let controls = RadioButtons::new()
+        .items_source(modes().map(|mode| mode_text(mode).get(language)))
+        .automation_name(app.text(Text::Mode))
+        .selected_index(modes().iter().position(|mode| *mode == app.ui.mode))
+        .max_columns(3)
+        .on_selection_changed(context.callback(ReactorMessage::Mode));
+    let bindings = app.ui.saved.bindings.for_mode(app.ui.mode);
+    let hint = match app.ui.mode {
+        crate::domain::models::ControlMode::Touchpad => Text::TouchHint,
+        crate::domain::models::ControlMode::Presentation => Text::PresenterHint,
+        _ => Text::AirHint,
+    };
+    let mapping = [
+        (Text::Trigger, bindings.trigger),
+        (Text::TouchPress, bindings.touchpad),
+        (Text::Back, bindings.back),
+        (Text::Home, bindings.home),
+    ];
+    let mapping = StackPanel::new()
+        .spacing(4.0)
+        .children(mapping.map(|(key, action)| {
+            paragraph(format!(
+                "{} → {}",
+                app.text(key),
+                app.text(action_text(action))
+            ))
+        }));
+    section(
+        app,
+        Text::Mode,
+        hint,
+        StackPanel::new().spacing(12.0).children((
+            controls,
+            mapping,
+            paragraph(app.text(Text::ModeHold)),
+            paragraph(app.text(if app.ui.automatic_mode {
+                Text::AutomaticMode
+            } else {
+                Text::ManualMode
+            })),
+        )),
+    )
+}
+fn advanced_connection(app: &GearVRReactorApp, context: &ViewContext<GearVRReactorApp>) -> View {
+    Expander::new().slots([
+        SlotView::new(
+            ExpanderSlot::Header,
+            paragraph(app.text(Text::AdvancedConnection)),
+        ),
+        SlotView::new(
+            ExpanderSlot::Content,
+            StackPanel::new().spacing(12.0).children((
+                paragraph(app.text(Text::AddressHint)),
+                TextBox::new()
+                    .text(&app.ui.address)
+                    .placeholder_text("2C41A1001234")
+                    .automation_name(app.text(Text::Address))
+                    .max_width(360.0)
+                    .on_text_changed(context.callback(ReactorMessage::Address)),
+                button(app, context, Text::Connect, ReactorMessage::ConnectAddress).is_enabled(
+                    !app.ui.connected() && app.ui.connection != ConnectionStatus::Connecting,
+                ),
             )),
-    );
-
-    StackPanel::new()
-        .spacing(FluentTokens::SPACING_XL)
-        .children((connection_card, mode_card, telemetry_card))
+        ),
+    ])
 }

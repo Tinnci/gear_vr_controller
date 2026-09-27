@@ -96,11 +96,7 @@ impl BluetoothService {
         // Save to history on successful connection
         {
             if let Ok(mut settings) = self.settings.lock() {
-                settings.get_mut().last_connected_address = Some(address);
-                if let Err(error) = settings
-                    .add_known_address(address)
-                    .and_then(|_| settings.save())
-                {
+                if let Err(error) = settings.record_connection(address) {
                     tracing::warn!(%error, "Cannot save connection history");
                     let _ = self.event_sender.send(AppEvent::LogMessage(StatusMessage {
                         message: format!("Connected, but cannot save history: {error}"),

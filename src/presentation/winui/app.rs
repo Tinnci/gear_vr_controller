@@ -1,582 +1,561 @@
-//! Native WinUI 3 Presentation Component using Windows Reactor
-//!
-//! Implements a modern Fluent Design 2 experience powered by the Windows App SDK
-//! following official WinUI 3 guidelines (NavigationView, SettingsCard pattern,
-//! 4-language i18n auto-detection, clean typography, zero emoji).
-
-use crate::application::{bluetooth_worker::BluetoothWorker, event_bus::EventSender};
-use crate::domain::i18n::{I18nStrings, Language};
-use crate::domain::models::{
-    AppEvent, BluetoothCommand, ConnectionStatus, ControlMode, ControllerData, MessageSeverity,
-    ScannedDevice,
+//! Native component. Domain state, page layout and platform services remain separate.
+use super::{
+    state::{parse_address, BindingSlot, BooleanPreference, NumericPreference, Page, UiState},
+    text::Text,
+    views::{
+        render_calibration_view, render_dashboard_view, render_diagnostics_view,
+        render_settings_view,
+    },
 };
-use crate::domain::settings::SettingsService;
-use crate::presentation::winui::components::title_bar::render_title_bar;
-use crate::presentation::winui::tokens::FluentTokens;
-use crate::presentation::winui::views::{
-    render_calibration_view, render_dashboard_view, render_diagnostics_view, render_settings_view,
+use crate::{
+    application::{
+        bluetooth_worker::{spawn_bluetooth_worker, BluetoothWorker},
+        event_bus::EventSender,
+    },
+    domain::{
+        bindings::{ButtonAction, ModeBindings},
+        i18n::Language,
+        models::{
+            AppEvent, BluetoothCommand, ConnectionStatus, ControlMode, MessageSeverity,
+            OutputTarget,
+        },
+        preferences::InputPreferences,
+        settings::SettingsService,
+    },
 };
-use std::sync::{Arc, Mutex};
+use std::{
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 use tokio::sync::mpsc;
 use windows_reactor::*;
 static SMOKE_PASSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum ReactorMessage {
-    SelectTab(usize),
-    SelectLanguage(Language),
-    UpdateAddressInput(String),
-    PickAddress(u64),
-    Connect,
+    Navigate(Page),
+    NavChanged(Option<String>),
+    PaneChanged(bool),
+    TogglePane,
+    WindowWidth(f64),
+    Language(Option<usize>),
+    Address(String),
+    ConnectAddress,
+    ConnectDevice(u64),
     Disconnect,
     ToggleScan,
-    ToggleAntiSleep(bool),
-    ToggleAutoProfile(bool),
-    ToggleBackgroundTray(bool),
-    ChangeMode(ControlMode),
-    FromAppEvent(AppEvent),
-    FromAppEvents(Vec<AppEvent>),
-    CalibrateImu,
-    StartTouchCalibration,
-    FinishTouchCalibration,
+    Mode(Option<usize>),
+    SetOutput(OutputTarget),
+    Number(NumericPreference, f64),
+    Boolean(BooleanPreference, bool),
+    SavePreferences,
+    DiscardPreferences,
+    RestoreInput,
+    BindingMode(Option<usize>),
+    Binding(BindingSlot, Option<usize>),
+    RestoreBindings,
+    CalibrateGyro,
+    CalibrateTouch,
+    SaveCalibration,
+    CancelCalibration,
+    ConfirmRecovery,
+    CancelRecovery,
     RecoverBluetooth,
     RecoveryFinished(Result<String, String>),
-    OpenBtSettings,
-    NavSelectionChanged(Option<String>),
-    TogglePane,
-    PaneOpenChanged(bool),
-    DismissStatusInfo,
+    OpenBluetooth,
+    OpenLogs,
+    ExportDiagnostics,
+    Events(Vec<AppEvent>),
+    DismissNotice,
     Noop,
 }
-
 pub struct GearVRReactorApp {
-    pub selected_tab: usize,
-    pub language: Language,
-    pub connection_status: ConnectionStatus,
-    pub status_message: Option<String>,
-    status_severity: MessageSeverity,
-    pub latest_data: Option<ControllerData>,
-    pub scanned_devices: Vec<ScannedDevice>,
-    pub current_mode: ControlMode,
-    pub address_input: String,
-    pub is_scanning: bool,
-    pub enable_anti_sleep: bool,
-    pub enable_auto_profile: bool,
-    pub enable_background_tray: bool,
-    pub is_pane_open: bool,
-    pub settings_service: Arc<Mutex<SettingsService>>,
-    pub bt_cmd_tx: Option<mpsc::Sender<BluetoothCommand>>,
-    pub shared_event_rx: Arc<Mutex<mpsc::Receiver<AppEvent>>>,
+    pub ui: UiState,
+    pub pane_open: bool,
+    settings: Arc<Mutex<SettingsService>>,
+    commands: mpsc::Sender<BluetoothCommand>,
+    events: Arc<Mutex<mpsc::Receiver<AppEvent>>>,
     _worker: BluetoothWorker,
-    pub imu_progress: Option<f32>,
-    pub imu_completed: bool,
-    pub recovery_running: bool,
     tray: Option<crate::presentation::tray::WindowsTrayManager>,
-    smoke_deadline: Option<std::time::Instant>,
-    worker_ready: bool,
+    smoke_deadline: Option<Instant>,
 }
-
 impl Component for GearVRReactorApp {
     type Input = ();
     type Message = ReactorMessage;
-
-    fn create(_input: &(), context: &ComponentContext<Self>) -> Self {
-        let (bt_cmd_tx, bt_cmd_rx) = mpsc::channel::<BluetoothCommand>(32);
-        let (event_tx, event_rx) = EventSender::channel(128);
-        let shared_event_rx = Arc::new(Mutex::new(event_rx));
-
-        let settings_result = if std::env::args().any(|arg| arg == "--smoke-test") {
+    fn create(_: &(), context: &ComponentContext<Self>) -> Self {
+        let smoke = std::env::args().any(|arg| arg == "--smoke-test");
+        let preview = std::env::args().any(|arg| arg == "--preview-ui");
+        let settings_result = if smoke || preview {
             Ok(SettingsService::in_memory_defaults())
         } else {
             SettingsService::new()
         };
-        let (settings_service, startup_error) = match settings_result {
-            Ok(service) => (service, None),
-            Err(error) => (SettingsService::in_memory_defaults(), Some(format!("Settings could not be loaded. Changes are temporary; original file is preserved: {error}"))),
+        let (settings, error) = match settings_result {
+            Ok(settings) => (settings, None),
+            Err(error) => (
+                SettingsService::in_memory_defaults(),
+                Some(error.to_string()),
+            ),
         };
-
-        let initial_address = settings_service
-            .get()
-            .last_connected_address
-            .map(|a| format!("{:X}", a))
-            .unwrap_or_default();
-
-        let initial_lang = settings_service.get().language;
-        let anti_sleep = settings_service.get().enable_presentation_anti_sleep;
-        let auto_profile = settings_service.get().enable_auto_profile_switching;
-        let tray = settings_service.get().minimize_to_tray;
-
-        let settings = Arc::new(Mutex::new(settings_service));
-        let bt_settings = settings.clone();
-
-        // Spawn background Bluetooth worker
-        let worker = crate::application::bluetooth_worker::spawn_bluetooth_worker(
-            event_tx,
-            bt_cmd_rx,
-            bt_settings,
-        );
-
-        // Chain first event listener task on Windows thread pool
-        Self::spawn_event_listener(context, shared_event_rx.clone());
-
+        let mut ui = UiState::new(settings.get());
+        if let Some(error) = error {
+            ui.error(error);
+        }
+        let settings = Arc::new(Mutex::new(settings));
+        let (commands, command_rx) = mpsc::channel(32);
+        let (event_tx, event_rx) = EventSender::channel(128);
+        let events = Arc::new(Mutex::new(event_rx));
+        let worker = spawn_bluetooth_worker(event_tx, command_rx, settings.clone());
+        Self::listen(context, events.clone());
         Self {
-            selected_tab: 0,
-            language: initial_lang,
-            connection_status: ConnectionStatus::Disconnected,
-            status_message: startup_error,
-            status_severity: MessageSeverity::Error,
-            latest_data: None,
-            scanned_devices: Vec::new(),
-            current_mode: ControlMode::Mouse,
-            address_input: initial_address,
-            is_scanning: false,
-            enable_anti_sleep: anti_sleep,
-            enable_auto_profile: auto_profile,
-            enable_background_tray: tray,
-            is_pane_open: true,
-            settings_service: settings,
-            bt_cmd_tx: Some(bt_cmd_tx),
-            shared_event_rx,
+            ui,
+            pane_open: true,
+            settings,
+            commands,
+            events,
             _worker: worker,
-            imu_progress: None,
-            imu_completed: false,
-            recovery_running: false,
             tray: None,
-            worker_ready: false,
-            smoke_deadline: std::env::args()
-                .any(|arg| arg == "--smoke-test")
-                .then(|| std::time::Instant::now() + std::time::Duration::from_secs(2)),
+            smoke_deadline: smoke.then(|| Instant::now() + Duration::from_secs(2)),
         }
     }
-
     fn update(&mut self, message: Self::Message, context: &ComponentContext<Self>) {
-        match message {
-            ReactorMessage::SelectTab(tab) => {
-                self.selected_tab = tab;
+        if let ReactorMessage::Events(events) = message {
+            for event in events {
+                self.ui.event(event);
             }
-            ReactorMessage::SelectLanguage(lang) => {
-                self.language = lang;
-                self.edit_settings(|settings| settings.language = lang);
-            }
-            ReactorMessage::UpdateAddressInput(input) => {
-                self.address_input = input;
-            }
-            ReactorMessage::PickAddress(addr) => {
-                self.address_input = format!("{:X}", addr);
-            }
-            ReactorMessage::Connect => {
-                self.connect_address();
-            }
-            ReactorMessage::Disconnect => {
-                self.send_command(BluetoothCommand::Disconnect);
-            }
-            ReactorMessage::ToggleScan => {
-                if self.is_scanning {
-                    self.send_command(BluetoothCommand::StopScan);
-                } else {
-                    self.scanned_devices.clear();
-                    self.send_command(BluetoothCommand::StartScan);
-                }
-            }
-            ReactorMessage::ToggleAntiSleep(enable) => {
-                self.enable_anti_sleep = enable;
-                self.edit_settings(|settings| settings.enable_presentation_anti_sleep = enable);
-            }
-            ReactorMessage::ToggleAutoProfile(enable) => {
-                self.enable_auto_profile = enable;
-                self.edit_settings(|settings| settings.enable_auto_profile_switching = enable);
-            }
-            ReactorMessage::ToggleBackgroundTray(enable) => {
-                self.enable_background_tray = enable;
-                self.edit_settings(|settings| settings.minimize_to_tray = enable);
-            }
-            ReactorMessage::ChangeMode(mode) => {
-                self.send_command(BluetoothCommand::ChangeMode(mode));
-            }
-            ReactorMessage::OpenBtSettings => {
-                let _ = std::process::Command::new("explorer.exe")
-                    .arg("ms-settings:bluetooth")
-                    .spawn();
-            }
-            ReactorMessage::NavSelectionChanged(Some(tag)) => {
-                if let Ok(idx) = tag.parse::<usize>() {
-                    self.selected_tab = idx;
-                }
-            }
-            ReactorMessage::NavSelectionChanged(None) => {}
-            ReactorMessage::TogglePane => {
-                self.is_pane_open = !self.is_pane_open;
-            }
-            ReactorMessage::PaneOpenChanged(open) => {
-                if self.is_pane_open != open {
-                    self.is_pane_open = open;
-                }
-            }
-            ReactorMessage::FromAppEvent(event) => {
-                self.handle_app_event(event);
-                Self::spawn_event_listener(context, self.shared_event_rx.clone());
-            }
-            ReactorMessage::FromAppEvents(events) => {
-                for event in events {
-                    self.handle_app_event(event);
-                }
-                self.sync_tray(context);
-                self.check_smoke(context);
-                Self::spawn_event_listener(context, self.shared_event_rx.clone());
-            }
-            ReactorMessage::CalibrateImu => {
-                self.imu_completed = false;
-                self.send_command(BluetoothCommand::CalibrateImu);
-            }
-            ReactorMessage::StartTouchCalibration => {
-                self.send_command(BluetoothCommand::StartTouchCalibration)
-            }
-            ReactorMessage::FinishTouchCalibration => {
-                self.send_command(BluetoothCommand::FinishTouchCalibration)
-            }
-            ReactorMessage::RecoverBluetooth => {
-                if !self.recovery_running {
-                    self.recovery_running = true;
-                    self.send_command(BluetoothCommand::Disconnect);
-                    context.spawn_background(|cancel| {
-                        let result = crate::admin_client::recover_bluetooth(&cancel);
-                        ReactorMessage::RecoveryFinished(result.map_err(|error| error.to_string()))
-                    });
-                }
-            }
-            ReactorMessage::RecoveryFinished(result) => {
-                self.recovery_running = false;
-                self.status_severity = if result.is_ok() {
-                    MessageSeverity::Success
-                } else {
-                    MessageSeverity::Error
-                };
-                self.status_message = Some(
-                    result.unwrap_or_else(|error| format!("Bluetooth recovery failed: {error}")),
-                );
-            }
-            ReactorMessage::DismissStatusInfo => {
-                self.status_message = None;
-                if self.connection_status == ConnectionStatus::Error {
-                    self.connection_status = ConnectionStatus::Disconnected;
-                }
-            }
-            ReactorMessage::Noop => {}
+            self.poll_platform(context);
+            Self::listen(context, self.events.clone());
+            return;
         }
+        self.handle_message(message, context);
     }
-
-    fn view(&self, _input: &(), context: &mut ViewContext<Self>) -> View {
-        let s = self.language.strings();
-
-        // Fluent Header & Status Infobar (Windows 11 Contextual Status Feedback)
-        let (info_title, info_msg, info_severity, is_info_open) =
-            match (&self.connection_status, &self.status_message) {
-                (ConnectionStatus::Connected, Some(msg)) => (
-                    s.status_connected,
-                    msg.as_str(),
-                    InfoBarSeverity::Success,
-                    true,
-                ),
-                (ConnectionStatus::Connected, None) => (
-                    s.status_connected,
-                    s.status_ready,
-                    InfoBarSeverity::Success,
-                    false,
-                ),
-                (ConnectionStatus::Connecting, _) => (
-                    s.status_connecting,
-                    s.status_negotiating,
-                    InfoBarSeverity::Informational,
-                    true,
-                ),
-                (ConnectionStatus::Disconnected, Some(msg)) => (
-                    s.status_disconnected,
-                    msg.as_str(),
-                    InfoBarSeverity::Warning,
-                    true,
-                ),
-                (ConnectionStatus::Disconnected, None) => (
-                    s.status_disconnected,
-                    s.status_no_link,
-                    InfoBarSeverity::Informational,
-                    false,
-                ),
-                (ConnectionStatus::Error, Some(msg)) => {
-                    (s.status_error, msg.as_str(), InfoBarSeverity::Error, true)
-                }
-                (ConnectionStatus::Error, None) => {
-                    (s.status_error, s.status_error, InfoBarSeverity::Error, true)
-                }
-            };
-
-        let status_infobar = InfoBar::new()
-            .title(info_title)
-            .message(info_msg)
-            .severity(if self.status_message.is_some() {
-                match self.status_severity {
-                    MessageSeverity::Error => InfoBarSeverity::Error,
-                    MessageSeverity::Warning => InfoBarSeverity::Warning,
-                    MessageSeverity::Success => InfoBarSeverity::Success,
-                    MessageSeverity::Info => InfoBarSeverity::Informational,
-                }
-            } else {
-                info_severity
-            })
-            .is_open(is_info_open)
-            .is_closable(true)
-            .on_closed(context.message(ReactorMessage::DismissStatusInfo));
-
-        let nav_items = Self::create_nav_items(self.selected_tab, s);
-
-        // Tab Content Routing
-        let tab_content: View = match self.selected_tab {
-            0 => render_dashboard_view(self, context, s),
-            1 => render_calibration_view(self, context, s),
-            2 => render_settings_view(self, context, s),
-            _ => render_diagnostics_view(self, context, s),
+    fn view(&self, _: &(), context: &mut ViewContext<Self>) -> View {
+        context.window_title(format!(
+            "{} · {}",
+            self.text(Text::AppName),
+            self.text(self.ui.page.title())
+        ));
+        context.window_visuals(
+            WindowVisuals::new()
+                .icon(crate::presentation::icon::icon_path())
+                .client_size(1100.0, 760.0)
+                .constraints(WindowConstraints {
+                    min_width: Some(520.0),
+                    min_height: Some(480.0),
+                    ..Default::default()
+                }),
+        );
+        context.on_window_size(
+            context.callback(|size: WindowSize| ReactorMessage::WindowWidth(size.width)),
+        );
+        let content = match self.ui.page {
+            Page::Control => render_dashboard_view(self, context),
+            Page::Tuning => render_calibration_view(self, context),
+            Page::Settings => render_settings_view(self, context),
+            Page::Help => render_diagnostics_view(self, context),
         };
-
-        // Responsive scrolling content container
-        let content_area = ScrollViewer::new()
-            .vertical_scroll_bar_visibility(ScrollBarVisibility::Auto)
-            .horizontal_scroll_bar_visibility(ScrollBarVisibility::Disabled)
-            .content(
-                Border::new().padding(FluentTokens::page_padding()).content(
-                    StackPanel::new()
-                        .spacing(FluentTokens::SPACING_XXL)
-                        .children((status_infobar, tab_content)),
-                ),
-            );
-
-        // Windows 11 Settings & Microsoft Store Custom TitleBar
-        let title_bar = render_title_bar(self, context, s);
-
-        let nav_view = NavigationView::new()
+        let language = self.ui.language();
+        let items = Page::ALL.map(|page| {
+            KeyedView::new(
+                page.index().to_string(),
+                NavigationViewItem::new()
+                    .tag(page.index().to_string())
+                    .is_selected(self.ui.page == page)
+                    .slots([
+                        SlotView::new(
+                            NavigationViewItemSlot::Icon,
+                            SymbolIcon::new().symbol(match page {
+                                Page::Control => Symbol::Home,
+                                Page::Tuning => Symbol::Orientation,
+                                Page::Settings => Symbol::Setting,
+                                Page::Help => Symbol::Help,
+                            }),
+                        ),
+                        SlotView::new(
+                            NavigationViewItemSlot::Content,
+                            TextBlock::new().text(
+                                if page == Page::Help {
+                                    Text::HelpNav
+                                } else {
+                                    page.title()
+                                }
+                                .get(language),
+                            ),
+                        ),
+                    ]),
+            )
+        });
+        let notice = InfoBar::new()
+            .title(self.ui.page.title().get(language))
+            .message(
+                self.ui
+                    .notice
+                    .map(|text| text.get(language))
+                    .unwrap_or_default(),
+            )
+            .severity(match self.ui.severity {
+                MessageSeverity::Error => InfoBarSeverity::Error,
+                MessageSeverity::Warning => InfoBarSeverity::Warning,
+                MessageSeverity::Success => InfoBarSeverity::Success,
+                MessageSeverity::Info => InfoBarSeverity::Informational,
+            })
+            .is_open(self.ui.notice.is_some())
+            .is_closable(true)
+            .on_closed(context.message(ReactorMessage::DismissNotice));
+        let heading = TextBlock::new()
+            .text(self.ui.page.title().get(language))
+            .font_size(26.0)
+            .font_weight(FontWeight::SEMI_BOLD)
+            .automation_heading_level(AutomationHeadingLevel::Level1);
+        let nav = NavigationView::new()
             .grid_row(1)
-            .open_pane_length(FluentTokens::NAV_PANE_WIDTH)
-            .pane_display_mode(NavigationViewPaneDisplayMode::Left)
-            .is_pane_open(self.is_pane_open)
+            .open_pane_length(200.0)
+            .pane_display_mode(NavigationViewPaneDisplayMode::Auto)
+            .is_pane_open(self.pane_open)
             .is_pane_toggle_button_visible(false)
-            .is_back_button_visible(NavigationViewBackButtonVisible::Collapsed)
             .is_settings_visible(false)
-            .on_is_pane_open_changed(context.callback(ReactorMessage::PaneOpenChanged))
-            .on_selected_tag_changed(context.callback(ReactorMessage::NavSelectionChanged))
+            .is_back_button_visible(NavigationViewBackButtonVisible::Collapsed)
+            .on_is_pane_open_changed(context.callback(ReactorMessage::PaneChanged))
+            .on_selected_tag_changed(context.callback(ReactorMessage::NavChanged))
             .slots([
-                SlotView::collection(NavigationViewSlot::MenuItems, nav_items),
-                SlotView::new(NavigationViewSlot::Content, content_area),
+                SlotView::collection(NavigationViewSlot::MenuItems, items),
+                SlotView::new(
+                    NavigationViewSlot::Content,
+                    ScrollViewer::new()
+                        .vertical_scroll_bar_visibility(ScrollBarVisibility::Auto)
+                        .horizontal_scroll_bar_visibility(ScrollBarVisibility::Disabled)
+                        .content(
+                            Border::new()
+                                .padding(Thickness::new(28.0, 24.0, 28.0, 32.0))
+                                .content(
+                                    StackPanel::new()
+                                        .max_width(880.0)
+                                        .horizontal_alignment(HorizontalAlignment::Stretch)
+                                        .spacing(20.0)
+                                        .children((heading, notice, content)),
+                                ),
+                        ),
+                ),
             ]);
-
         Grid::new()
             .rows([GridLength::Auto, GridLength::STAR])
-            .children((title_bar, nav_view))
+            .children((
+                super::components::title_bar::render_title_bar(self, context),
+                nav,
+            ))
     }
 }
-
 impl GearVRReactorApp {
-    fn check_smoke(&self, context: &ComponentContext<Self>) {
-        if self
-            .smoke_deadline
-            .is_some_and(|deadline| std::time::Instant::now() >= deadline)
-        {
-            SMOKE_PASSED.store(self.worker_ready, std::sync::atomic::Ordering::Release);
-            tracing::info!(ready = self.worker_ready, "Native smoke test closing");
-            let _ = context.window().request_close();
-        }
+    pub fn text(&self, text: Text) -> &'static str {
+        text.get(self.ui.language())
     }
-    fn connect_address(&mut self) {
-        let sanitized = self.address_input.replace([':', '-'], "");
-        if let Some(address) = u64::from_str_radix(&sanitized, 16)
-            .ok()
-            .filter(|address| *address > 0 && *address <= 0xFFFF_FFFF_FFFF)
-        {
-            self.send_command(BluetoothCommand::Connect(address));
-        } else {
-            self.status_severity = MessageSeverity::Error;
-            self.status_message = Some("Enter a valid 48-bit Bluetooth address".to_string());
-        }
-    }
-    fn edit_settings(&mut self, update: impl FnOnce(&mut crate::domain::settings::Settings)) {
-        let result = self
-            .settings_service
-            .lock()
-            .map_err(|_| anyhow::anyhow!("Settings lock poisoned"))
-            .and_then(|mut service| {
-                update(service.get_mut());
-                service.save()
-            });
-        if let Err(error) = result {
-            self.status_severity = MessageSeverity::Error;
-            self.status_message = Some(format!("Cannot save settings: {error}"));
-        }
-    }
-    fn send_command(&mut self, command: BluetoothCommand) {
-        if let Some(tx) = &self.bt_cmd_tx {
-            if let Err(error) = tx.try_send(command) {
-                self.status_severity = MessageSeverity::Error;
-                self.status_message = Some(format!("Cannot send command: {error}"));
+    fn send(&mut self, command: BluetoothCommand) -> bool {
+        match self.commands.try_send(command) {
+            Ok(()) => true,
+            Err(error) => {
+                self.ui.error(error.to_string());
+                false
             }
         }
     }
-
-    fn sync_tray(&mut self, context: &ComponentContext<Self>) {
-        if self.enable_background_tray && self.tray.is_none() {
-            match crate::presentation::tray::WindowsTrayManager::new("Gear VR Controller") {
-                Ok(tray) => self.tray = Some(tray),
-                Err(error) => {
-                    self.status_severity = MessageSeverity::Error;
-                    self.status_message = Some(format!("Cannot enable tray: {error}"));
-                    self.enable_background_tray = false;
+    fn connect(&mut self, address: u64) {
+        if self.ui.connection == ConnectionStatus::Connecting {
+            return;
+        }
+        if self.send(BluetoothCommand::Connect(address)) {
+            self.ui.connection = ConnectionStatus::Connecting;
+            self.ui.notice = None;
+            self.ui.address = format!("{address:012X}");
+        }
+    }
+    fn output(&mut self, target: OutputTarget) {
+        if !self.ui.can_output() {
+            return;
+        }
+        if target == OutputTarget::Preview {
+            self.send(BluetoothCommand::PreviewPreferences(
+                self.ui.draft.input.clone(),
+            ));
+        }
+        if self.send(BluetoothCommand::SetOutput(target)) {
+            self.ui.output_pending = true;
+        }
+    }
+    fn preview_preferences(&mut self) {
+        if self.ui.output == OutputTarget::Preview {
+            self.send(BluetoothCommand::PreviewPreferences(
+                self.ui.draft.input.clone(),
+            ));
+        }
+    }
+    fn start_calibration(&mut self, gyro: bool) {
+        if !self.ui.connected() || self.ui.calibration.is_collecting() {
+            return;
+        }
+        let command = if gyro {
+            BluetoothCommand::CalibrateImu
+        } else {
+            BluetoothCommand::StartTouchCalibration
+        };
+        if self.send(command) {
+            self.ui.calibration = crate::domain::calibration::CalibrationStatus::Collecting {
+                kind: if gyro {
+                    crate::domain::calibration::CalibrationKind::Gyroscope
+                } else {
+                    crate::domain::calibration::CalibrationKind::Touchpad
+                },
+                progress: 0.0,
+                ready: false,
+            };
+        }
+    }
+    fn save_preferences(&mut self) {
+        let bindings_changed = self.ui.saved.bindings != self.ui.draft.bindings;
+        let result = self
+            .settings
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Settings lock failed"))
+            .and_then(|mut service| {
+                let mut snapshot = service.get().clone();
+                self.ui.draft.apply(&mut snapshot);
+                service.replace(snapshot)
+            });
+        match result {
+            Ok(()) => {
+                self.ui.saved = self.ui.draft.clone();
+                if bindings_changed {
+                    self.output(OutputTarget::Paused);
                 }
+                self.ui.set_notice(Text::Saved, MessageSeverity::Success);
+            }
+            Err(error) => self.ui.error(error.to_string()),
+        }
+    }
+    fn handle_message(&mut self, message: ReactorMessage, context: &ComponentContext<Self>) {
+        match message {
+            ReactorMessage::Navigate(page) => self.ui.page = page,
+            ReactorMessage::NavChanged(Some(tag)) => {
+                if let Some(page) = Page::from_tag(&tag) {
+                    self.ui.page = page;
+                }
+            }
+            ReactorMessage::PaneChanged(open) => self.pane_open = open,
+            ReactorMessage::TogglePane => self.pane_open = !self.pane_open,
+            ReactorMessage::WindowWidth(width) if width < 760.0 => self.pane_open = false,
+            ReactorMessage::Address(value) => self.ui.address = value,
+            ReactorMessage::ConnectAddress => match parse_address(&self.ui.address) {
+                Some(address) => self.connect(address),
+                None => self
+                    .ui
+                    .set_notice(Text::InvalidAddress, MessageSeverity::Error),
+            },
+            ReactorMessage::ConnectDevice(address) => self.connect(address),
+            ReactorMessage::Disconnect => {
+                self.send(BluetoothCommand::Disconnect);
+            }
+            ReactorMessage::ToggleScan => {
+                if self.ui.scan_pending {
+                    return;
+                }
+                let command = if self.ui.scanning {
+                    BluetoothCommand::StopScan
+                } else {
+                    BluetoothCommand::StartScan
+                };
+                if self.send(command) {
+                    self.ui.scan_pending = true;
+                    self.ui.notice = None;
+                }
+            }
+            ReactorMessage::Mode(Some(index)) => {
+                if let Some(mode) = modes().get(index).filter(|mode| {
+                    **mode != self.ui.mode
+                        && self.ui.connection != ConnectionStatus::Connecting
+                        && !self.ui.calibration.is_collecting()
+                }) {
+                    self.send(BluetoothCommand::ChangeMode(*mode));
+                }
+            }
+            ReactorMessage::SetOutput(target) => self.output(target),
+            ReactorMessage::Number(field, value) => {
+                self.ui.set_number(field, value);
+                self.preview_preferences();
+            }
+            ReactorMessage::Boolean(field, value) => {
+                self.ui.set_bool(field, value);
+                self.preview_preferences();
+            }
+            ReactorMessage::Language(Some(index)) => {
+                if let Some(language) = Language::ALL.get(index) {
+                    self.ui.draft.language = *language;
+                }
+            }
+            ReactorMessage::SavePreferences => self.save_preferences(),
+            ReactorMessage::DiscardPreferences => {
+                self.ui.draft = self.ui.saved.clone();
+                self.preview_preferences();
+            }
+            ReactorMessage::RestoreInput => {
+                self.ui.draft.input = InputPreferences::from(&Default::default());
+                self.preview_preferences();
+            }
+            ReactorMessage::BindingMode(Some(index)) => {
+                if let Some(mode) = modes().get(index) {
+                    self.ui.binding_mode = *mode;
+                }
+            }
+            ReactorMessage::Binding(slot, Some(index)) => self.edit_binding(slot, index),
+            ReactorMessage::RestoreBindings => {
+                *self.ui.draft.bindings.for_mode_mut(self.ui.binding_mode) =
+                    ModeBindings::defaults(self.ui.binding_mode)
+            }
+            ReactorMessage::CalibrateGyro => {
+                self.start_calibration(true);
+            }
+            ReactorMessage::CalibrateTouch => {
+                self.start_calibration(false);
+            }
+            ReactorMessage::SaveCalibration => {
+                self.send(BluetoothCommand::FinishTouchCalibration);
+            }
+            ReactorMessage::CancelCalibration => {
+                self.send(BluetoothCommand::CancelCalibration);
+            }
+            ReactorMessage::ConfirmRecovery => self.ui.recovery_confirm = true,
+            ReactorMessage::CancelRecovery => self.ui.recovery_confirm = false,
+            ReactorMessage::RecoverBluetooth => self.recover(context),
+            ReactorMessage::RecoveryFinished(result) => {
+                self.ui.recovery_running = false;
+                match result {
+                    Ok(_) => self
+                        .ui
+                        .set_notice(Text::RecoveryDone, MessageSeverity::Success),
+                    Err(error) => self.ui.error(error),
+                }
+            }
+            ReactorMessage::OpenBluetooth => self.open_path("ms-settings:bluetooth"),
+            ReactorMessage::OpenLogs => {
+                let path = self
+                    .settings
+                    .lock()
+                    .ok()
+                    .map(|service| service.get().log_settings.log_dir.clone());
+                if let Some(path) = path {
+                    self.open_path(&path);
+                }
+            }
+            ReactorMessage::ExportDiagnostics => self.export_diagnostics(),
+            ReactorMessage::DismissNotice => self.ui.notice = None,
+            _ => {}
+        }
+    }
+    fn edit_binding(&mut self, slot: BindingSlot, index: usize) {
+        if let Some(action) = ButtonAction::ALL.get(index) {
+            let binding = self.ui.draft.bindings.for_mode_mut(self.ui.binding_mode);
+            *match slot {
+                BindingSlot::Trigger => &mut binding.trigger,
+                BindingSlot::Touchpad => &mut binding.touchpad,
+                BindingSlot::Back => &mut binding.back,
+                BindingSlot::Home => &mut binding.home,
+            } = *action;
+        }
+    }
+    fn recover(&mut self, context: &ComponentContext<Self>) {
+        if self.ui.recovery_running || !self.ui.recovery_confirm {
+            return;
+        }
+        self.ui.recovery_running = true;
+        self.ui.recovery_confirm = false;
+        self.send(BluetoothCommand::Disconnect);
+        context.spawn_background(|cancel| {
+            ReactorMessage::RecoveryFinished(
+                crate::admin_client::recover_bluetooth(&cancel).map_err(|error| error.to_string()),
+            )
+        });
+    }
+    fn open_path(&mut self, path: &str) {
+        if let Err(error) = std::process::Command::new("explorer.exe").arg(path).spawn() {
+            self.ui.error(error.to_string());
+        }
+    }
+    fn export_diagnostics(&mut self) {
+        let result = super::diagnostics::export_summary(&self.ui);
+        match result {
+            Ok(path) => {
+                self.ui.diagnostic_details = path.display().to_string();
+                self.ui
+                    .set_notice(Text::ExportDone, MessageSeverity::Success);
+            }
+            Err(error) => self.ui.error(error.to_string()),
+        }
+    }
+    fn poll_platform(&mut self, context: &ComponentContext<Self>) {
+        let tray_enabled = self.ui.saved.tray;
+        if tray_enabled && self.tray.is_none() {
+            match crate::presentation::tray::WindowsTrayManager::new(self.text(Text::AppName)) {
+                Ok(tray) => self.tray = Some(tray),
+                Err(error) => self.ui.error(error.to_string()),
             }
         }
         if let Some(tray) = &mut self.tray {
-            tray.poll(self.enable_background_tray);
-            if tray.exit_requested() {
-                let _ = context.window().request_close();
+            tray.poll(tray_enabled);
+            tray.set_control_state(
+                self.ui.saved.language,
+                self.ui.mode,
+                self.ui.connection,
+                self.ui.output,
+            );
+            if tray.take_pause_requested() {
+                self.output(if self.ui.output != OutputTarget::Paused {
+                    OutputTarget::Paused
+                } else {
+                    OutputTarget::Desktop
+                });
             }
         }
-        if !self.enable_background_tray {
+        if self.tray.as_ref().is_some_and(|tray| tray.exit_requested()) {
+            let _ = context.window().request_close();
+        }
+        if !tray_enabled {
             self.tray = None;
         }
-    }
-    fn handle_app_event(&mut self, event: AppEvent) {
-        match event {
-            AppEvent::WorkerReady => self.worker_ready = true,
-            AppEvent::ModeChanged(mode) => self.current_mode = mode,
-            AppEvent::CalibrationProgress(progress) => {
-                if self.imu_progress.is_some() && progress.is_none() {
-                    self.imu_completed = true;
-                }
-                self.imu_progress = progress;
-            }
-            AppEvent::ScanState(scanning) => self.is_scanning = scanning,
-            AppEvent::ControllerData(data) => {
-                self.latest_data = Some(data);
-            }
-            AppEvent::ConnectionStatus(status) => {
-                self.connection_status = status;
-                if status != ConnectionStatus::Connected {
-                    self.latest_data = None;
-                }
-                if let ConnectionStatus::Connected = status {
-                    self.status_severity = MessageSeverity::Success;
-                    let s = self.language.strings();
-                    self.status_message = Some(s.status_ready.to_string());
-                }
-            }
-            AppEvent::LogMessage(log) => {
-                self.status_severity = log.severity;
-                self.status_message = Some(log.message);
-            }
-            AppEvent::DeviceFound(device) => {
-                if let Some(existing) = self
-                    .scanned_devices
-                    .iter_mut()
-                    .find(|d| d.address == device.address)
-                {
-                    existing.signal_strength = device.signal_strength;
-                } else {
-                    self.scanned_devices.push(device);
-                }
-            }
+        if self
+            .smoke_deadline
+            .is_some_and(|deadline| Instant::now() >= deadline)
+        {
+            SMOKE_PASSED.store(self.ui.worker_ready, std::sync::atomic::Ordering::Release);
+            let _ = context.window().request_close();
         }
     }
-
-    fn create_nav_items(selected_tab: usize, s: &I18nStrings) -> [KeyedView; 4] {
-        [
-            KeyedView::new(
-                "0",
-                NavigationViewItem::new()
-                    .tag("0")
-                    .is_selected(selected_tab == 0)
-                    .slots([
-                        SlotView::new(
-                            NavigationViewItemSlot::Icon,
-                            SymbolIcon::new().symbol(Symbol::Home),
-                        ),
-                        SlotView::new(
-                            NavigationViewItemSlot::Content,
-                            TextBlock::new().text(s.nav_dashboard),
-                        ),
-                    ]),
-            ),
-            KeyedView::new(
-                "1",
-                NavigationViewItem::new()
-                    .tag("1")
-                    .is_selected(selected_tab == 1)
-                    .slots([
-                        SlotView::new(
-                            NavigationViewItemSlot::Icon,
-                            SymbolIcon::new().symbol(Symbol::Orientation),
-                        ),
-                        SlotView::new(
-                            NavigationViewItemSlot::Content,
-                            TextBlock::new().text(s.nav_calibration),
-                        ),
-                    ]),
-            ),
-            KeyedView::new(
-                "2",
-                NavigationViewItem::new()
-                    .tag("2")
-                    .is_selected(selected_tab == 2)
-                    .slots([
-                        SlotView::new(
-                            NavigationViewItemSlot::Icon,
-                            SymbolIcon::new().symbol(Symbol::Setting),
-                        ),
-                        SlotView::new(
-                            NavigationViewItemSlot::Content,
-                            TextBlock::new().text(s.nav_settings),
-                        ),
-                    ]),
-            ),
-            KeyedView::new(
-                "3",
-                NavigationViewItem::new()
-                    .tag("3")
-                    .is_selected(selected_tab == 3)
-                    .slots([
-                        SlotView::new(
-                            NavigationViewItemSlot::Icon,
-                            SymbolIcon::new().symbol(Symbol::View),
-                        ),
-                        SlotView::new(
-                            NavigationViewItemSlot::Content,
-                            TextBlock::new().text(s.nav_diagnostics),
-                        ),
-                    ]),
-            ),
-        ]
-    }
-
-    fn spawn_event_listener(
-        context: &ComponentContext<Self>,
-        rx: Arc<Mutex<mpsc::Receiver<AppEvent>>>,
-    ) {
+    fn listen(context: &ComponentContext<Self>, events: Arc<Mutex<mpsc::Receiver<AppEvent>>>) {
         context.spawn_background(move |cancel| {
             for _ in 0..5 {
                 if cancel.is_cancelled() {
                     return ReactorMessage::Noop;
                 }
-                std::thread::sleep(std::time::Duration::from_millis(20));
+                std::thread::sleep(Duration::from_millis(20));
             }
-            let mut events = Vec::new();
-            if let Ok(mut receiver) = rx.lock() {
+            let mut batch = vec![];
+            if let Ok(mut receiver) = events.lock() {
                 while let Ok(event) = receiver.try_recv() {
-                    events.push(event);
+                    batch.push(event);
                 }
             }
-            ReactorMessage::FromAppEvents(events)
+            ReactorMessage::Events(batch)
         });
     }
 }
-
-/// Entrypoint to launch the WinUI 3 Native UI
+pub fn modes() -> [ControlMode; 3] {
+    [
+        ControlMode::Mouse,
+        ControlMode::Touchpad,
+        ControlMode::Presentation,
+    ]
+}
 pub fn run_reactor_app() -> anyhow::Result<()> {
-    let logs = if std::env::args().any(|arg| arg == "--smoke-test") {
+    let smoke = std::env::args().any(|arg| arg == "--smoke-test");
+    let preview = std::env::args().any(|arg| arg == "--preview-ui");
+    let logs = if smoke || preview {
         crate::domain::settings::LogSettings {
             log_dir: std::env::temp_dir()
                 .join("GearVRController-smoke/logs")
@@ -586,12 +565,12 @@ pub fn run_reactor_app() -> anyhow::Result<()> {
         }
     } else {
         SettingsService::new()
-            .map(|svc| svc.get().log_settings.clone())
+            .map(|service| service.get().log_settings.clone())
             .unwrap_or_default()
     };
     let _logging = crate::infrastructure::logging::init_logger(&logs)?;
     App::run_component::<GearVRReactorApp>(())?;
-    if std::env::args().any(|arg| arg == "--smoke-test") {
+    if smoke {
         anyhow::ensure!(
             SMOKE_PASSED.load(std::sync::atomic::Ordering::Acquire),
             "Native smoke test did not initialize its worker"

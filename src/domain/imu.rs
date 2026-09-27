@@ -2,8 +2,10 @@
 //!
 //! Processes gyroscope and accelerometer data for air-mouse style control.
 
+use super::{calibration::CalibrationFailure, motion::PixelAccumulator};
 use crate::domain::{models::ControllerData, settings::Settings};
 use std::collections::VecDeque;
+use std::time::Duration;
 
 /// IMU Processor for air-mouse and motion-based control
 pub struct ImuProcessor {
@@ -22,6 +24,8 @@ pub struct ImuProcessor {
     calibration_samples: Vec<(f32, f32, f32)>,
     is_calibrating: bool,
     calibration_target: usize,
+    calibration_failure: Option<CalibrationFailure>,
+    pixels: PixelAccumulator,
 }
 
 impl Default for ImuProcessor {
@@ -43,6 +47,8 @@ impl ImuProcessor {
             calibration_samples: Vec::new(),
             is_calibrating: false,
             calibration_target: 50, // 50 samples for calibration
+            calibration_failure: None,
+            pixels: PixelAccumulator::default(),
         }
     }
 
@@ -50,6 +56,7 @@ impl ImuProcessor {
     pub fn start_calibration(&mut self) {
         self.calibration_samples.clear();
         self.is_calibrating = true;
+        self.calibration_failure = None;
         tracing::info!("IMU Calibration started - keep controller still");
     }
 
@@ -62,6 +69,10 @@ impl ImuProcessor {
         self.calibration_samples.clear();
     }
 
+    pub fn calibration_failure(&self) -> Option<CalibrationFailure> {
+        self.calibration_failure
+    }
+
     /// Get calibration progress (0.0 to 1.0)
     pub fn calibration_progress(&self) -> f32 {
         self.calibration_samples.len() as f32 / self.calibration_target as f32
@@ -72,6 +83,7 @@ impl ImuProcessor {
         &mut self,
         data: &ControllerData,
         settings: &Settings,
+        elapsed: Duration,
     ) -> Option<(i32, i32)> {
         // Handle calibration
         if self.is_calibrating {
@@ -131,13 +143,13 @@ impl ImuProcessor {
         }
 
         // Scale factor for converting gyro units to pixels
-        let scale = 50.0 * settings.mouse_sensitivity as f32;
+        // Preserve the legacy scale at 60 Hz, then integrate by elapsed time.
+        // Bound gaps so a stalled packet cannot produce a cursor jump.
+        let scale = 3000.0 * settings.air_sensitivity() * elapsed.as_secs_f64().min(0.05);
 
         // Map gyro axes to mouse axes
-        let mouse_dx = (dx * scale) as i32;
-        let mouse_dy = (dy * scale) as i32;
-
-        Some((mouse_dx, mouse_dy))
+        self.pixels
+            .add(f64::from(dx) * scale, f64::from(dy) * scale)
     }
 
     /// Process IMU for tilt-based scrolling
@@ -177,6 +189,7 @@ impl ImuProcessor {
         self.gyro_buffer_y.clear();
         self.gyro_sum_x = 0.0;
         self.gyro_sum_y = 0.0;
+        self.pixels.reset();
         tracing::info!("IMU filter state reset");
     }
 
@@ -191,19 +204,29 @@ impl ImuProcessor {
         let sum_x: f32 = self.calibration_samples.iter().map(|(x, _, _)| x).sum();
         let sum_y: f32 = self.calibration_samples.iter().map(|(_, y, _)| y).sum();
         let sum_z: f32 = self.calibration_samples.iter().map(|(_, _, z)| z).sum();
-
-        self.gyro_offset_x = sum_x / count;
-        self.gyro_offset_y = sum_y / count;
-        self.gyro_offset_z = sum_z / count;
+        let mean = (sum_x / count, sum_y / count, sum_z / count);
+        // Reject rotation and inconsistent samples; retain the previous valid offsets.
+        let moving = [mean.0, mean.1, mean.2]
+            .iter()
+            .any(|v| !v.is_finite() || v.abs() > 0.35)
+            || self.calibration_samples.iter().any(|(x, y, z)| {
+                (x - mean.0).abs() > 0.1 || (y - mean.1).abs() > 0.1 || (z - mean.2).abs() > 0.1
+            });
+        if moving {
+            self.calibration_failure = Some(CalibrationFailure::Movement);
+        } else {
+            self.gyro_offset_x = mean.0;
+            self.gyro_offset_y = mean.1;
+            self.gyro_offset_z = mean.2;
+        }
 
         self.is_calibrating = false;
         self.calibration_samples.clear();
 
-        tracing::info!(
-            "IMU Calibration complete. Offsets: ({:.4}, {:.4}, {:.4})",
-            self.gyro_offset_x,
-            self.gyro_offset_y,
-            self.gyro_offset_z
-        );
+        if moving {
+            tracing::warn!("Gyroscope calibration rejected: controller moved");
+        } else {
+            tracing::info!("Gyroscope calibration complete");
+        }
     }
 }

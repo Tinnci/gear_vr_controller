@@ -31,9 +31,9 @@ impl FluentTokens {
 
     // Typography Sizes
     pub const FONT_CAPTION: f64 = 12.0;
-    pub const FONT_BODY: f64 = 13.0;
-    pub const FONT_SUBTITLE: f64 = 14.0;
-    pub const FONT_TITLE: f64 = 15.0;
+    pub const FONT_BODY: f64 = 14.0;
+    pub const FONT_SUBTITLE: f64 = 16.0;
+    pub const FONT_TITLE: f64 = 18.0;
 
     // Paddings
     pub fn card_padding() -> Thickness {

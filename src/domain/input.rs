@@ -1,5 +1,7 @@
 //! Pure input mapping; OS injection is performed by the application worker.
 use super::{
+    bindings::ButtonAction,
+    calibration::{CalibrationKind, CalibrationStatus, TouchCalibration},
     controller::TouchpadProcessor,
     gestures::{GestureDirection, GestureRecognizer},
     imu::ImuProcessor,
@@ -29,7 +31,9 @@ pub struct InputMapper {
     back_started: Option<Instant>,
     scroll_y: Option<f64>,
     scroll_remainder: f64,
-    touch_calibration: Option<Vec<(u16, u16)>>,
+    touch_calibration: Option<TouchCalibration>,
+    calibration: CalibrationStatus,
+    last_sample: Option<Instant>,
 }
 
 impl Default for InputMapper {
@@ -46,6 +50,8 @@ impl Default for InputMapper {
             scroll_y: None,
             scroll_remainder: 0.0,
             touch_calibration: None,
+            calibration: CalibrationStatus::Idle,
+            last_sample: None,
         }
     }
 }
@@ -60,6 +66,10 @@ impl InputMapper {
         self.left_held = false;
         self.buttons_suspended = true;
         self.touch_calibration = None;
+        if self.calibration.is_collecting() {
+            self.calibration = CalibrationStatus::Cancelled;
+        }
+        self.last_sample = None;
         self.imu.cancel_calibration();
         self.previous = ControllerData::default();
         self.back_started = None;
@@ -80,6 +90,11 @@ impl InputMapper {
     pub fn start_imu_calibration(&mut self) -> Vec<InputAction> {
         let actions = self.reset();
         self.imu.start_calibration();
+        self.calibration = CalibrationStatus::Collecting {
+            kind: CalibrationKind::Gyroscope,
+            progress: 0.0,
+            ready: false,
+        };
         actions
     }
 
@@ -91,37 +106,47 @@ impl InputMapper {
 
     pub fn start_touch_calibration(&mut self) -> Vec<InputAction> {
         let actions = self.reset();
-        self.touch_calibration = Some(Vec::new());
+        self.touch_calibration = Some(TouchCalibration::default());
+        self.calibration = CalibrationStatus::Collecting {
+            kind: CalibrationKind::Touchpad,
+            progress: 0.0,
+            ready: false,
+        };
         actions
+    }
+
+    pub fn calibration_status(&self) -> &CalibrationStatus {
+        &self.calibration
+    }
+
+    pub fn touch_calibration_result(&self) -> anyhow::Result<super::models::TouchpadCalibration> {
+        self.touch_calibration
+            .as_ref()
+            .and_then(TouchCalibration::result)
+            .ok_or_else(|| anyhow::anyhow!("Trace the touchpad edge before saving"))
     }
 
     pub fn finish_touch_calibration(
         &mut self,
     ) -> anyhow::Result<super::models::TouchpadCalibration> {
-        let samples = self
-            .touch_calibration
-            .take()
-            .ok_or_else(|| anyhow::anyhow!("Touchpad calibration has not started"))?;
-        anyhow::ensure!(
-            samples.len() >= 20,
-            "Collect at least 20 touch samples around the pad before saving"
-        );
-        let min_x = samples.iter().map(|s| s.0).min().unwrap_or(0);
-        let max_x = samples.iter().map(|s| s.0).max().unwrap_or(0);
-        let min_y = samples.iter().map(|s| s.1).min().unwrap_or(0);
-        let max_y = samples.iter().map(|s| s.1).max().unwrap_or(0);
-        anyhow::ensure!(
-            max_x.saturating_sub(min_x) >= 100 && max_y.saturating_sub(min_y) >= 100,
-            "Move around the full touchpad before saving"
-        );
-        Ok(super::models::TouchpadCalibration {
-            min_x,
-            max_x,
-            min_y,
-            max_y,
-            center_x: min_x + (max_x - min_x) / 2,
-            center_y: min_y + (max_y - min_y) / 2,
-        })
+        let result = self.touch_calibration_result()?;
+        self.touch_calibration = None;
+        self.calibration = CalibrationStatus::Complete(CalibrationKind::Touchpad);
+        Ok(result)
+    }
+
+    pub fn cancel_calibration(&mut self) {
+        self.touch_calibration = None;
+        self.imu.cancel_calibration();
+        self.calibration = CalibrationStatus::Cancelled;
+        self.last_sample = None;
+    }
+
+    pub fn fail_calibration(&mut self, reason: super::calibration::CalibrationFailure) {
+        if let CalibrationStatus::Collecting { kind, .. } = self.calibration {
+            self.cancel_calibration();
+            self.calibration = CalibrationStatus::Failed { kind, reason };
+        }
     }
 
     pub fn process(
@@ -130,16 +155,40 @@ impl InputMapper {
         settings: &Settings,
         now: Instant,
     ) -> Vec<InputAction> {
+        let elapsed = self
+            .last_sample
+            .map(|last| now.saturating_duration_since(last))
+            .unwrap_or(Duration::ZERO);
+        self.last_sample = Some(now);
         self.touchpad.process(data, &settings.touchpad_calibration);
         if let Some(samples) = self.touch_calibration.as_mut() {
-            if data.touchpad_touched && samples.len() < 10_000 {
-                samples.push((data.touchpad_x, data.touchpad_y));
+            if data.touchpad_touched {
+                samples.collect(data.touchpad_x, data.touchpad_y);
             }
+            self.calibration = CalibrationStatus::Collecting {
+                kind: CalibrationKind::Touchpad,
+                progress: samples.progress(),
+                ready: samples.result().is_some(),
+            };
             self.previous = data.clone();
             return vec![];
         }
         if self.imu.is_calibrating() {
-            self.imu.calculate_airmouse_delta(data, settings);
+            self.imu.calculate_airmouse_delta(data, settings, elapsed);
+            self.calibration = if self.imu.is_calibrating() {
+                CalibrationStatus::Collecting {
+                    kind: CalibrationKind::Gyroscope,
+                    progress: self.imu.calibration_progress(),
+                    ready: false,
+                }
+            } else if let Some(reason) = self.imu.calibration_failure() {
+                CalibrationStatus::Failed {
+                    kind: CalibrationKind::Gyroscope,
+                    reason,
+                }
+            } else {
+                CalibrationStatus::Complete(CalibrationKind::Gyroscope)
+            };
             self.previous = data.clone();
             return vec![];
         }
@@ -148,15 +197,18 @@ impl InputMapper {
         if !data.back_button {
             match self.mode {
                 ControlMode::Mouse => {
-                    if let Some((x, y)) = self.imu.calculate_airmouse_delta(data, settings) {
+                    if let Some((x, y)) = self.imu.calculate_airmouse_delta(data, settings, elapsed)
+                    {
                         actions.push(InputAction::Move(x, y));
                     }
                     if settings.enable_touchpad {
-                        self.map_scroll(data, &mut actions);
+                        self.map_scroll(data, settings.natural_scroll, &mut actions);
                     }
                 }
                 ControlMode::Touchpad if settings.enable_touchpad => {
-                    if let Some((x, y)) = self.touchpad.calculate_mouse_delta(data, settings) {
+                    if let Some((x, y)) =
+                        self.touchpad.calculate_mouse_delta(data, settings, elapsed)
+                    {
                         actions.push(InputAction::Move(x, y));
                     }
                 }
@@ -207,18 +259,27 @@ impl InputMapper {
                 || data.volume_down_button;
             return;
         }
-        if self.mode == ControlMode::Presentation {
-            if data.trigger_button && !self.previous.trigger_button {
-                actions.push(InputAction::Key(0x22));
-            }
-            if data.touchpad_button && !self.previous.touchpad_button {
-                actions.push(InputAction::Key(0xB3));
-            }
-        } else {
-            let held = data.trigger_button || data.touchpad_button;
-            if held != self.left_held {
-                actions.push(InputAction::Left(held));
-                self.left_held = held;
+        let bindings = settings.button_bindings.for_mode(self.mode);
+        let held = (data.trigger_button && bindings.trigger == ButtonAction::LeftClick)
+            || (data.touchpad_button && bindings.touchpad == ButtonAction::LeftClick);
+        if held != self.left_held {
+            actions.push(InputAction::Left(held));
+            self.left_held = held;
+        }
+        for (pressed, previous, binding) in [
+            (
+                data.trigger_button,
+                self.previous.trigger_button,
+                bindings.trigger,
+            ),
+            (
+                data.touchpad_button,
+                self.previous.touchpad_button,
+                bindings.touchpad,
+            ),
+        ] {
+            if pressed && !previous && binding != ButtonAction::LeftClick {
+                map_action(binding, actions);
             }
         }
         if data.back_button && !self.previous.back_button {
@@ -243,19 +304,18 @@ impl InputMapper {
                         }
                     };
                     actions.extend(self.set_mode(mode));
-                } else if self.mode == ControlMode::Presentation {
-                    actions.push(InputAction::Key(0x21));
                 } else {
-                    actions.push(InputAction::RightClick);
+                    if bindings.back != ButtonAction::LeftClick || !self.left_held {
+                        map_action(bindings.back, actions);
+                    }
                 }
             }
         }
-        if data.home_button && !self.previous.home_button {
-            match self.mode {
-                ControlMode::Mouse => actions.push(InputAction::Key(0x5B)),
-                ControlMode::Touchpad => actions.push(InputAction::ShowDesktop),
-                _ => {}
-            }
+        if data.home_button
+            && !self.previous.home_button
+            && (bindings.home != ButtonAction::LeftClick || !self.left_held)
+        {
+            map_action(bindings.home, actions);
         }
         for (pressed, previous, volume_key, scroll) in [
             (
@@ -273,7 +333,11 @@ impl InputMapper {
         ] {
             if pressed && !previous {
                 actions.push(if self.mode == ControlMode::Touchpad {
-                    InputAction::Scroll(scroll)
+                    InputAction::Scroll(if settings.natural_scroll {
+                        -scroll
+                    } else {
+                        scroll
+                    })
                 } else {
                     InputAction::Key(volume_key)
                 });
@@ -281,14 +345,15 @@ impl InputMapper {
         }
     }
 
-    fn map_scroll(&mut self, data: &ControllerData, actions: &mut Vec<InputAction>) {
+    fn map_scroll(&mut self, data: &ControllerData, natural: bool, actions: &mut Vec<InputAction>) {
         if !data.touchpad_touched {
             self.scroll_y = None;
             self.scroll_remainder = 0.0;
             return;
         }
         if let Some(y) = self.scroll_y {
-            self.scroll_remainder += (y - data.processed_touchpad_y) * 8.0;
+            let direction = if natural { -1.0 } else { 1.0 };
+            self.scroll_remainder += (y - data.processed_touchpad_y) * 8.0 * direction;
         }
         self.scroll_y = Some(data.processed_touchpad_y);
         let steps = self.scroll_remainder.trunc() as i32;
@@ -299,9 +364,111 @@ impl InputMapper {
     }
 }
 
+fn map_action(action: ButtonAction, actions: &mut Vec<InputAction>) {
+    match action {
+        ButtonAction::LeftClick => {
+            actions.extend([InputAction::Left(true), InputAction::Left(false)])
+        }
+        ButtonAction::RightClick => actions.push(InputAction::RightClick),
+        ButtonAction::StartMenu => actions.push(InputAction::Key(0x5B)),
+        ButtonAction::ShowDesktop => actions.push(InputAction::ShowDesktop),
+        ButtonAction::PreviousPage => actions.push(InputAction::Key(0x21)),
+        ButtonAction::NextPage => actions.push(InputAction::Key(0x22)),
+        ButtonAction::PlayPause => actions.push(InputAction::Key(0xB3)),
+        ButtonAction::Disabled => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn air_mouse_distance_does_not_depend_on_packet_rate() {
+        fn distance(rate: u32) -> i32 {
+            let now = Instant::now();
+            let mut mapper = InputMapper::default();
+            let settings = Settings {
+                mouse_sensitivity: 1.0,
+                dead_zone: 0.0,
+                enable_smoothing: false,
+                ..Default::default()
+            };
+            let mut data = ControllerData {
+                gyro_x: 1.0,
+                ..Default::default()
+            };
+            mapper.process(&mut data, &settings, now);
+            let mut total = 0;
+            for index in 1..=rate {
+                for action in mapper.process(
+                    &mut data,
+                    &settings,
+                    now + Duration::from_secs_f64(f64::from(index) / f64::from(rate)),
+                ) {
+                    if let InputAction::Move(x, _) = action {
+                        total += x;
+                    }
+                }
+            }
+            total
+        }
+        assert!((distance(50) - distance(100)).abs() <= 1);
+        assert!((distance(50) - 3000).abs() <= 1);
+    }
+    #[test]
+    fn moving_calibration_fails_and_stays_failed_after_pause() {
+        let mut mapper = InputMapper::default();
+        mapper.start_imu_calibration();
+        let mut data = ControllerData {
+            gyro_x: 1.0,
+            ..Default::default()
+        };
+        for _ in 0..50 {
+            mapper.process(&mut data, &Settings::default(), Instant::now());
+        }
+        assert!(matches!(
+            mapper.calibration_status(),
+            CalibrationStatus::Failed { .. }
+        ));
+        mapper.reset();
+        assert!(matches!(
+            mapper.calibration_status(),
+            CalibrationStatus::Failed { .. }
+        ));
+    }
+    #[test]
+    fn incomplete_touch_save_keeps_capturing_and_custom_button_actions_work() -> anyhow::Result<()>
+    {
+        let now = Instant::now();
+        let mut mapper = InputMapper::default();
+        mapper.start_touch_calibration();
+        assert!(mapper.finish_touch_calibration().is_err());
+        for index in 0..20 {
+            let mut data = ControllerData {
+                touchpad_touched: true,
+                touchpad_x: index * 10,
+                touchpad_y: index * 10,
+                ..Default::default()
+            };
+            mapper.process(&mut data, &Settings::default(), now);
+        }
+        mapper.finish_touch_calibration()?;
+        let mut settings = Settings::default();
+        settings.button_bindings.mouse.trigger = ButtonAction::PlayPause;
+        mapper.process(&mut ControllerData::default(), &settings, now);
+        assert_eq!(
+            mapper.process(
+                &mut ControllerData {
+                    trigger_button: true,
+                    ..Default::default()
+                },
+                &settings,
+                now
+            ),
+            vec![InputAction::Key(0xB3)]
+        );
+        Ok(())
+    }
     #[test]
     fn trigger_edges_hold_and_release_on_disconnect() {
         let mut mapper = InputMapper::default();
@@ -372,7 +539,7 @@ mod tests {
         let mut mapper = InputMapper::default();
         mapper.start_imu_calibration();
         let mut data = ControllerData {
-            gyro_x: 2.0,
+            gyro_x: 0.02,
             trigger_button: true,
             ..Default::default()
         };

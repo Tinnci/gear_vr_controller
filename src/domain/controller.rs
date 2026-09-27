@@ -1,6 +1,8 @@
+use super::motion::PixelAccumulator;
 use crate::domain::models::{ControllerData, TouchpadCalibration};
 use crate::domain::settings::Settings;
 use std::collections::VecDeque;
+use std::time::Duration;
 
 pub struct TouchpadProcessor {
     pub last_processed_pos: Option<(f64, f64)>,
@@ -8,6 +10,7 @@ pub struct TouchpadProcessor {
     delta_buffer_y: VecDeque<f64>,
     delta_sum_x: f64,
     delta_sum_y: f64,
+    pixels: PixelAccumulator,
 }
 
 impl Default for TouchpadProcessor {
@@ -24,6 +27,7 @@ impl TouchpadProcessor {
             delta_buffer_y: VecDeque::new(),
             delta_sum_x: 0.0,
             delta_sum_y: 0.0,
+            pixels: PixelAccumulator::default(),
         }
     }
 
@@ -36,6 +40,7 @@ impl TouchpadProcessor {
             self.delta_buffer_y.clear();
             self.delta_sum_x = 0.0;
             self.delta_sum_y = 0.0;
+            self.pixels.reset();
         }
 
         // Normalize touchpad coordinates to [-1, 1] range
@@ -62,6 +67,7 @@ impl TouchpadProcessor {
         &mut self,
         data: &ControllerData,
         settings: &Settings,
+        elapsed: Duration,
     ) -> Option<(i32, i32)> {
         if !data.touchpad_touched {
             return None;
@@ -73,7 +79,7 @@ impl TouchpadProcessor {
         let mut total_dx = 0.0;
         let mut total_dy = 0.0;
 
-        let sensitivity = settings.mouse_sensitivity;
+        let sensitivity = settings.touch_sensitivity();
 
         // 1. RELATIVE MOVEMENT (Trackpad Mode)
         if let Some((last_x, last_y)) = self.last_processed_pos {
@@ -147,19 +153,16 @@ impl TouchpadProcessor {
         let joy_threshold = 0.6;
         let joy_speed = 5.0; // Base speed for continuous movement
 
-        if current_x.abs() > joy_threshold {
+        let joy_speed = joy_speed * 60.0 * elapsed.as_secs_f64().min(0.05);
+        if settings.touchpad_edge_motion && current_x.abs() > joy_threshold {
             total_dx +=
                 current_x.signum() * (current_x.abs() - joy_threshold) * joy_speed * sensitivity;
         }
-        if current_y.abs() > joy_threshold {
+        if settings.touchpad_edge_motion && current_y.abs() > joy_threshold {
             total_dy +=
                 current_y.signum() * (current_y.abs() - joy_threshold) * joy_speed * sensitivity;
         }
 
-        if total_dx.abs() < 0.1 && total_dy.abs() < 0.1 {
-            return None;
-        }
-
-        Some((total_dx as i32, total_dy as i32))
+        self.pixels.add(total_dx, total_dy)
     }
 }

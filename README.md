@@ -12,10 +12,12 @@ The interface uses native WinUI 3 through Windows Reactor.
   Verify its SHA-256 against the accompanying `.sha256` file, extract the complete
   folder, and run `gear_vr_controller_rust.exe`.
 - Keep all bundled DLLs, resource files and language directories beside the EXE.
+  Keep `app-icon.ico` beside the EXE for the window icon.
   The EXE alone is not a portable distribution.
 
-Put the controller into pairing mode, scan in the dashboard, select its address,
-and connect. Windows may prompt for pairing. Input is sent at the normal user's
+Put the controller into pairing mode. Search on the Control page and select
+Connect beside its name. Windows may prompt for pairing. After connecting, select
+Start control. Connections and reconnections start with input paused. Input is sent at the normal user's
 integrity level; Windows can reject injection into elevated applications.
 
 ## Controls
@@ -32,10 +34,23 @@ the left region for Touchpad, or the right region for Presenter while releasing
 Back. The dashboard reflects the selected mode. Cursor motion pauses while Back
 is held. No graphical radial overlay is implemented.
 
+The Tune and calibrate page has separate air-mouse and touchpad speeds. Adjust
+the controls, then select Save changes or Discard changes. Test input uses the
+draft tuning values and shows motion, clicks and scrolling inside the app; it
+does not send those actions to Windows. End the test before resuming desktop
+control. Edge motion is off by default. Natural scrolling is optional.
+
+Settings lets you assign each mode's trigger, touchpad press, short Back and Home
+actions. Long Back still switches modes. Saving changed bindings pauses input
+and releases any left mouse button pressed by the app. Release all controller
+buttons before resuming. Language changes preview immediately and save explicitly.
+
 Calibration is explicit: keep the controller still and start gyroscope
-calibration to collect 50 samples. For touch calibration, start capture, move
+calibration to collect 50 samples. Movement rejects the capture and preserves
+the previous offsets. The capture expires after 10 seconds. For touch calibration, start capture, move
 around the full edge of the pad, then save; at least 20 samples and sufficient
-travel on both axes are required. Touch calibration persists; gyroscope offsets
+travel on both axes are required. You can cancel either capture. Touch capture
+expires after 60 seconds. Touch calibration persists; gyroscope offsets
 apply to the current process session.
 
 Automatic profiles recognize PowerPoint, WPS (`wps.exe`), Acrobat, VLC,
@@ -44,8 +59,19 @@ display/system sleep while connected. With the tray option enabled, minimizing
 hides the window; click its tray icon to restore it or use its menu to exit.
 Closing the window exits normally.
 
+Optional startup connection and automatic reconnect are disabled by default.
+Automatic reconnect makes at most three attempts, with a two-second delay
+between attempts. Disconnect cancels retries. A manual mode choice takes
+priority over automatic profiles for the current connection. The tray menu
+provides pause/resume, open and exit actions.
+
+The Help and diagnostics page provides troubleshooting steps and a local JSON
+summary export. The summary excludes device addresses, raw input and log text.
+Review any other log files before sharing them. Advanced details remain local.
+
 The diagnostics view can restart the Bluetooth service using a one-shot UAC
-helper. This interrupts Bluetooth service availability. Cancelling UAC is shown
+helper. The app explains the impact and asks you to confirm before opening UAC.
+This interrupts Bluetooth service availability. Cancelling UAC is shown
 as an error; normal controller use does not require administrator privileges.
 The helper does not accept arbitrary device-removal commands.
 
@@ -70,6 +96,11 @@ Input processing runs separately from UI updates. Telemetry is limited to about
 input stream or queue overflow disconnects and releases held mouse buttons.
 After a disconnect or mode change, release all controller buttons before using
 them again; a carried-over hold cannot trigger an unintended action in the new mode.
+
+For UI review without changing your preferences, run the executable with
+`--preview-ui`. This uses in-memory defaults and temporary logs. It does not
+simulate a controller. `debug_show_all_devices` is a JSON-only diagnostic option;
+leave it false to filter searches to Gear VR advertisements.
 
 ## Building and checking
 

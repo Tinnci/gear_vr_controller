@@ -17,6 +17,7 @@ try {
     if (Test-Path -LiteralPath $packageDir) { Remove-Item -LiteralPath $packageDir -Recurse -Force }
     $null = New-Item -ItemType Directory -Path $packageDir -Force
     Copy-Item -LiteralPath (Join-Path $release 'gear_vr_controller_rust.exe') -Destination $packageDir
+    Copy-Item -LiteralPath (Join-Path $repo 'assets/app-icon.ico') -Destination $packageDir
     $runtimeRoot = Join-Path $env:LOCALAPPDATA 'windows-reactor-setup/temp/Microsoft.WindowsAppSDK.Runtime-2.4.0/.msix_extract'
     foreach ($name in (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'runtime-files.txt') | Where-Object { $_.Trim() })) {
         $source = Join-Path $runtimeRoot $name

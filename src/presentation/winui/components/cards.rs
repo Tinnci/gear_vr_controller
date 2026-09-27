@@ -24,6 +24,7 @@ pub fn render_card(title: &str, description: &str, content: View) -> View {
                                 .font_weight(FontWeight::SEMI_BOLD),
                             TextBlock::new()
                                 .text(description)
+                                .text_wrapping(TextWrapping::Wrap)
                                 .font_size(FluentTokens::FONT_CAPTION)
                                 .foreground(ThemeBrush::PrimaryText),
                         )),
@@ -57,7 +58,7 @@ pub fn render_toggle_card(title: &str, description: &str, toggle: ToggleSwitch) 
                                 .font_size(FluentTokens::FONT_CAPTION)
                                 .foreground(ThemeBrush::PrimaryText),
                         )),
-                    toggle.grid_column(1),
+                    toggle.automation_name(title).grid_column(1),
                 )),
         )
 }

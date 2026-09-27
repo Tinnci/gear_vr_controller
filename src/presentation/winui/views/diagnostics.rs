@@ -1,63 +1,117 @@
-//! Diagnostics Tab View: Raw sensor vector feed and Bluetooth recovery InfoBar
-
-use crate::domain::i18n::I18nStrings;
-use crate::presentation::winui::app::{GearVRReactorApp, ReactorMessage};
-use crate::presentation::winui::components::cards::render_card;
-use crate::presentation::winui::components::formatters::format_imu_diagnostics;
-use crate::presentation::winui::tokens::FluentTokens;
+//! Recovery is progressive. Sensor vectors and native errors live in details.
+use super::super::{
+    app::{GearVRReactorApp, ReactorMessage},
+    components::controls::{button, paragraph, section},
+    text::Text,
+};
 use windows_reactor::*;
 
 pub fn render_diagnostics_view(
     app: &GearVRReactorApp,
     context: &mut ViewContext<GearVRReactorApp>,
-    s: &I18nStrings,
 ) -> View {
-    let (accel, gyro, mag) = format_imu_diagnostics(app.latest_data.as_ref());
-
-    let imu_card = render_card(
-        s.imu_diag_title,
-        s.imu_diag_desc,
-        StackPanel::new()
-            .spacing(FluentTokens::SPACING_SM)
-            .children((
-                TextBlock::new()
-                    .text(accel)
-                    .font_size(FluentTokens::FONT_BODY),
-                TextBlock::new()
-                    .text(gyro)
-                    .font_size(FluentTokens::FONT_BODY),
-                TextBlock::new()
-                    .text(mag)
-                    .font_size(FluentTokens::FONT_BODY),
+    let details = Expander::new().slots([
+        SlotView::new(ExpanderSlot::Header, paragraph(app.text(Text::Details))),
+        SlotView::new(
+            ExpanderSlot::Content,
+            StackPanel::new().spacing(14.0).children((
+                paragraph(if app.ui.diagnostic_details.is_empty() {
+                    app.text(Text::NoDetails)
+                } else {
+                    &app.ui.diagnostic_details
+                }),
+                sensors(app),
+                button(app, context, Text::OpenLogs, ReactorMessage::OpenLogs),
             )),
-    );
-
-    let bt_infobar = InfoBar::new()
-        .is_open(true)
-        .is_closable(false)
-        .severity(InfoBarSeverity::Warning)
-        .title(s.bt_recovery_title)
-        .message(s.bt_troubleshoot_hint);
-
-    let bt_recovery_card = render_card(
-        s.bt_recovery_title,
-        s.bt_recovery_desc,
-        StackPanel::new()
-            .spacing(FluentTokens::SPACING_XL)
-            .children((
-                bt_infobar,
-                Button::new()
-                    .style(ButtonStyle::Default)
-                    .on_click(context.message(ReactorMessage::OpenBtSettings))
-                    .content(s.open_bt_settings),
-                Button::new()
-                    .is_enabled(!app.recovery_running)
-                    .on_click(context.message(ReactorMessage::RecoverBluetooth))
-                    .content(app.language.action_text("recover")),
+        ),
+    ]);
+    StackPanel::new().spacing(20.0).children((
+        paragraph(app.text(Text::HelpHint)),
+        section(
+            app,
+            Text::Connect,
+            Text::PairingHelp,
+            StackPanel::new().spacing(8.0).children((
+                button(
+                    app,
+                    context,
+                    Text::BluetoothSettings,
+                    ReactorMessage::OpenBluetooth,
+                ),
+                button(
+                    app,
+                    context,
+                    Text::GoControl,
+                    ReactorMessage::Navigate(super::super::state::Page::Control),
+                ),
             )),
-    );
-
-    StackPanel::new()
-        .spacing(FluentTokens::SPACING_XL)
-        .children((imu_card, bt_recovery_card))
+        ),
+        recovery(app, context),
+        details,
+        paragraph(app.text(Text::ExportHint)),
+        button(
+            app,
+            context,
+            Text::Export,
+            ReactorMessage::ExportDiagnostics,
+        ),
+    ))
+}
+fn recovery(app: &GearVRReactorApp, context: &ViewContext<GearVRReactorApp>) -> View {
+    let controls = if app.ui.recovery_confirm {
+        StackPanel::new().spacing(8.0).children((
+            button(
+                app,
+                context,
+                Text::ConfirmRecovery,
+                ReactorMessage::RecoverBluetooth,
+            )
+            .is_enabled(!app.ui.recovery_running),
+            button(app, context, Text::Cancel, ReactorMessage::CancelRecovery),
+        ))
+    } else {
+        StackPanel::new().spacing(8.0).children((
+            button(
+                app,
+                context,
+                Text::Recovery,
+                ReactorMessage::ConfirmRecovery,
+            )
+            .is_enabled(!app.ui.recovery_running),
+            paragraph(if app.ui.recovery_running {
+                app.text(Text::RecoveryRunning)
+            } else {
+                ""
+            }),
+        ))
+    };
+    section(app, Text::Recovery, Text::RecoveryImpact, controls)
+}
+fn sensors(app: &GearVRReactorApp) -> View {
+    let Some(data) = app.ui.latest.as_ref() else {
+        return paragraph(app.text(Text::NoData));
+    };
+    StackPanel::new().spacing(8.0).children([
+        paragraph(format!(
+            "{} (g): X {:+.4} · Y {:+.4} · Z {:+.4}",
+            app.text(Text::Accel),
+            data.accel_x,
+            data.accel_y,
+            data.accel_z
+        )),
+        paragraph(format!(
+            "{} (rad/s): X {:+.4} · Y {:+.4} · Z {:+.4}",
+            app.text(Text::Gyro),
+            data.gyro_x,
+            data.gyro_y,
+            data.gyro_z
+        )),
+        paragraph(format!(
+            "{} (µT): X {:+.4} · Y {:+.4} · Z {:+.4}",
+            app.text(Text::Magnet),
+            data.mag_x,
+            data.mag_y,
+            data.mag_z
+        )),
+    ])
 }

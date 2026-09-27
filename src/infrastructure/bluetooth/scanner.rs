@@ -77,11 +77,7 @@ impl BleScanner {
                         let rssi = args.RawSignalStrengthInDBm()?;
 
                         let device = ScannedDevice {
-                            name: if name.is_empty() {
-                                "Unknown".to_string()
-                            } else {
-                                name
-                            },
+                            name: if name.is_empty() { String::new() } else { name },
                             address,
                             signal_strength: rssi,
                         };

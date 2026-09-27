@@ -5,7 +5,10 @@
 
 pub mod app;
 pub mod components;
+pub mod state;
+pub mod text;
 pub mod tokens;
 pub mod views;
 
 pub use app::run_reactor_app;
+pub mod diagnostics;

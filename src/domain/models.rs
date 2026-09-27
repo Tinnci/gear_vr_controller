@@ -59,7 +59,12 @@ pub enum AppEvent {
     LogMessage(StatusMessage),
     DeviceFound(ScannedDevice),
     ModeChanged(ControlMode),
-    CalibrationProgress(Option<f32>),
+    CalibrationStatus(super::calibration::CalibrationStatus),
+    OutputChanged(OutputTarget),
+    InputPreview(InputPreview),
+    ConnectedDevice(u64),
+    AutomaticModeChanged(ControlMode),
+    ReconnectAttempt(u8),
     ScanState(bool),
     WorkerReady,
 }
@@ -157,6 +162,25 @@ pub enum BluetoothCommand {
     CalibrateImu,
     StartTouchCalibration,
     FinishTouchCalibration,
+    CancelCalibration,
+    SetOutput(OutputTarget),
+    PreviewPreferences(super::preferences::InputPreferences),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OutputTarget {
+    #[default]
+    Desktop,
+    Paused,
+    Preview,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct InputPreview {
+    pub x: i32,
+    pub y: i32,
+    pub clicks: u32,
+    pub scroll: i32,
 }
 
 #[derive(Debug, Clone, Default)]
