@@ -110,6 +110,7 @@ pub struct I18nStrings {
     pub mode_air_mouse: &'static str,
     pub mode_trackpad: &'static str,
     pub mode_presenter: &'static str,
+    #[allow(dead_code)]
     pub active_prefix: &'static str,
 
     // Dashboard: Telemetry Card

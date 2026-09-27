@@ -31,6 +31,8 @@ pub enum ReactorMessage {
     FromAppEvent(AppEvent),
     OpenBtSettings,
     NavSelectionChanged(Option<String>),
+    TogglePane,
+    PaneOpenChanged(bool),
     Noop,
 }
 
@@ -47,6 +49,7 @@ pub struct GearVRReactorApp {
     pub enable_anti_sleep: bool,
     pub enable_auto_profile: bool,
     pub enable_background_tray: bool,
+    pub is_pane_open: bool,
     pub settings_service: Arc<Mutex<SettingsService>>,
     pub bt_cmd_tx: Option<mpsc::UnboundedSender<BluetoothCommand>>,
     pub shared_event_rx: Arc<Mutex<mpsc::UnboundedReceiver<AppEvent>>>,
@@ -103,6 +106,7 @@ impl Component for GearVRReactorApp {
             enable_anti_sleep: anti_sleep,
             enable_auto_profile: auto_profile,
             enable_background_tray: tray,
+            is_pane_open: true,
             settings_service: settings,
             bt_cmd_tx: Some(bt_cmd_tx),
             shared_event_rx,
@@ -190,6 +194,12 @@ impl Component for GearVRReactorApp {
                 }
             }
             ReactorMessage::NavSelectionChanged(None) => {}
+            ReactorMessage::TogglePane => {
+                self.is_pane_open = !self.is_pane_open;
+            }
+            ReactorMessage::PaneOpenChanged(open) => {
+                self.is_pane_open = open;
+            }
             ReactorMessage::FromAppEvent(event) => {
                 match event {
                     AppEvent::ControllerData(data) => {
@@ -244,47 +254,71 @@ impl Component for GearVRReactorApp {
             .message(info_msg)
             .is_open(is_info_open);
 
-        // Fluent NavigationView Items (Windows 11 Navigation Architecture)
+        // Fluent NavigationView Items (Windows 11 Navigation Architecture with native SymbolIcons)
         let nav_items = [
             KeyedView::new(
                 "0",
                 NavigationViewItem::new()
                     .tag("0")
                     .is_selected(self.selected_tab == 0)
-                    .slot(
-                        NavigationViewItemSlot::Content,
-                        TextBlock::new().text(s.nav_dashboard),
-                    ),
+                    .slots([
+                        SlotView::new(
+                            NavigationViewItemSlot::Icon,
+                            SymbolIcon::new().symbol(Symbol::Home),
+                        ),
+                        SlotView::new(
+                            NavigationViewItemSlot::Content,
+                            TextBlock::new().text(s.nav_dashboard),
+                        ),
+                    ]),
             ),
             KeyedView::new(
                 "1",
                 NavigationViewItem::new()
                     .tag("1")
                     .is_selected(self.selected_tab == 1)
-                    .slot(
-                        NavigationViewItemSlot::Content,
-                        TextBlock::new().text(s.nav_calibration),
-                    ),
+                    .slots([
+                        SlotView::new(
+                            NavigationViewItemSlot::Icon,
+                            SymbolIcon::new().symbol(Symbol::Orientation),
+                        ),
+                        SlotView::new(
+                            NavigationViewItemSlot::Content,
+                            TextBlock::new().text(s.nav_calibration),
+                        ),
+                    ]),
             ),
             KeyedView::new(
                 "2",
                 NavigationViewItem::new()
                     .tag("2")
                     .is_selected(self.selected_tab == 2)
-                    .slot(
-                        NavigationViewItemSlot::Content,
-                        TextBlock::new().text(s.nav_settings),
-                    ),
+                    .slots([
+                        SlotView::new(
+                            NavigationViewItemSlot::Icon,
+                            SymbolIcon::new().symbol(Symbol::Setting),
+                        ),
+                        SlotView::new(
+                            NavigationViewItemSlot::Content,
+                            TextBlock::new().text(s.nav_settings),
+                        ),
+                    ]),
             ),
             KeyedView::new(
                 "3",
                 NavigationViewItem::new()
                     .tag("3")
                     .is_selected(self.selected_tab == 3)
-                    .slot(
-                        NavigationViewItemSlot::Content,
-                        TextBlock::new().text(s.nav_diagnostics),
-                    ),
+                    .slots([
+                        SlotView::new(
+                            NavigationViewItemSlot::Icon,
+                            SymbolIcon::new().symbol(Symbol::View),
+                        ),
+                        SlotView::new(
+                            NavigationViewItemSlot::Content,
+                            TextBlock::new().text(s.nav_diagnostics),
+                        ),
+                    ]),
             ),
         ];
 
@@ -375,6 +409,7 @@ impl Component for GearVRReactorApp {
             );
 
         let quick_bt_btn = Button::new()
+            .style(ButtonStyle::Subtle)
             .on_click(context.message(ReactorMessage::OpenBtSettings))
             .content(s.open_bt_settings);
 
@@ -393,15 +428,19 @@ impl Component for GearVRReactorApp {
             .subtitle(dynamic_subtitle)
             .preferred_height(WindowTitleBarHeight::Tall)
             .is_back_button_visible(false)
-            .is_pane_toggle_button_visible(false)
+            .is_pane_toggle_button_visible(true)
+            .on_pane_toggle_requested(context.message(ReactorMessage::TogglePane))
             .slot(TitleBarSlot::RightHeader, title_bar_right);
 
         let nav_view = NavigationView::new()
             .grid_row(1)
             .pane_title(s.nav_pane_title)
             .pane_display_mode(NavigationViewPaneDisplayMode::Left)
+            .is_pane_open(self.is_pane_open)
+            .is_pane_toggle_button_visible(false)
             .is_back_button_visible(NavigationViewBackButtonVisible::Collapsed)
             .is_settings_visible(false)
+            .on_is_pane_open_changed(context.callback(ReactorMessage::PaneOpenChanged))
             .on_selected_tag_changed(context.callback(ReactorMessage::NavSelectionChanged))
             .slots([
                 SlotView::collection(NavigationViewSlot::MenuItems, nav_items),
@@ -466,7 +505,7 @@ impl GearVRReactorApp {
             .into()
     }
 
-    /// Fluent SettingsRow Pattern for Toggle Switches
+    /// Fluent SettingsCard Pattern for Toggle Switches (Aligned right as per WinUI 3 Guidelines)
     fn render_toggle_card(
         title: &str,
         description: &str,
@@ -477,14 +516,13 @@ impl GearVRReactorApp {
             .border_brush(ThemeBrush::CardStroke)
             .border_thickness(1.0)
             .corner_radius(8.0)
-            .padding(Thickness::new(16.0, 12.0, 16.0, 12.0))
+            .padding(Thickness::new(16.0, 14.0, 16.0, 14.0))
             .content(
-                StackPanel::new()
-                    .orientation(Orientation::Horizontal)
-                    .spacing(16.0)
+                Grid::new()
+                    .columns([GridLength::STAR, GridLength::Auto])
                     .children((
-                        toggle,
                         StackPanel::new()
+                            .grid_column(0)
                             .spacing(2.0)
                             .children((
                                 TextBlock::new()
@@ -496,6 +534,7 @@ impl GearVRReactorApp {
                                     .font_size(12.0)
                                     .foreground(ThemeBrush::PrimaryText),
                             )),
+                        toggle.grid_column(1),
                     )),
             )
             .into()
@@ -505,10 +544,12 @@ impl GearVRReactorApp {
         // Card 1: Connection & Bluetooth Scanning
         let connect_button = if self.connection_status == ConnectionStatus::Connected {
             Button::new()
+                .style(ButtonStyle::Default)
                 .on_click(context.message(ReactorMessage::Disconnect))
                 .content(s.disconnect_button)
         } else {
             Button::new()
+                .style(ButtonStyle::Accent)
                 .on_click(context.message(ReactorMessage::Connect))
                 .content(s.connect_button)
         };
@@ -550,26 +591,29 @@ impl GearVRReactorApp {
             .spacing(8.0)
             .children((
                 Button::new()
+                    .style(if self.current_mode == ControlMode::Mouse {
+                        ButtonStyle::Accent
+                    } else {
+                        ButtonStyle::Default
+                    })
                     .on_click(context.message(ReactorMessage::ChangeMode(ControlMode::Mouse)))
-                    .content(if self.current_mode == ControlMode::Mouse {
-                        s.active_prefix.replace("{}", s.mode_air_mouse)
-                    } else {
-                        s.mode_air_mouse.to_string()
-                    }),
+                    .content(s.mode_air_mouse),
                 Button::new()
+                    .style(if self.current_mode == ControlMode::Touchpad {
+                        ButtonStyle::Accent
+                    } else {
+                        ButtonStyle::Default
+                    })
                     .on_click(context.message(ReactorMessage::ChangeMode(ControlMode::Touchpad)))
-                    .content(if self.current_mode == ControlMode::Touchpad {
-                        s.active_prefix.replace("{}", s.mode_trackpad)
-                    } else {
-                        s.mode_trackpad.to_string()
-                    }),
+                    .content(s.mode_trackpad),
                 Button::new()
-                    .on_click(context.message(ReactorMessage::ChangeMode(ControlMode::Presentation)))
-                    .content(if self.current_mode == ControlMode::Presentation {
-                        s.active_prefix.replace("{}", s.mode_presenter)
+                    .style(if self.current_mode == ControlMode::Presentation {
+                        ButtonStyle::Accent
                     } else {
-                        s.mode_presenter.to_string()
-                    }),
+                        ButtonStyle::Default
+                    })
+                    .on_click(context.message(ReactorMessage::ChangeMode(ControlMode::Presentation)))
+                    .content(s.mode_presenter),
             ));
 
         let mode_card = Self::render_card(
@@ -673,45 +717,51 @@ impl GearVRReactorApp {
     fn render_settings_tab(&self, context: &mut ViewContext<Self>, s: &I18nStrings) -> View {
         // Language Selection Card (4 Languages + Auto)
         let resolved_lang = self.language.resolve();
+        let auto_label = format!("Auto ({})", resolved_lang.display_name());
         let lang_buttons = StackPanel::new()
             .orientation(Orientation::Horizontal)
             .spacing(8.0)
             .children((
                 Button::new()
+                    .style(if self.language == Language::Auto {
+                        ButtonStyle::Accent
+                    } else {
+                        ButtonStyle::Default
+                    })
                     .on_click(context.message(ReactorMessage::SelectLanguage(Language::Auto)))
-                    .content(if self.language == Language::Auto {
-                        format!("[ Active: Auto ({}) ]", resolved_lang.display_name())
-                    } else {
-                        "Auto".to_string()
-                    }),
+                    .content(auto_label),
                 Button::new()
+                    .style(if self.language == Language::SimplifiedChinese {
+                        ButtonStyle::Accent
+                    } else {
+                        ButtonStyle::Default
+                    })
                     .on_click(context.message(ReactorMessage::SelectLanguage(Language::SimplifiedChinese)))
-                    .content(if self.language == Language::SimplifiedChinese {
-                        "[ Active: 简体中文 ]"
-                    } else {
-                        "简体中文"
-                    }),
+                    .content("简体中文"),
                 Button::new()
+                    .style(if self.language == Language::English {
+                        ButtonStyle::Accent
+                    } else {
+                        ButtonStyle::Default
+                    })
                     .on_click(context.message(ReactorMessage::SelectLanguage(Language::English)))
-                    .content(if self.language == Language::English {
-                        "[ Active: English ]"
-                    } else {
-                        "English"
-                    }),
+                    .content("English"),
                 Button::new()
+                    .style(if self.language == Language::Japanese {
+                        ButtonStyle::Accent
+                    } else {
+                        ButtonStyle::Default
+                    })
                     .on_click(context.message(ReactorMessage::SelectLanguage(Language::Japanese)))
-                    .content(if self.language == Language::Japanese {
-                        "[ Active: 日本語 ]"
-                    } else {
-                        "日本語"
-                    }),
+                    .content("日本語"),
                 Button::new()
-                    .on_click(context.message(ReactorMessage::SelectLanguage(Language::Korean)))
-                    .content(if self.language == Language::Korean {
-                        "[ Active: 한국어 ]"
+                    .style(if self.language == Language::Korean {
+                        ButtonStyle::Accent
                     } else {
-                        "한국어"
-                    }),
+                        ButtonStyle::Default
+                    })
+                    .on_click(context.message(ReactorMessage::SelectLanguage(Language::Korean)))
+                    .content("한국어"),
             ));
 
         let language_card = Self::render_card(
