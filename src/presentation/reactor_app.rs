@@ -198,7 +198,9 @@ impl Component for GearVRReactorApp {
                 self.is_pane_open = !self.is_pane_open;
             }
             ReactorMessage::PaneOpenChanged(open) => {
-                self.is_pane_open = open;
+                if self.is_pane_open != open {
+                    self.is_pane_open = open;
+                }
             }
             ReactorMessage::FromAppEvent(event) => {
                 match event {
@@ -434,7 +436,7 @@ impl Component for GearVRReactorApp {
 
         let nav_view = NavigationView::new()
             .grid_row(1)
-            .pane_title(s.nav_pane_title)
+            .open_pane_length(240.0)
             .pane_display_mode(NavigationViewPaneDisplayMode::Left)
             .is_pane_open(self.is_pane_open)
             .is_pane_toggle_button_visible(false)

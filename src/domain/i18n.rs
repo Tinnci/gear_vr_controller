@@ -80,6 +80,7 @@ pub struct I18nStrings {
     pub app_subtitle: &'static str,
 
     // Navigation
+    #[allow(dead_code)]
     pub nav_pane_title: &'static str,
     pub nav_dashboard: &'static str,
     pub nav_calibration: &'static str,
