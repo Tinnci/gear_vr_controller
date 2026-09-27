@@ -3,8 +3,8 @@
 //! Evaluates the active foreground application window against configurable rules
 //! and suggests or applies the optimal `ControlMode`.
 
+use crate::domain::models::ControlMode;
 use crate::infrastructure::window_tracker::ForegroundWatcher;
-use crate::presentation::radial_menu::ControlMode;
 use tracing::info;
 
 /// Rule definition mapping a process name pattern to a ControlMode

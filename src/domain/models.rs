@@ -105,12 +105,42 @@ pub enum MessageSeverity {
     Error,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Tab {
-    Home,
-    Calibration,
-    Settings,
-    Debug,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ControlMode {
+    #[default]
+    Mouse, // Air Mouse Mode (IMU cursor + TP scroll)
+    Touchpad,     // Laptop Trackpad Mode (TP cursor + Button scroll)
+    Presentation, // PPT/Media Mode (Buttons only)
+    Settings,     // Quick Settings / Calibration
+}
+
+impl ControlMode {
+    pub fn name(&self) -> &'static str {
+        match self {
+            ControlMode::Mouse => "Air Mouse",
+            ControlMode::Touchpad => "Touchpad",
+            ControlMode::Presentation => "Presenter",
+            ControlMode::Settings => "Settings",
+        }
+    }
+
+    pub fn icon(&self) -> &'static str {
+        match self {
+            ControlMode::Mouse => "[M]",
+            ControlMode::Touchpad => "[TP]",
+            ControlMode::Presentation => "[PPT]",
+            ControlMode::Settings => "[SET]",
+        }
+    }
+
+    pub fn description(&self) -> &'static str {
+        match self {
+            ControlMode::Mouse => "Wave to move, Touch to scroll",
+            ControlMode::Touchpad => "Laptop style control",
+            ControlMode::Presentation => "PPT & Media control",
+            ControlMode::Settings => "Calibration & Options",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

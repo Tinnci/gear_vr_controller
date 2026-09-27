@@ -10,6 +10,7 @@ use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
 const WHEEL_DELTA: i32 = 120;
 
+#[derive(Debug, Clone, Copy, Default)]
 pub struct InputSimulator;
 
 impl InputSimulator {

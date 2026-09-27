@@ -6,10 +6,9 @@
 
 use crate::domain::i18n::{Language, I18nStrings};
 use crate::domain::models::{
-    AppEvent, BluetoothCommand, ConnectionStatus, ControllerData, ScannedDevice,
+    AppEvent, BluetoothCommand, ConnectionStatus, ControllerData, ControlMode, ScannedDevice,
 };
 use crate::domain::settings::SettingsService;
-use crate::presentation::radial_menu::ControlMode;
 use crate::presentation::winui::components::title_bar::render_title_bar;
 use crate::presentation::winui::tokens::FluentTokens;
 use crate::presentation::winui::views::{

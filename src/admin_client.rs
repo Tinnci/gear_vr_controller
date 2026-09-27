@@ -12,6 +12,12 @@ pub struct AdminClient {
     stream: Option<NamedPipe>,
 }
 
+impl Default for AdminClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AdminClient {
     pub fn new() -> Self {
         Self { stream: None }

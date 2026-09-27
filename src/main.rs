@@ -1,12 +1,4 @@
-mod admin_client;
-mod admin_ipc;
-mod admin_worker;
-mod application;
-mod domain;
-mod infrastructure;
-mod presentation;
-
-use eframe::egui;
+use gear_vr_controller_rust::{admin_worker, presentation};
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
@@ -14,22 +6,6 @@ fn main() -> anyhow::Result<()> {
         if let Err(e) = admin_worker::run_admin_worker() {
             eprintln!("Admin worker failed: {}", e);
         }
-        return Ok(());
-    }
-
-    if args.contains(&"--egui".to_string()) {
-        let options = eframe::NativeOptions {
-            viewport: egui::ViewportBuilder::default()
-                .with_inner_size([800.0, 600.0])
-                .with_title("Gear VR Controller (Classic egui)"),
-            ..Default::default()
-        };
-
-        let _ = eframe::run_native(
-            "Gear VR Controller",
-            options,
-            Box::new(|cc| Ok(Box::new(presentation::GearVRApp::new(cc)))),
-        );
         return Ok(());
     }
 

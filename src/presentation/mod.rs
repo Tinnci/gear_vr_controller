@@ -1,10 +1,5 @@
-pub mod app;
-pub mod components;
-pub mod radial_menu;
-pub mod tabs;
-pub mod theme;
+#[allow(dead_code)]
 pub mod tray;
 pub mod winui;
 
-pub use app::GearVRApp;
 pub use winui::run_reactor_app;

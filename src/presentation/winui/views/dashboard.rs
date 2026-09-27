@@ -1,8 +1,7 @@
 //! Dashboard Tab View: Connection management, Mode switching, Real-time input telemetry
 
 use crate::domain::i18n::I18nStrings;
-use crate::domain::models::ConnectionStatus;
-use crate::presentation::radial_menu::ControlMode;
+use crate::domain::models::{ConnectionStatus, ControlMode};
 use crate::presentation::winui::app::{GearVRReactorApp, ReactorMessage};
 use crate::presentation::winui::components::cards::render_card;
 use crate::presentation::winui::components::formatters::format_telemetry;
