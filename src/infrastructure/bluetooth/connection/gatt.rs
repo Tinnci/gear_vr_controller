@@ -3,7 +3,7 @@ use crate::infrastructure::bluetooth::protocol;
 use anyhow::Result;
 use tracing::{error, info};
 use windows::Devices::Bluetooth::GenericAttributeProfile::{
-    GattCharacteristic, GattCommunicationStatus,
+    GattCharacteristic, GattCommunicationStatus, GattDeviceService,
 };
 use windows::Devices::Bluetooth::{BluetoothCacheMode, BluetoothLEDevice};
 
@@ -12,7 +12,7 @@ impl BleConnection {
     pub(super) async fn get_characteristics(
         &self,
         device: &BluetoothLEDevice,
-    ) -> Result<(GattCharacteristic, GattCharacteristic)> {
+    ) -> Result<(GattCharacteristic, GattCharacteristic, GattDeviceService)> {
         let service_uuid = protocol::parse_uuid(&self.config.service_uuid)?;
         let data_uuid = protocol::parse_uuid(&self.config.data_char_uuid)?;
         let cmd_uuid = protocol::parse_uuid(&self.config.command_char_uuid)?;
@@ -70,6 +70,6 @@ impl BleConnection {
         let data = data_char.ok_or_else(|| anyhow::anyhow!("Data characteristic not found"))?;
         let cmd = cmd_char.ok_or_else(|| anyhow::anyhow!("Command characteristic not found"))?;
 
-        Ok((data, cmd))
+        Ok((data, cmd, service))
     }
 }

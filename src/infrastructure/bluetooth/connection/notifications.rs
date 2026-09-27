@@ -14,7 +14,7 @@ impl BleConnection {
         &self,
         data_char: &GattCharacteristic,
         was_paired: bool,
-        device: &BluetoothLEDevice,
+        _device: &BluetoothLEDevice,
     ) -> Result<()> {
         info!("Enabling notifications...");
 
@@ -23,10 +23,7 @@ impl BleConnection {
         for attempt in 1..=max_attempts {
             match self.write_notify_descriptor(data_char).await {
                 Ok(status) => {
-                    if self
-                        .handle_notify_status(status, was_paired, device)
-                        .await?
-                    {
+                    if self.handle_notify_status(status, was_paired).await? {
                         return Ok(());
                     }
 
@@ -57,7 +54,6 @@ impl BleConnection {
         &self,
         status: GattCommunicationStatus,
         was_paired: bool,
-        device: &BluetoothLEDevice,
     ) -> Result<bool> {
         if status == GattCommunicationStatus::Success {
             info!("Notifications enabled successfully");
@@ -71,7 +67,6 @@ impl BleConnection {
             let warn_msg = "检测到设备已在系统中配对，请尝试在 Windows 设置中‘删除设备’后重试。";
             self.send_log(warn_msg, MessageSeverity::Error);
             warn!("{}", warn_msg);
-            let _ = self.unpair_device(device).await;
         }
 
         Ok(false)

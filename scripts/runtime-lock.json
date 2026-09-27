@@ -1,0 +1,7 @@
+{
+  "setupCrateVersion": "0.100.0",
+  "packages": [
+    { "name": "Microsoft.WindowsAppSDK.Runtime", "version": "2.4.0", "sha256": "93F48B096416AB7B908EA30690BBA47DE8264CD2F22DD7B0AD97187A86D00120" },
+    { "name": "Microsoft.Web.WebView2", "version": "1.0.4078.44", "sha256": "DC4D1D9168DF26B830398303E50210B6E1729F6CE5A7AC69D2C766852F489962" }
+  ]
+}

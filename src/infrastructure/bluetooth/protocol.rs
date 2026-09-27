@@ -6,8 +6,6 @@
 use crate::domain::models::ControllerData;
 use anyhow::Result;
 use tracing::debug;
-#[cfg(debug_assertions)]
-use tracing::trace;
 use windows::core::GUID;
 use windows::Storage::Streams::{DataReader, IBuffer};
 
@@ -100,32 +98,24 @@ pub mod imu_scale {
 ///
 /// ```text
 /// [0-3]   : Timestamp (u32 little-endian, milliseconds)
-/// [4-5]   : Temperature or unknown (i16 little-endian)
-/// [6-7]   : Reserved
+/// [4-9]   : Accelerometer XYZ (i16 little-endian)
+/// [10-15] : Gyroscope XYZ (i16 little-endian)
 ///
-/// IMU Data (scaled 16-bit integers):
-/// [8-9]   : Accel X (i16 little-endian)
-/// [10-11] : Accel Y
-/// [12-13] : Accel Z
-/// [14-15] : Gyro X
-/// [16-17] : Gyro Y
-/// [18-19] : Gyro Z
-/// [20-21] : Mag X
-/// [22-23] : Mag Y
-/// [24-25] : Mag Z
+/// [16-31] : Additional IMU samples
+/// [32-37] : Magnetometer XYZ (i16 little-endian)
 ///
-/// [26-53] : Additional IMU samples or reserved
+/// [38-53] : Additional samples / reserved
 ///
-/// [54-55] : Touchpad X (u16, 0-315 range)
-/// [56-57] : Touchpad Y (u16, 0-315 range)
+/// [54-56] : Packed 10-bit touchpad X and Y; typical calibrated range 0-315
+/// [57]    : Temperature byte
 /// [58]    : Button state byte
 ///           bit 0: Trigger
-///           bit 1: Touchpad pressed
+///           bit 1: Home
 ///           bit 2: Back
-///           bit 3: Home
+///           bit 3: Touchpad pressed
 ///           bit 4: Volume Up
 ///           bit 5: Volume Down
-/// [59]    : Touchpad touched (non-zero = touching)
+/// [59]    : Reserved; touch is inferred from nonzero coordinates
 /// ```
 pub fn parse_data_packet(buffer: &IBuffer) -> Result<ControllerData> {
     let reader = DataReader::FromBuffer(buffer)?;
@@ -144,10 +134,6 @@ pub fn parse_data_packet(buffer: &IBuffer) -> Result<ControllerData> {
     // Zero-heap-allocation: read directly into a stack-allocated 60-byte buffer
     let mut bytes = [0u8; 60];
     reader.ReadBytes(&mut bytes)?;
-
-    // Debug logging for protocol analysis
-    #[cfg(debug_assertions)]
-    trace!("Raw packet: {:02X?}", &bytes);
 
     parse_raw_bytes(&bytes)
 }
@@ -248,7 +234,7 @@ pub fn parse_raw_bytes(bytes: &[u8]) -> Result<ControllerData> {
 pub fn parse_uuid(uuid_str: &str) -> Result<GUID> {
     let uuid_str = uuid_str.replace('-', "");
 
-    if uuid_str.len() != 32 {
+    if uuid_str.len() != 32 || !uuid_str.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err(anyhow::anyhow!("Invalid UUID format"));
     }
 
@@ -284,5 +270,41 @@ mod tests {
     fn test_command_bytes() {
         assert_eq!(ControllerCommand::Off.as_bytes(), &[0x00, 0x00]);
         assert_eq!(ControllerCommand::VrModeEnable.as_bytes(), &[0x08, 0x00]);
+    }
+
+    #[test]
+    fn packet_decodes_signed_imu_packed_coordinates_and_buttons() -> Result<()> {
+        let mut bytes = [0u8; 60];
+        bytes[..4].copy_from_slice(&1234u32.to_le_bytes());
+        bytes[4..6].copy_from_slice(&(-2048i16).to_le_bytes());
+        bytes[10..12].copy_from_slice(&100i16.to_le_bytes());
+        bytes[54] = 4;
+        bytes[55] = 1;
+        bytes[56] = 59;
+        bytes[57] = 25;
+        bytes[58] = 0b0010_1011;
+        let data = parse_raw_bytes(&bytes)?;
+        assert_eq!(data.timestamp, 1234);
+        assert_eq!((data.touchpad_x, data.touchpad_y), (256, 315));
+        assert!(data.accel_x < 0.0 && data.gyro_x > 0.0);
+        assert!(
+            data.trigger_button
+                && data.home_button
+                && data.touchpad_button
+                && data.volume_down_button
+        );
+        assert!(!data.back_button && !data.volume_up_button);
+        assert_eq!(data.temperature, Some(25));
+        assert!(data.touchpad_touched);
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_packets_and_non_ascii_uuids_are_errors() {
+        for length in [0, 2, 59, 61] {
+            assert!(parse_raw_bytes(&vec![0; length]).is_err());
+        }
+        assert!(parse_uuid("€€€€€€€€€€ab").is_err());
+        assert!(parse_uuid("z0000000000000000000000000000000").is_err());
     }
 }

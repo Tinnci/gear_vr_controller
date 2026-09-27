@@ -1,6 +1,8 @@
 use crate::infrastructure::bluetooth::protocol;
 use windows::Devices::Bluetooth::BluetoothLEDevice;
-use windows::Devices::Bluetooth::GenericAttributeProfile::GattCharacteristic;
+use windows::Devices::Bluetooth::GenericAttributeProfile::{
+    GattCharacteristic, GattDeviceService, GattSession,
+};
 
 /// Configuration for connection behavior
 #[derive(Debug, Clone)]
@@ -33,4 +35,17 @@ impl Default for ConnectionConfig {
 pub struct ConnectionResult {
     pub device: BluetoothLEDevice,
     pub data_characteristic: GattCharacteristic,
+    pub session: Option<GattSession>,
+    pub service: GattDeviceService,
+}
+
+impl Drop for ConnectionResult {
+    fn drop(&mut self) {
+        if let Some(session) = &self.session {
+            let _ = session.SetMaintainConnection(false);
+            let _ = session.Close();
+        }
+        let _ = self.service.Close();
+        let _ = self.device.Close();
+    }
 }

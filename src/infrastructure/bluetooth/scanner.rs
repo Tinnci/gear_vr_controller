@@ -2,10 +2,10 @@
 //!
 //! Handles Bluetooth LE device discovery for Gear VR Controllers.
 
+use crate::application::event_bus::EventSender;
 use crate::domain::models::{AppEvent, MessageSeverity, ScannedDevice, StatusMessage};
 use crate::infrastructure::bluetooth::protocol;
 use anyhow::Result;
-use tokio::sync::mpsc;
 use tracing::info;
 use windows::Devices::Bluetooth::Advertisement::{
     BluetoothLEAdvertisementReceivedEventArgs, BluetoothLEAdvertisementWatcher,
@@ -16,14 +16,16 @@ use windows::Foundation::TypedEventHandler;
 /// BLE Scanner for discovering Gear VR Controllers
 pub struct BleScanner {
     watcher: Option<BluetoothLEAdvertisementWatcher>,
-    event_sender: mpsc::UnboundedSender<AppEvent>,
+    token: Option<i64>,
+    event_sender: EventSender,
 }
 
 impl BleScanner {
     /// Create a new scanner
-    pub fn new(event_sender: mpsc::UnboundedSender<AppEvent>) -> Self {
+    pub fn new(event_sender: EventSender) -> Self {
         Self {
             watcher: None,
+            token: None,
             event_sender,
         }
     }
@@ -91,8 +93,12 @@ impl BleScanner {
             },
         );
 
-        watcher.Received(&handler)?;
-        watcher.Start()?;
+        let token = watcher.Received(&handler)?;
+        if let Err(error) = watcher.Start() {
+            let _ = watcher.RemoveReceived(token);
+            return Err(error.into());
+        }
+        self.token = Some(token);
         self.watcher = Some(watcher);
 
         Ok(())
@@ -101,6 +107,9 @@ impl BleScanner {
     /// Stop scanning
     pub fn stop(&mut self) -> Result<()> {
         if let Some(watcher) = self.watcher.take() {
+            if let Some(token) = self.token.take() {
+                let _ = watcher.RemoveReceived(token);
+            }
             info!("Stopping BLE scan...");
             let _ = self.event_sender.send(AppEvent::LogMessage(StatusMessage {
                 message: "Scan stopped.".to_string(),

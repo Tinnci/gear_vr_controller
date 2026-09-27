@@ -2,35 +2,52 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
 
 jobs:
   rust:
-    name: Rust Checks
+    name: Windows quality and distributable
     runs-on: windows-latest
-
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: pwsh
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install repository toolchain
+        run: rustup show active-toolchain
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - name: Install dependency checker
+        run: cargo install cargo-deny --version 0.19.8 --locked
+      - name: Run shared quality gate
+        run: ./scripts/quality.ps1
+      - name: Validate release version
+        if: github.ref_type == 'tag'
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $version = (cargo metadata --no-deps --locked --format-version 1 | ConvertFrom-Json).packages[0].version
+          if ($env:RELEASE_TAG -ne "v$version") { throw "Tag must match Cargo version v$version" }
+      - name: Build and smoke-test complete package
+        run: ./scripts/package.ps1
+      - name: Save verified distribution
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          components: rustfmt, clippy
-
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Check formatting
-        run: cargo fmt --check
-
-      - name: Check build
-        run: cargo check --locked
-
-      - name: Run Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
-
-      - name: Run tests
-        run: cargo test --all-targets --all-features
+          name: windows-distribution
+          path: |
+            dist/*.zip
+            dist/*.sha256
+          if-no-files-found: error
+      - name: Save diagnostic symbols
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-symbols
+          path: dist/*.pdb
+          if-no-files-found: error

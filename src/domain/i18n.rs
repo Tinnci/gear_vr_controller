@@ -16,6 +16,30 @@ pub enum Language {
 }
 
 impl Language {
+    pub fn action_text(&self, action: &str) -> &'static str {
+        match (self.resolve(), action) {
+            (Language::SimplifiedChinese, "imu_done") => "陀螺仪校准完成",
+            (Language::Japanese, "imu_done") => "ジャイロ校正完了",
+            (Language::Korean, "imu_done") => "자이로 보정 완료",
+            (_, "imu_done") => "Gyroscope calibration complete",
+            (Language::SimplifiedChinese, "touch_start") => "开始触控校准（沿边缘移动）",
+            (Language::SimplifiedChinese, "touch_save") => "保存触控校准",
+            (Language::SimplifiedChinese, "imu_start") => "校准陀螺仪（保持静止）",
+            (Language::SimplifiedChinese, "recover") => "重启蓝牙服务（需要管理员权限）",
+            (Language::Japanese, "touch_start") => "タッチ校正を開始（縁をなぞる）",
+            (Language::Japanese, "touch_save") => "タッチ校正を保存",
+            (Language::Japanese, "imu_start") => "ジャイロを校正（静止してください）",
+            (Language::Japanese, "recover") => "Bluetooth サービス再起動（管理者）",
+            (Language::Korean, "touch_start") => "터치 보정 시작 (가장자리를 따라 이동)",
+            (Language::Korean, "touch_save") => "터치 보정 저장",
+            (Language::Korean, "imu_start") => "자이로 보정 (움직이지 마세요)",
+            (Language::Korean, "recover") => "Bluetooth 서비스 재시작 (관리자)",
+            (_, "touch_start") => "Start touch calibration (trace the edge)",
+            (_, "touch_save") => "Save touch calibration",
+            (_, "imu_start") => "Calibrate gyroscope (keep still)",
+            _ => "Restart Bluetooth service (administrator)",
+        }
+    }
     #[allow(dead_code)]
     pub const ALL: [Language; 5] = [
         Language::Auto,
@@ -194,15 +218,16 @@ pub static EN_US_STRINGS: I18nStrings = I18nStrings {
     touch_cal_status: "Normalized range: [-1.0, 1.0] for X and Y axes.",
     imu_cal_title: "Gyroscope Zero-Point Calibration",
     imu_cal_desc: "Put the controller flat on a horizontal surface to remove drift.",
-    imu_cal_status: "Status: Zero-point calibrated.",
-    imu_cal_filter: "Drift compensation filter is active.",
+    imu_cal_status: "Start calibration while the controller is still.",
+    imu_cal_filter: "Collects 50 samples; offsets apply to this session.",
 
     language_card_title: "Display Language",
     language_card_desc: "Select the interface language or use Windows system settings.",
     anti_sleep_title: "Prevent Display Sleep",
     anti_sleep_desc: "Keep displays on during Presentation mode.",
     auto_profile_title: "Automatic Mode Switching",
-    auto_profile_desc: "Switch to Presenter mode when PowerPoint, Keynote, or PDF viewer is active.",
+    auto_profile_desc:
+        "Switch to Presenter mode when PowerPoint, Keynote, or PDF viewer is active.",
     tray_title: "Minimize to System Tray",
     tray_desc: "Keep Bluetooth connection active in the Windows notification area.",
 
@@ -259,8 +284,8 @@ pub static ZH_CN_STRINGS: I18nStrings = I18nStrings {
     touch_cal_status: "归一化范围: X 轴与 Y 轴 [-1.0, 1.0]",
     imu_cal_title: "陀螺仪零点校准",
     imu_cal_desc: "将控制器平放在水平桌面上，消除旋转漂移。",
-    imu_cal_status: "校准状态: 零点已校准",
-    imu_cal_filter: "漂移补偿滤波器处于激活状态。",
+    imu_cal_status: "保持控制器静止后开始校准。",
+    imu_cal_filter: "采集 50 个样本，校准偏移在当前会话生效。",
 
     language_card_title: "界面语言",
     language_card_desc: "选择界面语言或使用 Windows 系统设置。",
@@ -269,7 +294,7 @@ pub static ZH_CN_STRINGS: I18nStrings = I18nStrings {
     auto_profile_title: "自动模式切换",
     auto_profile_desc: "当 PowerPoint 或 PDF 处于前台时，自动切换到演示模式。",
     tray_title: "最小化到系统托盘",
-    tray_desc: "窗口关闭时最小化到托盘，保持蓝牙连接。",
+    tray_desc: "最小化时隐藏到托盘，点击图标恢复；关闭窗口退出。",
 
     imu_diag_title: "原始 IMU 传感器数据",
     imu_diag_desc: "从蓝牙 GATT 数据包解析的传感器原始数据。",
@@ -324,8 +349,8 @@ pub static JA_JP_STRINGS: I18nStrings = I18nStrings {
     touch_cal_status: "正規化範囲: X 軸・Y 軸ともに [-1.0, 1.0]",
     imu_cal_title: "ジャイロスコープ零点校正",
     imu_cal_desc: "コントローラーを水平な場所に置き、回転ドリフトを除去します。",
-    imu_cal_status: "校正状態: 零点校正完了",
-    imu_cal_filter: "ドリフト補正フィルターが有効です。",
+    imu_cal_status: "コントローラーを静止して校正を開始してください。",
+    imu_cal_filter: "50 サンプルを収集し、このセッションに適用します。",
 
     language_card_title: "表示言語",
     language_card_desc: "表示言語を選択するか Windows の設定を使用します。",
@@ -334,13 +359,14 @@ pub static JA_JP_STRINGS: I18nStrings = I18nStrings {
     auto_profile_title: "自動モード切り替え",
     auto_profile_desc: "PowerPoint または PDF がアクティブな時、プレゼンターモードに切り替えます。",
     tray_title: "システムトレイに最小化",
-    tray_desc: "ウィンドウを閉じてもトレイで Bluetooth 接続を維持します。",
+    tray_desc: "最小化でトレイに隠し、クリックで復元。閉じると終了します。",
 
     imu_diag_title: "IMU 生センサーデータ",
     imu_diag_desc: "Bluetooth GATT パケットからデコードされた生センサーデータ。",
     bt_recovery_title: "Bluetooth 診断と復旧",
     bt_recovery_desc: "無効な Bluetooth 接続を解除し、デバイスを再同期します。",
-    bt_troubleshoot_hint: "デバイス検索に失敗する場合は、Windows 設定でペアリング状態を確認してください。",
+    bt_troubleshoot_hint:
+        "デバイス検索に失敗する場合は、Windows 設定でペアリング状態を確認してください。",
     open_bt_settings: "Windows Bluetooth 設定を開く",
 };
 
@@ -389,8 +415,8 @@ pub static KO_KR_STRINGS: I18nStrings = I18nStrings {
     touch_cal_status: "정규화 범위: X 축 및 Y 축 [-1.0, 1.0]",
     imu_cal_title: "자이로스코프 영점 보정",
     imu_cal_desc: "회전 드리프트를 제거하기 위해 컨트롤러를 수평 바닥에 평평하게 놓으십시오.",
-    imu_cal_status: "보정 상태: 영점 보정 완료",
-    imu_cal_filter: "드리프트 보정 필터가 작동 중입니다.",
+    imu_cal_status: "컨트롤러를 움직이지 않고 보정을 시작하세요.",
+    imu_cal_filter: "50개 샘플을 수집하여 현재 세션에 적용합니다.",
 
     language_card_title: "표시 언어",
     language_card_desc: "인터페이스 언어를 선택하거나 Windows 시스템 설정을 사용합니다.",
@@ -399,7 +425,7 @@ pub static KO_KR_STRINGS: I18nStrings = I18nStrings {
     auto_profile_title: "자동 모드 전환",
     auto_profile_desc: "PowerPoint 또는 PDF가 활성화되면 프레젠터 모드로 자동 전환합니다.",
     tray_title: "시스템 트레이로 최소화",
-    tray_desc: "창을 닫아도 트레이에서 블루투스 연결을 유지합니다.",
+    tray_desc: "최소화 시 트레이에 숨기고 클릭하면 복원합니다. 닫으면 종료합니다.",
 
     imu_diag_title: "원시 IMU 센서 데이터",
     imu_diag_desc: "블루투스 GATT 패킷에서 디코딩된 원시 센서 데이터.",
@@ -437,7 +463,9 @@ mod tests {
 
     #[test]
     fn test_language_display_names() {
-        assert!(Language::SimplifiedChinese.display_name().contains("简体中文"));
+        assert!(Language::SimplifiedChinese
+            .display_name()
+            .contains("简体中文"));
         assert!(Language::English.display_name().contains("English"));
         assert!(Language::Japanese.display_name().contains("日本語"));
         assert!(Language::Korean.display_name().contains("한국어"));

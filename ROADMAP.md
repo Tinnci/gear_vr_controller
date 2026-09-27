@@ -1,58 +1,43 @@
 # Development Roadmap
 
-This file tracks maintainer decisions and planned work. User-facing setup,
-features, build steps, and troubleshooting stay in `README.md`.
+## Implemented baseline
 
-## Current Status
+- Native WinUI 3 interface with four language dictionaries.
+- BLE discovery, pairing, GATT initialization and notifications.
+- Air mouse, touchpad and presenter input mapping, edge-triggered buttons,
+  hold-to-switch mode selection and presenter swipe gestures.
+- Explicit gyroscope and touchpad calibration.
+- Optional foreground profiles, connected presenter sleep inhibition and
+  minimize-to-tray with restore/exit controls.
+- Validated versioned settings, atomic saves with backup, startup diagnostics,
+  rotating logs with retention, bounded event channels and input fault recovery.
+- Owned GATT sessions and callback revocation, cancellable worker shutdown.
+- Authenticated one-shot Bluetooth service recovery; arbitrary device removal
+  is intentionally not exposed.
+- Pinned toolchain, locked dependencies, shared CI/release checks, verified
+  NuGet runtime payloads, complete ZIP, checksums and startup/shutdown smoke test.
 
-- The Rust port is the active implementation.
-- Core BLE discovery, connection, initialization, reconnection, protocol
-  parsing, touchpad input, IMU cursor movement, gestures, debouncing, settings,
-  logging, diagnostics, and the elevated recovery helper are implemented.
-- Direct dependencies are intentionally small. Windows IPC, UAC launch, logging
-  rotation, Bluetooth service recovery, and input injection use local code and
-  Windows APIs instead of extra helper crates.
-- BLE connection code is split by responsibility: pairing, GATT discovery,
-  initialization, notification setup, and shared types.
+## Manual acceptance
 
-## Next Product Work
+Before a public release, test the package on a clean Windows 10/11 x64 machine
+without the matching Windows App SDK framework installed. Check BLE pairing,
+connect/disconnect/reconnect, all input modes, drags released on disconnect,
+calibration, tray restore/exit, foreground profiles and UAC acceptance/cancellation.
+Verify mouse tuning and controller model compatibility against physical devices.
+Automated smoke tests do not claim this hardware acceptance.
 
-1. **Key Mapping System**
-   - Add an input action model for buttons and gestures.
-   - Move hard-coded button behavior out of `GearVRApp`.
-   - Add settings UI for binding controller events to mouse, keyboard, media,
-     and mode-switch actions.
-2. **Input Preferences**
-   - Add invert Y-axis and natural scrolling options.
-   - Persist the options through `SettingsService`.
-3. **Battery Level**
-   - Read the standard Battery Service if present.
-   - Fall back to proprietary data only if verified from real packets.
-4. **System Tray**
-   - Keep the app available in the background with explicit status and exit
-     controls.
+## Future product work
 
-## Deferred Architecture Work
+- Configurable button/gesture bindings and a visible radial selector.
+- Input preference controls in the UI (JSON currently exposes sensitivity,
+  smoothing, acceleration, enable flags and BLE configuration).
+- Persisted gyroscope profiles, timestamp-based motion integration and tuning
+  against captured physical-device data.
+- Verified battery reporting and user-controlled automatic reconnect.
+- Code signing, installer/update support and ARM64 validation.
+- More localized diagnostic error messages and accessibility review.
+- Coverage reporting thresholds after the meaningful behavioral suite grows.
 
-- **Application State Decomposition**
-  - Start after the key mapping model exists.
-  - Target split: event ingestion, input mapping, UI state, and Bluetooth command
-    orchestration.
-- **Workspace Crate Split**
-  - Defer until domain APIs stabilize.
-  - Candidate crates: `domain`, `application`, `windows-adapters`, and
-    `desktop-ui`.
-- **Coverage Gate**
-  - Defer hard thresholds until meaningful unit tests exist for domain,
-    settings, protocol parsing, and input mapping.
-  - Keep coverage as a report in `.\scripts\quality.ps1 -Full` for now.
-
-## Quality Baseline
-
-- Default gate: `.\scripts\quality.ps1`
-- Full local report: `.\scripts\quality.ps1 -Full`
-- Current policy: format, check, Clippy, and tests are hard gates.
-- Current reports: release build, coverage, dependency policy, unused
-  dependencies, source metrics, BLE module structure, and duplication scan.
-- Known tool note: `cargo-modules` may print a tracing static-level warning.
-  The structure report is still usable when the command exits successfully.
+Keep changes in the current module structure until interfaces justify a
+workspace split. Performance profile changes require measurements; release
+symbols are retained separately rather than forcing panic-abort or maximal LTO.

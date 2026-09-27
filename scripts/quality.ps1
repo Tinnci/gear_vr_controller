@@ -5,6 +5,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+Set-Location (Join-Path $PSScriptRoot '..')
+& (Join-Path $PSScriptRoot 'prepare-runtime.ps1')
 
 function Invoke-Step {
     param(
@@ -109,12 +111,17 @@ Invoke-Step "Clippy" {
 }
 
 Invoke-Step "Test" {
-    Invoke-Native "cargo" @("test", "--workspace", "--all-targets", "--all-features")
+    Invoke-Native "cargo" @("test", "--workspace", "--all-targets", "--all-features", "--locked")
+}
+
+Invoke-Step "Dependency policy" {
+    if (!(Test-Tool "cargo-deny")) { throw 'Install cargo-deny 0.19.8: cargo install cargo-deny --version 0.19.8 --locked' }
+    Invoke-Native "cargo" @("deny", "check")
 }
 
 if ($Full) {
     Invoke-Step "Release build" {
-        Invoke-Native "cargo" @("build", "--release", "--locked")
+        & (Join-Path $PSScriptRoot 'package.ps1')
     }
 
     Invoke-Step "Coverage" {
@@ -126,12 +133,6 @@ if ($Full) {
                 $coverageArgs += "--summary-only"
             }
             Invoke-Native "cargo" $coverageArgs
-        }
-    }
-
-    Invoke-Step "Dependency policy" {
-        Invoke-OptionalTool "cargo-deny" "dependency policy" {
-            Invoke-Native "cargo" @("deny", "check")
         }
     }
 

@@ -161,7 +161,9 @@ impl GestureRecognizer {
 
         debug!(
             "Gesture check: Dist={:.2}, Angle={:.1}°, Result={:?}",
-            dist_sq.sqrt(), degrees, direction
+            dist_sq.sqrt(),
+            degrees,
+            direction
         );
         direction
     }

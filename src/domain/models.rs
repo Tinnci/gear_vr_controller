@@ -58,6 +58,10 @@ pub enum AppEvent {
     ConnectionStatus(ConnectionStatus),
     LogMessage(StatusMessage),
     DeviceFound(ScannedDevice),
+    ModeChanged(ControlMode),
+    CalibrationProgress(Option<f32>),
+    ScanState(bool),
+    WorkerReady,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -149,6 +153,10 @@ pub enum BluetoothCommand {
     Disconnect,
     StartScan,
     StopScan,
+    ChangeMode(ControlMode),
+    CalibrateImu,
+    StartTouchCalibration,
+    FinishTouchCalibration,
 }
 
 #[derive(Debug, Clone, Default)]

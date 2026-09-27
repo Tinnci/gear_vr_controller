@@ -1,6 +1,6 @@
 //! Settings Tab View: Multi-language selector and system preferences
 
-use crate::domain::i18n::{Language, I18nStrings};
+use crate::domain::i18n::{I18nStrings, Language};
 use crate::presentation::winui::app::{GearVRReactorApp, ReactorMessage};
 use crate::presentation::winui::components::cards::{render_card, render_toggle_card};
 use crate::presentation::winui::tokens::FluentTokens;
@@ -37,11 +37,7 @@ pub fn render_settings_view(
                 .content(label)
         }));
 
-    let language_card = render_card(
-        s.language_card_title,
-        s.language_card_desc,
-        lang_buttons,
-    );
+    let language_card = render_card(s.language_card_title, s.language_card_desc, lang_buttons);
 
     let anti_sleep_row = render_toggle_card(
         s.anti_sleep_title,
@@ -69,10 +65,5 @@ pub fn render_settings_view(
 
     StackPanel::new()
         .spacing(FluentTokens::SPACING_XL)
-        .children((
-            language_card,
-            anti_sleep_row,
-            auto_profile_row,
-            tray_row,
-        ))
+        .children((language_card, anti_sleep_row, auto_profile_row, tray_row))
 }

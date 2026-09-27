@@ -63,6 +63,7 @@ impl<W: ForegroundWatcher> ContextProfileService<W> {
     /// Returns `Some(new_mode)` if a context transition is detected.
     pub fn evaluate_context(&mut self, enabled: bool) -> Option<ControlMode> {
         if !enabled {
+            self.last_switched_process = None;
             return None;
         }
 
@@ -75,7 +76,7 @@ impl<W: ForegroundWatcher> ContextProfileService<W> {
         self.last_switched_process = Some(current_process.clone());
 
         for rule in &self.rules {
-            if current_process.contains(rule.process_match) {
+            if current_process == rule.process_match {
                 info!(
                     "Context switch triggered by '{}' -> Mode: {:?}",
                     current_process, rule.target_mode
@@ -126,4 +127,3 @@ mod tests {
         assert_eq!(service.evaluate_context(false), None);
     }
 }
-

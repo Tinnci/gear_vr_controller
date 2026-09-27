@@ -79,6 +79,13 @@ impl TouchpadProcessor {
         if let Some((last_x, last_y)) = self.last_processed_pos {
             let mut rel_dx = current_x - last_x;
             let mut rel_dy = current_y - last_y;
+            let noise_threshold = settings.dead_zone * 0.01;
+            if rel_dx.abs() < noise_threshold {
+                rel_dx = 0.0;
+            }
+            if rel_dy.abs() < noise_threshold {
+                rel_dy = 0.0;
+            }
 
             // Apply O(1) Smoothing to relative movement
             if settings.enable_smoothing {

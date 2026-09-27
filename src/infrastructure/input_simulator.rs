@@ -14,6 +14,23 @@ const WHEEL_DELTA: i32 = 120;
 pub struct InputSimulator;
 
 impl InputSimulator {
+    pub fn execute(&self, action: crate::domain::input::InputAction) -> anyhow::Result<()> {
+        use crate::domain::input::InputAction;
+        match action {
+            InputAction::Move(x, y) => self.move_mouse(x, y),
+            InputAction::Left(true) => self.mouse_left_down(),
+            InputAction::Left(false) => self.mouse_left_up(),
+            InputAction::RightClick => self.mouse_right_click(),
+            InputAction::Scroll(steps) => self.mouse_wheel(steps),
+            InputAction::Key(key) => self.key_press(VIRTUAL_KEY(key)),
+            InputAction::ShowDesktop => {
+                self.key_down(VIRTUAL_KEY(0x5B))?;
+                let result = self.key_press(VIRTUAL_KEY(0x44));
+                let release = self.key_up(VIRTUAL_KEY(0x5B));
+                result.and(release)
+            }
+        }
+    }
     pub fn new() -> Self {
         Self
     }

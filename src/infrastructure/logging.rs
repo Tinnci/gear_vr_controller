@@ -49,7 +49,7 @@ pub fn init_logger(settings: &LogSettings) -> anyhow::Result<LoggingGuard> {
         .with(level_filter)
         .with(console_layer)
         .with(file_layer)
-        .init();
+        .try_init()?;
 
     tracing::info!("Logging initialized successfully");
 
@@ -63,6 +63,25 @@ struct RotatingFileWriter {
 
 impl RotatingFileWriter {
     fn new(settings: &LogSettings) -> anyhow::Result<Self> {
+        let dir = PathBuf::from(&settings.log_dir);
+        fs::create_dir_all(&dir)?;
+        let cutoff = SystemTime::now().checked_sub(std::time::Duration::from_secs(
+            u64::from(settings.retention_days) * 86_400,
+        ));
+        for entry in fs::read_dir(&dir)?.flatten() {
+            if entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(&format!("{}-", settings.file_name_prefix))
+                && entry.path().extension().is_some_and(|e| e == "log")
+            {
+                if let (Some(cutoff), Ok(metadata)) = (cutoff, entry.metadata()) {
+                    if metadata.modified().is_ok_and(|modified| modified < cutoff) {
+                        let _ = fs::remove_file(entry.path());
+                    }
+                }
+            }
+        }
         let state = RotatingFileState {
             dir: PathBuf::from(&settings.log_dir),
             prefix: settings.file_name_prefix.clone(),

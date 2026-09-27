@@ -3,6 +3,7 @@
 //! Main service that coordinates scanning, connection, and data handling
 //! for the Gear VR Controller.
 
+use crate::application::event_bus::EventSender;
 use crate::domain::models::{AppEvent, ConnectionStatus, MessageSeverity, StatusMessage};
 use crate::domain::settings::SettingsService;
 use crate::infrastructure::bluetooth::{
@@ -12,7 +13,6 @@ use crate::infrastructure::bluetooth::{
 };
 use anyhow::Result;
 use std::sync::{Arc, Mutex};
-use tokio::sync::mpsc;
 use tracing::info;
 use windows::Devices::Bluetooth::GenericAttributeProfile::{
     GattCharacteristic, GattValueChangedEventArgs,
@@ -22,22 +22,21 @@ use windows::Foundation::TypedEventHandler;
 
 /// Main Bluetooth service coordinating all BLE operations
 pub struct BluetoothService {
-    device: Option<BluetoothLEDevice>,
-    data_characteristic: Option<GattCharacteristic>,
+    connection: Option<ConnectionResult>,
+    data_token: Option<i64>,
+    status_token: Option<i64>,
     scanner: BleScanner,
-    event_sender: mpsc::UnboundedSender<AppEvent>,
+    event_sender: EventSender,
     settings: Arc<Mutex<SettingsService>>,
 }
 
 impl BluetoothService {
     /// Create a new Bluetooth service
-    pub fn new(
-        event_sender: mpsc::UnboundedSender<AppEvent>,
-        settings: Arc<Mutex<SettingsService>>,
-    ) -> Self {
+    pub fn new(event_sender: EventSender, settings: Arc<Mutex<SettingsService>>) -> Self {
         Self {
-            device: None,
-            data_characteristic: None,
+            connection: None,
+            data_token: None,
+            status_token: None,
             scanner: BleScanner::new(event_sender.clone()),
             event_sender,
             settings,
@@ -65,6 +64,9 @@ impl BluetoothService {
 
     /// Connect to a device by address
     pub async fn connect(&mut self, address: u64) -> Result<()> {
+        self.disconnect();
+        self.stop_scan()?;
+        let _ = self.event_sender.send(AppEvent::ScanState(false));
         // Get configuration from settings
         let config = {
             let settings = self
@@ -89,13 +91,22 @@ impl BluetoothService {
         self.setup_event_handlers(&result)?;
 
         // Store references
-        self.device = Some(result.device);
-        self.data_characteristic = Some(result.data_characteristic);
+        self.connection = Some(result);
 
         // Save to history on successful connection
         {
             if let Ok(mut settings) = self.settings.lock() {
-                let _ = settings.add_known_address(address);
+                settings.get_mut().last_connected_address = Some(address);
+                if let Err(error) = settings
+                    .add_known_address(address)
+                    .and_then(|_| settings.save())
+                {
+                    tracing::warn!(%error, "Cannot save connection history");
+                    let _ = self.event_sender.send(AppEvent::LogMessage(StatusMessage {
+                        message: format!("Connected, but cannot save history: {error}"),
+                        severity: MessageSeverity::Warning,
+                    }));
+                }
             }
         }
 
@@ -108,15 +119,24 @@ impl BluetoothService {
     }
 
     /// Set up event handlers for data and connection status
-    fn setup_event_handlers(&self, result: &ConnectionResult) -> Result<()> {
+    fn setup_event_handlers(&mut self, result: &ConnectionResult) -> Result<()> {
         // Data notification handler
         let sender = self.event_sender.clone();
+        #[cfg(debug_assertions)]
+        let settings = self.settings.clone();
         let data_handler = TypedEventHandler::new(
             move |_: windows::core::Ref<GattCharacteristic>,
                   args: windows::core::Ref<GattValueChangedEventArgs>| {
                 if let Some(args) = args.as_ref() {
                     if let Ok(value) = args.CharacteristicValue() {
                         if let Ok(data) = protocol::parse_data_packet(&value) {
+                            #[cfg(debug_assertions)]
+                            if settings
+                                .lock()
+                                .is_ok_and(|svc| svc.get().debug_raw_data_logging)
+                            {
+                                tracing::trace!(raw = ?data.raw_bytes, "Controller packet");
+                            }
                             let _ = sender.send(AppEvent::ControllerData(data));
                         }
                     }
@@ -124,7 +144,7 @@ impl BluetoothService {
                 Ok(())
             },
         );
-        result.data_characteristic.ValueChanged(&data_handler)?;
+        let data_token = result.data_characteristic.ValueChanged(&data_handler)?;
 
         // Connection status handler
         let sender = self.event_sender.clone();
@@ -144,21 +164,31 @@ impl BluetoothService {
                 }
                 Ok(())
             });
-        result.device.ConnectionStatusChanged(&status_handler)?;
+        match result.device.ConnectionStatusChanged(&status_handler) {
+            Ok(token) => {
+                self.data_token = Some(data_token);
+                self.status_token = Some(token);
+            }
+            Err(error) => {
+                let _ = result.data_characteristic.RemoveValueChanged(data_token);
+                return Err(error.into());
+            }
+        }
 
         Ok(())
     }
 
     /// Disconnect from the current device
     pub fn disconnect(&mut self) {
-        if !self.is_connected() {
-            return;
+        if let Some(connection) = self.connection.take() {
+            if let Some(token) = self.data_token.take() {
+                let _ = connection.data_characteristic.RemoveValueChanged(token);
+            }
+            if let Some(token) = self.status_token.take() {
+                let _ = connection.device.RemoveConnectionStatusChanged(token);
+            }
+            drop(connection);
         }
-
-        if let Some(device) = self.device.take() {
-            let _ = device.Close();
-        }
-        self.data_characteristic = None;
 
         info!("Disconnected from device");
         let _ = self.event_sender.send(AppEvent::LogMessage(StatusMessage {
@@ -172,10 +202,16 @@ impl BluetoothService {
 
     /// Check if connected
     pub fn is_connected(&self) -> bool {
-        self.device
+        self.connection
             .as_ref()
-            .and_then(|d| d.ConnectionStatus().ok())
+            .and_then(|c| c.device.ConnectionStatus().ok())
             .map(|s| s == BluetoothConnectionStatus::Connected)
             .unwrap_or(false)
+    }
+}
+
+impl Drop for BluetoothService {
+    fn drop(&mut self) {
+        self.disconnect();
     }
 }

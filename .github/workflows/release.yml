@@ -2,46 +2,32 @@ name: Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    tags: ['v*']
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  build-and-release:
-    name: Build and Release
+  checks:
+    uses: ./.github/workflows/ci.yml
+  publish:
+    needs: checks
     runs-on: windows-latest
-    
+    permissions:
+      contents: write
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Build release
-        run: cargo build --release
-
-      - name: Package Binary
-        shell: pwsh
-        run: |
-          mkdir dist
-          cp target/release/gear_vr_controller_rust.exe dist/
-          # Optional: Compress if needed
-          # Compress-Archive -Path dist/* -DestinationPath gear_vr_controller_rust_v${{ github.ref_name }}_win_x64.zip
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: Download checked distribution
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: windows-distribution
+          path: dist
+      - name: Publish checked package
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: |
-            target/release/gear_vr_controller_rust.exe
+            dist/*.zip
+            dist/*.sha256
+          fail_on_unmatched_files: true
           name: Release ${{ github.ref_name }}
-          draft: false
-          prerelease: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

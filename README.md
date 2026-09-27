@@ -1,132 +1,126 @@
 # Gear VR Controller for Windows
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)
-![Status](https://img.shields.io/badge/status-Active-brightgreen.svg)
+A Rust desktop application that connects a Samsung Gear VR Controller over
+Bluetooth LE and maps its motion, touchpad and buttons to Windows input.
+The interface uses native WinUI 3 through Windows Reactor.
 
-A Windows desktop application for using the Samsung Gear VR Controller
-(SM-R323, SM-R324, and SM-R325) as a mouse, touchpad, and presentation
-remote. The application is written in Rust and uses Bluetooth LE for
-controller communication, egui for the user interface, and windows-rs for
-Windows input and Bluetooth integration.
+## Requirements and installation
 
-## Features
+- Windows 10 version 1809 or later, or Windows 11, on x64.
+- A Bluetooth LE adapter and a compatible Gear VR Controller.
+- Download the Windows ZIP from [Releases](https://github.com/Tinnci/gear_vr_controller/releases).
+  Verify its SHA-256 against the accompanying `.sha256` file, extract the complete
+  folder, and run `gear_vr_controller_rust.exe`.
+- Keep all bundled DLLs, resource files and language directories beside the EXE.
+  The EXE alone is not a portable distribution.
 
-- Bluetooth LE discovery and connection for Gear VR Controller devices.
-- Air Mouse mode using IMU data for cursor movement.
-- Touchpad mode for laptop-style cursor control.
-- Presenter mode for slide navigation and media control.
-- Radial menu for switching control modes from the controller.
-- Touchpad gesture support for scrolling and navigation.
-- Adjustable sensitivity, dead zones, acceleration, debouncing, and protocol settings.
-- Diagnostic views for Bluetooth state, controller telemetry, and IMU data.
-- Optional elevated helper for Bluetooth service recovery tasks.
+Put the controller into pairing mode, scan in the dashboard, select its address,
+and connect. Windows may prompt for pairing. Input is sent at the normal user's
+integrity level; Windows can reject injection into elevated applications.
 
-## Requirements
+## Controls
 
-- Windows 10 or Windows 11.
-- A Samsung Gear VR Controller model SM-R323, SM-R324, or SM-R325.
-- Bluetooth LE support on the Windows machine.
-- Rust stable toolchain when building from source.
-- Windows SDK and MSVC build tools when building from source.
+| Mode | Trigger / touchpad press | Touchpad | Short Back | Home | Volume |
+| --- | --- | --- | --- | --- | --- |
+| Air Mouse | Hold left mouse button | Vertical scroll | Right click on release | Windows key | System volume |
+| Touchpad | Hold left mouse button | Move cursor | Right click on release | Show desktop | Scroll |
+| Presenter | Trigger: next slide; touchpad press: play/pause | Swipe left/up: previous; right/down: next | Previous slide | Unassigned | System volume |
 
-## Installation
+Hold Back for at least 600 ms, then release to cycle Air Mouse → Touchpad →
+Presenter. To choose directly, keep touching the upper region for Air Mouse,
+the left region for Touchpad, or the right region for Presenter while releasing
+Back. The dashboard reflects the selected mode. Cursor motion pauses while Back
+is held. No graphical radial overlay is implemented.
 
-1. Download the latest release from the
-   [Releases](https://github.com/Tinnci/gear_vr_controller/releases) page.
-2. Run `gear_vr_controller_rust.exe`.
-3. Put the controller into pairing mode by holding the Home button.
-4. Use the app to scan for the controller and connect.
+Calibration is explicit: keep the controller still and start gyroscope
+calibration to collect 50 samples. For touch calibration, start capture, move
+around the full edge of the pad, then save; at least 20 samples and sufficient
+travel on both axes are required. Touch calibration persists; gyroscope offsets
+apply to the current process session.
 
-## Control Modes
+Automatic profiles recognize PowerPoint, WPS (`wps.exe`), Acrobat, VLC,
+PotPlayer and Bilibili process names. When enabled, Presenter mode prevents
+display/system sleep while connected. With the tray option enabled, minimizing
+hides the window; click its tray icon to restore it or use its menu to exit.
+Closing the window exits normally.
 
-Hold the Back button to open the radial menu and switch modes.
+The diagnostics view can restart the Bluetooth service using a one-shot UAC
+helper. This interrupts Bluetooth service availability. Cancelling UAC is shown
+as an error; normal controller use does not require administrator privileges.
+The helper does not accept arbitrary device-removal commands.
 
-| Mode | Trigger | Touchpad | Back | Home | Volume |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| Air Mouse | Left click | Scroll wheel | Right click | Windows key | System volume |
-| Touchpad | Left click | Move cursor | Right click | Show desktop | Scroll |
-| Presenter | Next slide | Play or pause | Previous slide | Unassigned | System volume |
+## Settings and logs
 
-In Air Mouse mode, hold the controller like a pointer for the most predictable
-cursor movement.
+Settings are stored at `%APPDATA%\GearVRController\settings.json` (falling back
+to `%LOCALAPPDATA%`). Saves use an atomic replacement and preserve the previous
+file as `settings.json.bak`. Missing fields in older files receive defaults.
+Invalid, unreadable or future-version files remain untouched; the app displays
+an error and uses temporary in-memory defaults until the file is repaired or
+restored from its backup.
 
-## Build From Source
+Logs default to `%LOCALAPPDATA%\GearVRController\logs`, with daily rotation and
+14-day retention. Level, location and retention can be configured in JSON;
+logging changes take effect after restart. `RUST_LOG` accepts a single level
+(`trace`, `debug`, `info`, `warn`, `error`), not module filter expressions.
+Detailed raw-packet trace logging is available in Debug builds.
+Set `debug_raw_data_logging` to `true` as well as the `trace` level to enable it.
 
-Install Rust from [rustup.rs](https://rustup.rs/) and make sure the stable MSVC
-toolchain is available.
+Input processing runs separately from UI updates. Telemetry is limited to about
+30 updates per second; the UI drains batches approximately every 100 ms. A lost
+input stream or queue overflow disconnects and releases held mouse buttons.
+After a disconnect or mode change, release all controller buttons before using
+them again; a carried-over hold cannot trigger an unintended action in the new mode.
 
-```powershell
-git clone https://github.com/Tinnci/gear_vr_controller.git
-cd gear_vr_controller
-cargo build --release --locked
-```
+## Building and checking
 
-Run the development build:
-
-```powershell
-cargo run
-```
-
-Run the release build:
-
-```powershell
-cargo run --release --locked
-```
-
-## Development
-
-The repository includes `rust-toolchain.toml` to install the expected Rust
-channel and components. Run the default gate before submitting changes:
+Install Rust through rustup, MSVC build tools and the Windows SDK. The repository
+pins Rust 1.95.0 with rustfmt and Clippy. `cargo-deny` is required for the shared
+quality gate:
 
 ```powershell
-.\scripts\quality.ps1
+cargo install cargo-deny --version 0.19.8 --locked
+./scripts/quality.ps1
+./scripts/package.ps1
 ```
 
-For a fuller local report, install the optional cargo/npm tools and run:
+The package script verifies the pinned NuGet runtime payloads, builds for
+`x86_64-pc-windows-msvc`, stages the complete distribution, smoke-tests startup
+and graceful shutdown, then creates a ZIP and SHA-256 file in `dist/`. Runtime
+downloads require network access on first use; Windows `curl.exe` and `tar.exe`
+must be available. Updating Windows Reactor requires updating the runtime lock
+and its allow-list together.
+
+For development:
 
 ```powershell
-.\scripts\quality.ps1 -Full
+./scripts/prepare-runtime.ps1
+cargo run --locked
 ```
 
-The default gate covers formatting, workspace checking, Clippy, and tests. The
-full report also tries release build, coverage, dependency policy, unused
-dependency detection, source metrics, module structure, and duplication scans.
+`quality.ps1 -Full` also packages the release and optionally runs coverage,
+unused-dependency and source-structure reports. Formatting, check, Clippy,
+tests and dependency policy are mandatory. CI runs the same gate and package
+smoke test. Release tags must exactly match `v` plus the Cargo package version;
+the release job publishes only the already-checked ZIP and checksum. PDB symbols
+are retained as a separate CI artifact for diagnosis.
 
-The GitHub Actions CI workflow runs the format, check, clippy, and test steps
-on Windows.
+## Verification limits
 
-## Troubleshooting
+Unit tests exercise packet decoding, input edges and releases, settings,
+calibration and IPC boundaries. The smoke test checks native initialization and
+shutdown without a controller. Real Bluetooth hardware, pointer tuning, pairing
+dialogs, UAC recovery and clean-machine compatibility still need manual checks;
+the smoke test alone does not validate those behaviors. Releases are currently
+unsigned. See [ROADMAP.md](ROADMAP.md) for remaining product work.
 
-If the controller is detected but cannot connect, remove it from Windows
-Bluetooth settings and pair it again. If GATT service discovery fails, restart
-the Bluetooth service from the app diagnostics or from Windows Services.
+## Source layout and license
 
-For persistent connection issues:
+- `src/domain`: settings, packet-independent input mapping, touchpad, IMU and gestures.
+- `src/application`: cancellable worker, bounded events and foreground profiles.
+- `src/infrastructure`: Bluetooth, Windows input, power, foreground inspection and logs.
+- `src/presentation`: WinUI views and UI-thread tray integration.
+- `src/admin_*`: restricted, authenticated, one-shot elevated recovery.
+- `scripts`: shared checks, runtime verification and packaging.
 
-- Confirm the controller is not connected to another device.
-- Replace or recharge the controller battery.
-- Remove old Gear VR Controller entries from Windows Bluetooth settings.
-- Reboot the computer after removing stale Bluetooth devices.
-- Run the app again and scan for the controller.
-
-## Project Layout
-
-- `src/domain`: controller models, settings, gestures, touchpad, and IMU logic.
-- `src/infrastructure`: Bluetooth, input simulation, logging, and Windows services.
-- `src/infrastructure/bluetooth/connection`: pairing, GATT discovery,
-  initialization, notification setup, and connection types.
-- `src/presentation`: egui application state, tabs, components, and theming.
-- `src/admin_client.rs` and `src/admin_worker.rs`: elevated helper process.
-- `ROADMAP.md`: maintainer-facing status, planned work, and deferred migrations.
-
-## License
-
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for
-details.
-
-## Acknowledgements
-
-- Based on reverse engineering of the Samsung Gear VR Controller BLE protocol.
-- Built with [egui](https://github.com/emilk/egui).
-- Uses [windows-rs](https://github.com/microsoft/windows-rs) for Windows APIs.
+Project source is MIT-licensed; see [LICENSE](LICENSE). Bundled Microsoft runtime
+components have their own terms; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

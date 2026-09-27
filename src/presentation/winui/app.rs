@@ -4,9 +4,11 @@
 //! following official WinUI 3 guidelines (NavigationView, SettingsCard pattern,
 //! 4-language i18n auto-detection, clean typography, zero emoji).
 
-use crate::domain::i18n::{Language, I18nStrings};
+use crate::application::{bluetooth_worker::BluetoothWorker, event_bus::EventSender};
+use crate::domain::i18n::{I18nStrings, Language};
 use crate::domain::models::{
-    AppEvent, BluetoothCommand, ConnectionStatus, ControllerData, ControlMode, ScannedDevice,
+    AppEvent, BluetoothCommand, ConnectionStatus, ControlMode, ControllerData, MessageSeverity,
+    ScannedDevice,
 };
 use crate::domain::settings::SettingsService;
 use crate::presentation::winui::components::title_bar::render_title_bar;
@@ -17,6 +19,7 @@ use crate::presentation::winui::views::{
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use windows_reactor::*;
+static SMOKE_PASSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
@@ -33,6 +36,12 @@ pub enum ReactorMessage {
     ToggleBackgroundTray(bool),
     ChangeMode(ControlMode),
     FromAppEvent(AppEvent),
+    FromAppEvents(Vec<AppEvent>),
+    CalibrateImu,
+    StartTouchCalibration,
+    FinishTouchCalibration,
+    RecoverBluetooth,
+    RecoveryFinished(Result<String, String>),
     OpenBtSettings,
     NavSelectionChanged(Option<String>),
     TogglePane,
@@ -46,6 +55,7 @@ pub struct GearVRReactorApp {
     pub language: Language,
     pub connection_status: ConnectionStatus,
     pub status_message: Option<String>,
+    status_severity: MessageSeverity,
     pub latest_data: Option<ControllerData>,
     pub scanned_devices: Vec<ScannedDevice>,
     pub current_mode: ControlMode,
@@ -56,8 +66,15 @@ pub struct GearVRReactorApp {
     pub enable_background_tray: bool,
     pub is_pane_open: bool,
     pub settings_service: Arc<Mutex<SettingsService>>,
-    pub bt_cmd_tx: Option<mpsc::UnboundedSender<BluetoothCommand>>,
-    pub shared_event_rx: Arc<Mutex<mpsc::UnboundedReceiver<AppEvent>>>,
+    pub bt_cmd_tx: Option<mpsc::Sender<BluetoothCommand>>,
+    pub shared_event_rx: Arc<Mutex<mpsc::Receiver<AppEvent>>>,
+    _worker: BluetoothWorker,
+    pub imu_progress: Option<f32>,
+    pub imu_completed: bool,
+    pub recovery_running: bool,
+    tray: Option<crate::presentation::tray::WindowsTrayManager>,
+    smoke_deadline: Option<std::time::Instant>,
+    worker_ready: bool,
 }
 
 impl Component for GearVRReactorApp {
@@ -65,13 +82,18 @@ impl Component for GearVRReactorApp {
     type Message = ReactorMessage;
 
     fn create(_input: &(), context: &ComponentContext<Self>) -> Self {
-        let (bt_cmd_tx, bt_cmd_rx) = mpsc::unbounded_channel::<BluetoothCommand>();
-        let (event_tx, event_rx) = mpsc::unbounded_channel::<AppEvent>();
+        let (bt_cmd_tx, bt_cmd_rx) = mpsc::channel::<BluetoothCommand>(32);
+        let (event_tx, event_rx) = EventSender::channel(128);
         let shared_event_rx = Arc::new(Mutex::new(event_rx));
 
-        let settings_service = match SettingsService::new() {
-            Ok(service) => service,
-            Err(_) => SettingsService::in_memory_defaults(),
+        let settings_result = if std::env::args().any(|arg| arg == "--smoke-test") {
+            Ok(SettingsService::in_memory_defaults())
+        } else {
+            SettingsService::new()
+        };
+        let (settings_service, startup_error) = match settings_result {
+            Ok(service) => (service, None),
+            Err(error) => (SettingsService::in_memory_defaults(), Some(format!("Settings could not be loaded. Changes are temporary; original file is preserved: {error}"))),
         };
 
         let initial_address = settings_service
@@ -89,7 +111,7 @@ impl Component for GearVRReactorApp {
         let bt_settings = settings.clone();
 
         // Spawn background Bluetooth worker
-        crate::application::bluetooth_worker::spawn_bluetooth_worker(
+        let worker = crate::application::bluetooth_worker::spawn_bluetooth_worker(
             event_tx,
             bt_cmd_rx,
             bt_settings,
@@ -102,7 +124,8 @@ impl Component for GearVRReactorApp {
             selected_tab: 0,
             language: initial_lang,
             connection_status: ConnectionStatus::Disconnected,
-            status_message: None,
+            status_message: startup_error,
+            status_severity: MessageSeverity::Error,
             latest_data: None,
             scanned_devices: Vec::new(),
             current_mode: ControlMode::Mouse,
@@ -115,6 +138,15 @@ impl Component for GearVRReactorApp {
             settings_service: settings,
             bt_cmd_tx: Some(bt_cmd_tx),
             shared_event_rx,
+            _worker: worker,
+            imu_progress: None,
+            imu_completed: false,
+            recovery_running: false,
+            tray: None,
+            worker_ready: false,
+            smoke_deadline: std::env::args()
+                .any(|arg| arg == "--smoke-test")
+                .then(|| std::time::Instant::now() + std::time::Duration::from_secs(2)),
         }
     }
 
@@ -125,10 +157,7 @@ impl Component for GearVRReactorApp {
             }
             ReactorMessage::SelectLanguage(lang) => {
                 self.language = lang;
-                if let Ok(mut svc) = self.settings_service.lock() {
-                    svc.get_mut().language = lang;
-                    let _ = svc.save();
-                }
+                self.edit_settings(|settings| settings.language = lang);
             }
             ReactorMessage::UpdateAddressInput(input) => {
                 self.address_input = input;
@@ -137,56 +166,33 @@ impl Component for GearVRReactorApp {
                 self.address_input = format!("{:X}", addr);
             }
             ReactorMessage::Connect => {
-                let sanitized = self.address_input.replace([':', '-'], "");
-                if let Ok(address) = u64::from_str_radix(&sanitized, 16) {
-                    self.connection_status = ConnectionStatus::Connecting;
-                    if let Some(tx) = &self.bt_cmd_tx {
-                        let _ = tx.send(BluetoothCommand::Connect(address));
-                    }
-                }
+                self.connect_address();
             }
             ReactorMessage::Disconnect => {
-                if let Some(tx) = &self.bt_cmd_tx {
-                    let _ = tx.send(BluetoothCommand::Disconnect);
-                }
+                self.send_command(BluetoothCommand::Disconnect);
             }
             ReactorMessage::ToggleScan => {
                 if self.is_scanning {
-                    self.is_scanning = false;
-                    if let Some(tx) = &self.bt_cmd_tx {
-                        let _ = tx.send(BluetoothCommand::StopScan);
-                    }
+                    self.send_command(BluetoothCommand::StopScan);
                 } else {
-                    self.is_scanning = true;
                     self.scanned_devices.clear();
-                    if let Some(tx) = &self.bt_cmd_tx {
-                        let _ = tx.send(BluetoothCommand::StartScan);
-                    }
+                    self.send_command(BluetoothCommand::StartScan);
                 }
             }
             ReactorMessage::ToggleAntiSleep(enable) => {
                 self.enable_anti_sleep = enable;
-                if let Ok(mut svc) = self.settings_service.lock() {
-                    svc.get_mut().enable_presentation_anti_sleep = enable;
-                    let _ = svc.save();
-                }
+                self.edit_settings(|settings| settings.enable_presentation_anti_sleep = enable);
             }
             ReactorMessage::ToggleAutoProfile(enable) => {
                 self.enable_auto_profile = enable;
-                if let Ok(mut svc) = self.settings_service.lock() {
-                    svc.get_mut().enable_auto_profile_switching = enable;
-                    let _ = svc.save();
-                }
+                self.edit_settings(|settings| settings.enable_auto_profile_switching = enable);
             }
             ReactorMessage::ToggleBackgroundTray(enable) => {
                 self.enable_background_tray = enable;
-                if let Ok(mut svc) = self.settings_service.lock() {
-                    svc.get_mut().minimize_to_tray = enable;
-                    let _ = svc.save();
-                }
+                self.edit_settings(|settings| settings.minimize_to_tray = enable);
             }
             ReactorMessage::ChangeMode(mode) => {
-                self.current_mode = mode;
+                self.send_command(BluetoothCommand::ChangeMode(mode));
             }
             ReactorMessage::OpenBtSettings => {
                 let _ = std::process::Command::new("explorer.exe")
@@ -211,6 +217,45 @@ impl Component for GearVRReactorApp {
                 self.handle_app_event(event);
                 Self::spawn_event_listener(context, self.shared_event_rx.clone());
             }
+            ReactorMessage::FromAppEvents(events) => {
+                for event in events {
+                    self.handle_app_event(event);
+                }
+                self.sync_tray(context);
+                self.check_smoke(context);
+                Self::spawn_event_listener(context, self.shared_event_rx.clone());
+            }
+            ReactorMessage::CalibrateImu => {
+                self.imu_completed = false;
+                self.send_command(BluetoothCommand::CalibrateImu);
+            }
+            ReactorMessage::StartTouchCalibration => {
+                self.send_command(BluetoothCommand::StartTouchCalibration)
+            }
+            ReactorMessage::FinishTouchCalibration => {
+                self.send_command(BluetoothCommand::FinishTouchCalibration)
+            }
+            ReactorMessage::RecoverBluetooth => {
+                if !self.recovery_running {
+                    self.recovery_running = true;
+                    self.send_command(BluetoothCommand::Disconnect);
+                    context.spawn_background(|cancel| {
+                        let result = crate::admin_client::recover_bluetooth(&cancel);
+                        ReactorMessage::RecoveryFinished(result.map_err(|error| error.to_string()))
+                    });
+                }
+            }
+            ReactorMessage::RecoveryFinished(result) => {
+                self.recovery_running = false;
+                self.status_severity = if result.is_ok() {
+                    MessageSeverity::Success
+                } else {
+                    MessageSeverity::Error
+                };
+                self.status_message = Some(
+                    result.unwrap_or_else(|error| format!("Bluetooth recovery failed: {error}")),
+                );
+            }
             ReactorMessage::DismissStatusInfo => {
                 self.status_message = None;
                 if self.connection_status == ConnectionStatus::Error {
@@ -225,20 +270,59 @@ impl Component for GearVRReactorApp {
         let s = self.language.strings();
 
         // Fluent Header & Status Infobar (Windows 11 Contextual Status Feedback)
-        let (info_title, info_msg, info_severity, is_info_open) = match (&self.connection_status, &self.status_message) {
-            (ConnectionStatus::Connected, Some(msg)) => (s.status_connected, msg.as_str(), InfoBarSeverity::Success, true),
-            (ConnectionStatus::Connected, None) => (s.status_connected, s.status_ready, InfoBarSeverity::Success, false),
-            (ConnectionStatus::Connecting, _) => (s.status_connecting, s.status_negotiating, InfoBarSeverity::Informational, true),
-            (ConnectionStatus::Disconnected, Some(msg)) => (s.status_disconnected, msg.as_str(), InfoBarSeverity::Warning, true),
-            (ConnectionStatus::Disconnected, None) => (s.status_disconnected, s.status_no_link, InfoBarSeverity::Informational, false),
-            (ConnectionStatus::Error, Some(msg)) => (s.status_error, msg.as_str(), InfoBarSeverity::Error, true),
-            (ConnectionStatus::Error, None) => (s.status_error, s.status_error, InfoBarSeverity::Error, true),
-        };
+        let (info_title, info_msg, info_severity, is_info_open) =
+            match (&self.connection_status, &self.status_message) {
+                (ConnectionStatus::Connected, Some(msg)) => (
+                    s.status_connected,
+                    msg.as_str(),
+                    InfoBarSeverity::Success,
+                    true,
+                ),
+                (ConnectionStatus::Connected, None) => (
+                    s.status_connected,
+                    s.status_ready,
+                    InfoBarSeverity::Success,
+                    false,
+                ),
+                (ConnectionStatus::Connecting, _) => (
+                    s.status_connecting,
+                    s.status_negotiating,
+                    InfoBarSeverity::Informational,
+                    true,
+                ),
+                (ConnectionStatus::Disconnected, Some(msg)) => (
+                    s.status_disconnected,
+                    msg.as_str(),
+                    InfoBarSeverity::Warning,
+                    true,
+                ),
+                (ConnectionStatus::Disconnected, None) => (
+                    s.status_disconnected,
+                    s.status_no_link,
+                    InfoBarSeverity::Informational,
+                    false,
+                ),
+                (ConnectionStatus::Error, Some(msg)) => {
+                    (s.status_error, msg.as_str(), InfoBarSeverity::Error, true)
+                }
+                (ConnectionStatus::Error, None) => {
+                    (s.status_error, s.status_error, InfoBarSeverity::Error, true)
+                }
+            };
 
         let status_infobar = InfoBar::new()
             .title(info_title)
             .message(info_msg)
-            .severity(info_severity)
+            .severity(if self.status_message.is_some() {
+                match self.status_severity {
+                    MessageSeverity::Error => InfoBarSeverity::Error,
+                    MessageSeverity::Warning => InfoBarSeverity::Warning,
+                    MessageSeverity::Success => InfoBarSeverity::Success,
+                    MessageSeverity::Info => InfoBarSeverity::Informational,
+                }
+            } else {
+                info_severity
+            })
             .is_open(is_info_open)
             .is_closable(true)
             .on_closed(context.message(ReactorMessage::DismissStatusInfo));
@@ -248,7 +332,7 @@ impl Component for GearVRReactorApp {
         // Tab Content Routing
         let tab_content: View = match self.selected_tab {
             0 => render_dashboard_view(self, context, s),
-            1 => render_calibration_view(self, s),
+            1 => render_calibration_view(self, context, s),
             2 => render_settings_view(self, context, s),
             _ => render_diagnostics_view(self, context, s),
         };
@@ -258,16 +342,11 @@ impl Component for GearVRReactorApp {
             .vertical_scroll_bar_visibility(ScrollBarVisibility::Auto)
             .horizontal_scroll_bar_visibility(ScrollBarVisibility::Disabled)
             .content(
-                Border::new()
-                    .padding(FluentTokens::page_padding())
-                    .content(
-                        StackPanel::new()
-                            .spacing(FluentTokens::SPACING_XXL)
-                            .children((
-                                status_infobar,
-                                tab_content,
-                            )),
-                    ),
+                Border::new().padding(FluentTokens::page_padding()).content(
+                    StackPanel::new()
+                        .spacing(FluentTokens::SPACING_XXL)
+                        .children((status_infobar, tab_content)),
+                ),
             );
 
         // Windows 11 Settings & Microsoft Store Custom TitleBar
@@ -290,27 +369,104 @@ impl Component for GearVRReactorApp {
 
         Grid::new()
             .rows([GridLength::Auto, GridLength::STAR])
-            .children((
-                title_bar,
-                nav_view,
-            ))
+            .children((title_bar, nav_view))
     }
 }
 
 impl GearVRReactorApp {
+    fn check_smoke(&self, context: &ComponentContext<Self>) {
+        if self
+            .smoke_deadline
+            .is_some_and(|deadline| std::time::Instant::now() >= deadline)
+        {
+            SMOKE_PASSED.store(self.worker_ready, std::sync::atomic::Ordering::Release);
+            tracing::info!(ready = self.worker_ready, "Native smoke test closing");
+            let _ = context.window().request_close();
+        }
+    }
+    fn connect_address(&mut self) {
+        let sanitized = self.address_input.replace([':', '-'], "");
+        if let Some(address) = u64::from_str_radix(&sanitized, 16)
+            .ok()
+            .filter(|address| *address > 0 && *address <= 0xFFFF_FFFF_FFFF)
+        {
+            self.send_command(BluetoothCommand::Connect(address));
+        } else {
+            self.status_severity = MessageSeverity::Error;
+            self.status_message = Some("Enter a valid 48-bit Bluetooth address".to_string());
+        }
+    }
+    fn edit_settings(&mut self, update: impl FnOnce(&mut crate::domain::settings::Settings)) {
+        let result = self
+            .settings_service
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Settings lock poisoned"))
+            .and_then(|mut service| {
+                update(service.get_mut());
+                service.save()
+            });
+        if let Err(error) = result {
+            self.status_severity = MessageSeverity::Error;
+            self.status_message = Some(format!("Cannot save settings: {error}"));
+        }
+    }
+    fn send_command(&mut self, command: BluetoothCommand) {
+        if let Some(tx) = &self.bt_cmd_tx {
+            if let Err(error) = tx.try_send(command) {
+                self.status_severity = MessageSeverity::Error;
+                self.status_message = Some(format!("Cannot send command: {error}"));
+            }
+        }
+    }
+
+    fn sync_tray(&mut self, context: &ComponentContext<Self>) {
+        if self.enable_background_tray && self.tray.is_none() {
+            match crate::presentation::tray::WindowsTrayManager::new("Gear VR Controller") {
+                Ok(tray) => self.tray = Some(tray),
+                Err(error) => {
+                    self.status_severity = MessageSeverity::Error;
+                    self.status_message = Some(format!("Cannot enable tray: {error}"));
+                    self.enable_background_tray = false;
+                }
+            }
+        }
+        if let Some(tray) = &mut self.tray {
+            tray.poll(self.enable_background_tray);
+            if tray.exit_requested() {
+                let _ = context.window().request_close();
+            }
+        }
+        if !self.enable_background_tray {
+            self.tray = None;
+        }
+    }
     fn handle_app_event(&mut self, event: AppEvent) {
         match event {
+            AppEvent::WorkerReady => self.worker_ready = true,
+            AppEvent::ModeChanged(mode) => self.current_mode = mode,
+            AppEvent::CalibrationProgress(progress) => {
+                if self.imu_progress.is_some() && progress.is_none() {
+                    self.imu_completed = true;
+                }
+                self.imu_progress = progress;
+            }
+            AppEvent::ScanState(scanning) => self.is_scanning = scanning,
             AppEvent::ControllerData(data) => {
                 self.latest_data = Some(data);
             }
             AppEvent::ConnectionStatus(status) => {
                 self.connection_status = status;
+                if status != ConnectionStatus::Connected {
+                    self.latest_data = None;
+                }
                 if let ConnectionStatus::Connected = status {
+                    self.status_severity = MessageSeverity::Success;
                     let s = self.language.strings();
                     self.status_message = Some(s.status_ready.to_string());
                 }
             }
             AppEvent::LogMessage(log) => {
+                self.status_severity = log.severity;
                 self.status_message = Some(log.message);
             }
             AppEvent::DeviceFound(device) => {
@@ -398,24 +554,48 @@ impl GearVRReactorApp {
 
     fn spawn_event_listener(
         context: &ComponentContext<Self>,
-        rx: Arc<Mutex<mpsc::UnboundedReceiver<AppEvent>>>,
+        rx: Arc<Mutex<mpsc::Receiver<AppEvent>>>,
     ) {
-        context.spawn_background(move |_cancel| {
-            let mut guard = match rx.lock() {
-                Ok(g) => g,
-                Err(poisoned) => poisoned.into_inner(),
-            };
-            if let Some(event) = guard.blocking_recv() {
-                ReactorMessage::FromAppEvent(event)
-            } else {
-                ReactorMessage::Noop
+        context.spawn_background(move |cancel| {
+            for _ in 0..5 {
+                if cancel.is_cancelled() {
+                    return ReactorMessage::Noop;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(20));
             }
+            let mut events = Vec::new();
+            if let Ok(mut receiver) = rx.lock() {
+                while let Ok(event) = receiver.try_recv() {
+                    events.push(event);
+                }
+            }
+            ReactorMessage::FromAppEvents(events)
         });
     }
 }
 
 /// Entrypoint to launch the WinUI 3 Native UI
 pub fn run_reactor_app() -> anyhow::Result<()> {
+    let logs = if std::env::args().any(|arg| arg == "--smoke-test") {
+        crate::domain::settings::LogSettings {
+            log_dir: std::env::temp_dir()
+                .join("GearVRController-smoke/logs")
+                .to_string_lossy()
+                .into_owned(),
+            ..Default::default()
+        }
+    } else {
+        SettingsService::new()
+            .map(|svc| svc.get().log_settings.clone())
+            .unwrap_or_default()
+    };
+    let _logging = crate::infrastructure::logging::init_logger(&logs)?;
     App::run_component::<GearVRReactorApp>(())?;
+    if std::env::args().any(|arg| arg == "--smoke-test") {
+        anyhow::ensure!(
+            SMOKE_PASSED.load(std::sync::atomic::Ordering::Acquire),
+            "Native smoke test did not initialize its worker"
+        );
+    }
     Ok(())
 }

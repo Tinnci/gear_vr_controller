@@ -68,12 +68,17 @@ pub fn render_title_bar(
         0 => match app.connection_status {
             ConnectionStatus::Connected => {
                 if let Some(data) = &app.latest_data {
-                    format!("{} - {} ({} ms)", s.nav_dashboard, s.status_connected, data.timestamp)
+                    format!(
+                        "{} - {} ({} ms)",
+                        s.nav_dashboard, s.status_connected, data.timestamp
+                    )
                 } else {
                     format!("{} - {}", s.nav_dashboard, s.status_connected)
                 }
             }
-            ConnectionStatus::Connecting => format!("{} - {}", s.nav_dashboard, s.status_connecting),
+            ConnectionStatus::Connecting => {
+                format!("{} - {}", s.nav_dashboard, s.status_connecting)
+            }
             ConnectionStatus::Disconnected => {
                 if app.is_scanning {
                     format!("{} - {}", s.nav_dashboard, s.scan_button)

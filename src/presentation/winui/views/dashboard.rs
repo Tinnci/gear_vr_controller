@@ -28,12 +28,22 @@ pub fn render_dashboard_view(
 
     let scan_button = Button::new()
         .on_click(context.message(ReactorMessage::ToggleScan))
-        .content(if app.is_scanning { s.stop_scan_button } else { s.scan_button });
+        .content(if app.is_scanning {
+            s.stop_scan_button
+        } else {
+            s.scan_button
+        });
 
     let scan_ring = if app.is_scanning {
-        ProgressRing::new().is_active(true).width(FluentTokens::RING_MD).height(FluentTokens::RING_MD)
+        ProgressRing::new()
+            .is_active(true)
+            .width(FluentTokens::RING_MD)
+            .height(FluentTokens::RING_MD)
     } else {
-        ProgressRing::new().is_active(false).width(FluentTokens::RING_MD).height(FluentTokens::RING_MD)
+        ProgressRing::new()
+            .is_active(false)
+            .width(FluentTokens::RING_MD)
+            .height(FluentTokens::RING_MD)
     };
 
     let address_box = TextBox::new()
@@ -44,18 +54,9 @@ pub fn render_dashboard_view(
     let connection_controls = StackPanel::new()
         .orientation(Orientation::Horizontal)
         .spacing(FluentTokens::SPACING_MD)
-        .children((
-            address_box,
-            connect_button,
-            scan_button,
-            scan_ring,
-        ));
+        .children((address_box, connect_button, scan_button, scan_ring));
 
-    let connection_card = render_card(
-        s.conn_card_title,
-        s.conn_card_desc,
-        connection_controls,
-    );
+    let connection_card = render_card(s.conn_card_title, s.conn_card_desc, connection_controls);
 
     // Card 2: Operational Mode Selection (Segmented Control)
     let modes = [
@@ -78,11 +79,7 @@ pub fn render_dashboard_view(
                 .content(label)
         }));
 
-    let mode_card = render_card(
-        s.mode_card_title,
-        s.mode_card_desc,
-        mode_buttons,
-    );
+    let mode_card = render_card(s.mode_card_title, s.mode_card_desc, mode_buttons);
 
     // Card 3: Real-Time Input Telemetry Monitor
     let (tp_text, btn_text, sample_text) = format_telemetry(app.latest_data.as_ref(), s);
@@ -93,8 +90,12 @@ pub fn render_dashboard_view(
         StackPanel::new()
             .spacing(FluentTokens::SPACING_XS)
             .children((
-                TextBlock::new().text(tp_text).font_size(FluentTokens::FONT_BODY),
-                TextBlock::new().text(btn_text).font_size(FluentTokens::FONT_BODY),
+                TextBlock::new()
+                    .text(tp_text)
+                    .font_size(FluentTokens::FONT_BODY),
+                TextBlock::new()
+                    .text(btn_text)
+                    .font_size(FluentTokens::FONT_BODY),
                 TextBlock::new()
                     .text(sample_text)
                     .font_size(FluentTokens::FONT_CAPTION)
@@ -104,9 +105,5 @@ pub fn render_dashboard_view(
 
     StackPanel::new()
         .spacing(FluentTokens::SPACING_XL)
-        .children((
-            connection_card,
-            mode_card,
-            telemetry_card,
-        ))
+        .children((connection_card, mode_card, telemetry_card))
 }

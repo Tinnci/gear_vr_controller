@@ -20,9 +20,15 @@ pub fn render_diagnostics_view(
         StackPanel::new()
             .spacing(FluentTokens::SPACING_SM)
             .children((
-                TextBlock::new().text(accel).font_size(FluentTokens::FONT_BODY),
-                TextBlock::new().text(gyro).font_size(FluentTokens::FONT_BODY),
-                TextBlock::new().text(mag).font_size(FluentTokens::FONT_BODY),
+                TextBlock::new()
+                    .text(accel)
+                    .font_size(FluentTokens::FONT_BODY),
+                TextBlock::new()
+                    .text(gyro)
+                    .font_size(FluentTokens::FONT_BODY),
+                TextBlock::new()
+                    .text(mag)
+                    .font_size(FluentTokens::FONT_BODY),
             )),
     );
 
@@ -44,13 +50,14 @@ pub fn render_diagnostics_view(
                     .style(ButtonStyle::Default)
                     .on_click(context.message(ReactorMessage::OpenBtSettings))
                     .content(s.open_bt_settings),
+                Button::new()
+                    .is_enabled(!app.recovery_running)
+                    .on_click(context.message(ReactorMessage::RecoverBluetooth))
+                    .content(app.language.action_text("recover")),
             )),
     );
 
     StackPanel::new()
         .spacing(FluentTokens::SPACING_XL)
-        .children((
-            imu_card,
-            bt_recovery_card,
-        ))
+        .children((imu_card, bt_recovery_card))
 }
