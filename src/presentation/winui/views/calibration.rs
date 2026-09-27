@@ -26,64 +26,67 @@ pub fn render_calibration_view(
 }
 fn input_preferences(app: &GearVRReactorApp, context: &ViewContext<GearVRReactorApp>) -> View {
     let input = &app.ui.draft.input;
-    let advanced = Expander::new().slots([
-        SlotView::new(
-            ExpanderSlot::Header,
-            paragraph(app.text(Text::AdvancedInput)),
-        ),
-        SlotView::new(
-            ExpanderSlot::Content,
-            StackPanel::new().spacing(14.0).children((
-                toggle(
-                    app,
-                    context,
-                    Text::Smoothing,
-                    Bool::Smoothing,
-                    input.smoothing,
-                ),
-                paragraph(app.text(Text::SmoothingHint)),
-                slider(
-                    app,
-                    context,
-                    Text::SmoothingSamples,
-                    Number::SmoothingSamples,
-                    input.smoothing_samples as f64,
-                    (1.0, 64.0, 1.0),
-                ),
-                slider(
-                    app,
-                    context,
-                    Text::DeadZone,
-                    Number::DeadZone,
-                    input.dead_zone,
-                    (0.0, 0.9, 0.01),
-                ),
-                toggle(
-                    app,
-                    context,
-                    Text::Acceleration,
-                    Bool::Acceleration,
-                    input.acceleration,
-                ),
-                slider(
-                    app,
-                    context,
-                    Text::AccelerationPower,
-                    Number::AccelerationPower,
-                    input.acceleration_power,
-                    (1.0, 3.0, 0.1),
-                ),
-                toggle(
-                    app,
-                    context,
-                    Text::EdgeMotion,
-                    Bool::EdgeMotion,
-                    input.edge_motion,
-                ),
-                paragraph(app.text(Text::EdgeHint)),
-            )),
-        ),
-    ]);
+    let advanced = Expander::new()
+        .is_expanded(app.ui.advanced_input_open)
+        .on_is_expanded_changed(context.callback(ReactorMessage::AdvancedInput))
+        .slots([
+            SlotView::new(
+                ExpanderSlot::Header,
+                paragraph(app.text(Text::AdvancedInput)),
+            ),
+            SlotView::new(
+                ExpanderSlot::Content,
+                StackPanel::new().spacing(14.0).children((
+                    toggle(
+                        app,
+                        context,
+                        Text::Smoothing,
+                        Bool::Smoothing,
+                        input.smoothing,
+                    ),
+                    paragraph(app.text(Text::SmoothingHint)),
+                    slider(
+                        app,
+                        context,
+                        Text::SmoothingSamples,
+                        Number::SmoothingSamples,
+                        input.smoothing_samples as f64,
+                        (1.0, 64.0, 1.0),
+                    ),
+                    slider(
+                        app,
+                        context,
+                        Text::DeadZone,
+                        Number::DeadZone,
+                        input.dead_zone,
+                        (0.0, 0.9, 0.01),
+                    ),
+                    toggle(
+                        app,
+                        context,
+                        Text::Acceleration,
+                        Bool::Acceleration,
+                        input.acceleration,
+                    ),
+                    slider(
+                        app,
+                        context,
+                        Text::AccelerationPower,
+                        Number::AccelerationPower,
+                        input.acceleration_power,
+                        (1.0, 3.0, 0.1),
+                    ),
+                    toggle(
+                        app,
+                        context,
+                        Text::EdgeMotion,
+                        Bool::EdgeMotion,
+                        input.edge_motion,
+                    ),
+                    paragraph(app.text(Text::EdgeHint)),
+                )),
+            ),
+        ]);
     StackPanel::new().spacing(14.0).children((
         slider(
             app,

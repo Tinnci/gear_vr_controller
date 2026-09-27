@@ -35,6 +35,8 @@ static SMOKE_PASSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBo
 pub enum ReactorMessage {
     Navigate(Page),
     Subpage(Option<String>),
+    AdvancedInput(bool),
+    AdvancedConnection(bool),
     NavChanged(Option<String>),
     PaneChanged(bool),
     TogglePane,
@@ -301,6 +303,8 @@ impl GearVRReactorApp {
         match message {
             ReactorMessage::Navigate(page) => self.ui.page = page,
             ReactorMessage::Subpage(Some(label)) => self.ui.select_subpage(&label),
+            ReactorMessage::AdvancedInput(open) => self.ui.advanced_input_open = open,
+            ReactorMessage::AdvancedConnection(open) => self.ui.advanced_connection_open = open,
             ReactorMessage::NavChanged(Some(tag)) => {
                 if let Some(page) = Page::from_tag(&tag) {
                     self.ui.page = page;

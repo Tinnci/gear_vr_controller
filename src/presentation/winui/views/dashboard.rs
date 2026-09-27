@@ -213,25 +213,28 @@ fn mode(app: &GearVRReactorApp, context: &ViewContext<GearVRReactorApp>) -> View
     )
 }
 fn advanced_connection(app: &GearVRReactorApp, context: &ViewContext<GearVRReactorApp>) -> View {
-    Expander::new().slots([
-        SlotView::new(
-            ExpanderSlot::Header,
-            paragraph(app.text(Text::AdvancedConnection)),
-        ),
-        SlotView::new(
-            ExpanderSlot::Content,
-            StackPanel::new().spacing(12.0).children((
-                paragraph(app.text(Text::AddressHint)),
-                TextBox::new()
-                    .text(&app.ui.address)
-                    .placeholder_text("2C41A1001234")
-                    .automation_name(app.text(Text::Address))
-                    .max_width(360.0)
-                    .on_text_changed(context.callback(ReactorMessage::Address)),
-                button(app, context, Text::Connect, ReactorMessage::ConnectAddress).is_enabled(
-                    !app.ui.connected() && app.ui.connection != ConnectionStatus::Connecting,
-                ),
-            )),
-        ),
-    ])
+    Expander::new()
+        .is_expanded(app.ui.advanced_connection_open)
+        .on_is_expanded_changed(context.callback(ReactorMessage::AdvancedConnection))
+        .slots([
+            SlotView::new(
+                ExpanderSlot::Header,
+                paragraph(app.text(Text::AdvancedConnection)),
+            ),
+            SlotView::new(
+                ExpanderSlot::Content,
+                StackPanel::new().spacing(12.0).children((
+                    paragraph(app.text(Text::AddressHint)),
+                    TextBox::new()
+                        .text(&app.ui.address)
+                        .placeholder_text("2C41A1001234")
+                        .automation_name(app.text(Text::Address))
+                        .max_width(360.0)
+                        .on_text_changed(context.callback(ReactorMessage::Address)),
+                    button(app, context, Text::Connect, ReactorMessage::ConnectAddress).is_enabled(
+                        !app.ui.connected() && app.ui.connection != ConnectionStatus::Connecting,
+                    ),
+                )),
+            ),
+        ])
 }
