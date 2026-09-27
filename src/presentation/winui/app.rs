@@ -34,6 +34,7 @@ static SMOKE_PASSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBo
 #[derive(Debug, Clone)]
 pub enum ReactorMessage {
     Navigate(Page),
+    Subpage(Option<String>),
     NavChanged(Option<String>),
     PaneChanged(bool),
     TogglePane,
@@ -185,28 +186,6 @@ impl Component for GearVRReactorApp {
                     ]),
             )
         });
-        let notice = InfoBar::new()
-            .title(self.ui.page.title().get(language))
-            .message(
-                self.ui
-                    .notice
-                    .map(|text| text.get(language))
-                    .unwrap_or_default(),
-            )
-            .severity(match self.ui.severity {
-                MessageSeverity::Error => InfoBarSeverity::Error,
-                MessageSeverity::Warning => InfoBarSeverity::Warning,
-                MessageSeverity::Success => InfoBarSeverity::Success,
-                MessageSeverity::Info => InfoBarSeverity::Informational,
-            })
-            .is_open(self.ui.notice.is_some())
-            .is_closable(true)
-            .on_closed(context.message(ReactorMessage::DismissNotice));
-        let heading = TextBlock::new()
-            .text(self.ui.page.title().get(language))
-            .font_size(26.0)
-            .font_weight(FontWeight::SEMI_BOLD)
-            .automation_heading_level(AutomationHeadingLevel::Level1);
         let nav = NavigationView::new()
             .grid_row(1)
             .open_pane_length(200.0)
@@ -221,20 +200,7 @@ impl Component for GearVRReactorApp {
                 SlotView::collection(NavigationViewSlot::MenuItems, items),
                 SlotView::new(
                     NavigationViewSlot::Content,
-                    ScrollViewer::new()
-                        .vertical_scroll_bar_visibility(ScrollBarVisibility::Auto)
-                        .horizontal_scroll_bar_visibility(ScrollBarVisibility::Disabled)
-                        .content(
-                            Border::new()
-                                .padding(Thickness::new(28.0, 24.0, 28.0, 32.0))
-                                .content(
-                                    StackPanel::new()
-                                        .max_width(880.0)
-                                        .horizontal_alignment(HorizontalAlignment::Stretch)
-                                        .spacing(20.0)
-                                        .children((heading, notice, content)),
-                                ),
-                        ),
+                    super::components::page_layout::render_page_layout(self, context, content),
                 ),
             ]);
         Grid::new()
@@ -334,6 +300,7 @@ impl GearVRReactorApp {
     fn handle_message(&mut self, message: ReactorMessage, context: &ComponentContext<Self>) {
         match message {
             ReactorMessage::Navigate(page) => self.ui.page = page,
+            ReactorMessage::Subpage(Some(label)) => self.ui.select_subpage(&label),
             ReactorMessage::NavChanged(Some(tag)) => {
                 if let Some(page) = Page::from_tag(&tag) {
                     self.ui.page = page;

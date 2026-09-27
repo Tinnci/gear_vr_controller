@@ -34,7 +34,14 @@ the left region for Touchpad, or the right region for Presenter while releasing
 Back. The dashboard reflects the selected mode. Cursor motion pauses while Back
 is held. No graphical radial overlay is implemented.
 
-The Tune and calibrate page has separate air-mouse and touchpad speeds. Adjust
+The Tune and calibrate page has Input, Calibration and Test subpages. Settings
+has General, Button actions and Connection and background subpages. Help has
+Troubleshoot and Diagnostic details subpages. Each section remembers its last
+selected subpage for the current app session. Navigation keeps drafts and device operations intact. The
+page title, subpage selector and save bar stay outside the scrolling content.
+When a draft is unsaved, the save bar stays visible on other main pages too.
+
+The Input subpage has separate air-mouse and touchpad speeds. Adjust
 the controls, then select Save changes or Discard changes. Test input uses the
 draft tuning values and shows motion, clicks and scrolling inside the app; it
 does not send those actions to Windows. End the test before resuming desktop

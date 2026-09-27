@@ -13,6 +13,12 @@ macro_rules! catalog {
     };
 }
 catalog! {
+    InputTuning => ["输入调节", "Input", "入力調整", "입력 조정"],
+    TestNav => ["输入测试", "Test", "入力テスト", "입력 테스트"],
+    General => ["常规", "General", "一般", "일반"],
+    Troubleshooting => ["故障排查", "Troubleshoot", "問題の解決", "문제 해결"],
+    PendingChanges => ["有未保存的修改。", "Unsaved changes.", "未保存の変更があります。", "저장되지 않은 변경 사항입니다."],
+    InputHint => ["保存后用于电脑控制。输入测试使用当前修改值。", "Save changes to use them for desktop control. Tests use your draft values.", "PC 操作には保存後の値を、テストには編集中の値を使います。", "PC 제어에는 저장된 값을 사용합니다. 테스트에는 현재 편집 값을 사용합니다."],
     UnnamedDevice => ["未命名设备", "Unnamed device", "名前のないデバイス", "이름 없는 장치"],
     AppName => ["Gear VR 控制器", "Gear VR Controller", "Gear VR コントローラー", "Gear VR 컨트롤러"],
     Control => ["控制", "Control", "操作", "제어"],
@@ -68,7 +74,6 @@ catalog! {
     AccelerationPower => ["加速曲线", "Acceleration curve", "加速曲線", "가속 곡선"],
     Save => ["保存设置", "Save settings", "設定を保存", "설정 저장"],
     Saved => ["设置已保存。", "Settings saved.", "設定を保存しました。", "설정을 저장했습니다."],
-    Unsaved => ["有未保存的修改。测试使用当前值；桌面控制使用已保存的值。", "Unsaved changes. Tests use these values. Desktop control uses saved values.", "未保存です。テストでは編集中の値、PC 操作では保存済みの値を使います。", "저장되지 않은 변경 사항입니다. 테스트에는 현재 값, PC 제어에는 저장된 값을 사용합니다."],
     RestoreInput => ["恢复输入默认值", "Restore input defaults", "入力の既定値に戻す", "입력 기본값 복원"],
     Discard => ["放弃修改", "Discard changes", "変更を破棄", "변경 취소"],
     Calibration => ["校准", "Calibration", "校正", "보정"],

@@ -1,8 +1,8 @@
 //! Tuning, guided calibration and a desktop-isolated input preview.
 use super::super::{
     app::{GearVRReactorApp, ReactorMessage},
-    components::controls::{button, paragraph, save_bar, section, slider, toggle},
-    state::{BooleanPreference as Bool, NumericPreference as Number, Page},
+    components::controls::{button, paragraph, section, slider, toggle},
+    state::{BooleanPreference as Bool, NumericPreference as Number, Page, Subpage},
     text::Text,
 };
 use crate::domain::{
@@ -15,13 +15,14 @@ pub fn render_calibration_view(
     app: &GearVRReactorApp,
     context: &mut ViewContext<GearVRReactorApp>,
 ) -> View {
-    StackPanel::new().spacing(20.0).children((
-        paragraph(app.text(Text::TuneHint)),
-        input_preferences(app, context),
-        save_bar(app, context),
-        calibration(app, context),
-        preview(app, context),
-    ))
+    match app.ui.tuning_page {
+        Subpage::Calibration => calibration(app, context),
+        Subpage::Test => preview(app, context),
+        _ => StackPanel::new().spacing(20.0).children((
+            paragraph(app.text(Text::InputHint)),
+            input_preferences(app, context),
+        )),
+    }
 }
 fn input_preferences(app: &GearVRReactorApp, context: &ViewContext<GearVRReactorApp>) -> View {
     let input = &app.ui.draft.input;

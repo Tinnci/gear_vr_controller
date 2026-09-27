@@ -2,6 +2,7 @@
 use super::super::{
     app::{GearVRReactorApp, ReactorMessage},
     components::controls::{button, paragraph, section},
+    state::Subpage,
     text::Text,
 };
 use windows_reactor::*;
@@ -10,21 +11,9 @@ pub fn render_diagnostics_view(
     app: &GearVRReactorApp,
     context: &mut ViewContext<GearVRReactorApp>,
 ) -> View {
-    let details = Expander::new().slots([
-        SlotView::new(ExpanderSlot::Header, paragraph(app.text(Text::Details))),
-        SlotView::new(
-            ExpanderSlot::Content,
-            StackPanel::new().spacing(14.0).children((
-                paragraph(if app.ui.diagnostic_details.is_empty() {
-                    app.text(Text::NoDetails)
-                } else {
-                    &app.ui.diagnostic_details
-                }),
-                sensors(app),
-                button(app, context, Text::OpenLogs, ReactorMessage::OpenLogs),
-            )),
-        ),
-    ]);
+    if app.ui.help_page == Subpage::Details {
+        return details(app, context);
+    }
     StackPanel::new().spacing(20.0).children((
         paragraph(app.text(Text::HelpHint)),
         section(
@@ -47,7 +36,17 @@ pub fn render_diagnostics_view(
             )),
         ),
         recovery(app, context),
-        details,
+    ))
+}
+fn details(app: &GearVRReactorApp, context: &ViewContext<GearVRReactorApp>) -> View {
+    StackPanel::new().spacing(20.0).children((
+        paragraph(if app.ui.diagnostic_details.is_empty() {
+            app.text(Text::NoDetails)
+        } else {
+            &app.ui.diagnostic_details
+        }),
+        sensors(app),
+        button(app, context, Text::OpenLogs, ReactorMessage::OpenLogs),
         paragraph(app.text(Text::ExportHint)),
         button(
             app,

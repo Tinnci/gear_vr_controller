@@ -5,6 +5,11 @@ after connection, reconnection, calibration or binding changes. Tuning and
 troubleshooting have separate pages. Advanced addresses and sensor details are
 collapsed by default. Native controls provide keyboard and accessibility names.
 The discovery list has a bounded height. Navigation collapses in a narrow window.
+A SelectorBar switches fixed subpages under Tune, Settings and Help. Each parent
+remembers its selected subpage. A four-row Grid keeps the title and notice,
+subpage selector, scrolling content and save bar separate. Unsaved changes keep
+the save bar visible across all main pages. Changing routes recreates only the
+scrolling content; it does not restart transport, calibration or input testing.
 
 ## Responsibility boundaries
 

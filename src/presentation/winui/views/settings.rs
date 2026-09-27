@@ -1,8 +1,8 @@
 //! Draft preferences are saved explicitly as one validated snapshot.
 use super::super::{
     app::{modes, GearVRReactorApp, ReactorMessage},
-    components::controls::{button, paragraph, save_bar, section, toggle},
-    state::{BindingSlot, BooleanPreference as Bool},
+    components::controls::{button, paragraph, section, toggle},
+    state::{BindingSlot, BooleanPreference as Bool, Subpage},
     text::{action_text, mode_text, Text},
 };
 use crate::domain::{bindings::ButtonAction, i18n::Language};
@@ -12,6 +12,13 @@ pub fn render_settings_view(
     app: &GearVRReactorApp,
     context: &mut ViewContext<GearVRReactorApp>,
 ) -> View {
+    match app.ui.settings_page {
+        Subpage::Bindings => bindings(app, context),
+        Subpage::Background => background(app, context),
+        _ => general(app, context),
+    }
+}
+fn general(app: &GearVRReactorApp, context: &ViewContext<GearVRReactorApp>) -> View {
     let language = app.ui.language();
     let labels = Language::ALL.map(|language_option| match language_option {
         Language::Auto => app.text(Text::SystemLanguage),
@@ -20,20 +27,19 @@ pub fn render_settings_view(
         Language::Japanese => "日本語",
         Language::Korean => "한국어",
     });
-    let language_picker = ComboBox::new()
-        .items_source(labels)
-        .max_width(360.0)
-        .selected_index(Language::ALL.iter().position(|value| *value == language))
-        .automation_name(app.text(Text::Language))
-        .on_selection_changed(context.callback(ReactorMessage::Language))
-        .slot(ComboBoxSlot::Header, paragraph(app.text(Text::Language)));
     StackPanel::new().spacing(20.0).children((
-        language_picker,
-        bindings(app, context),
-        background(app, context),
-        save_bar(app, context),
+        ComboBox::new()
+            .items_source(labels)
+            .max_width(360.0)
+            .selected_index(Language::ALL.iter().position(|value| *value == language))
+            .automation_name(app.text(Text::Language))
+            .on_selection_changed(context.callback(ReactorMessage::Language))
+            .slot(ComboBoxSlot::Header, paragraph(app.text(Text::Language))),
+        toggle(app, context, Text::Tray, Bool::Tray, app.ui.draft.tray),
+        paragraph(app.text(Text::TrayHint)),
     ))
 }
+
 fn bindings(app: &GearVRReactorApp, context: &ViewContext<GearVRReactorApp>) -> View {
     let language = app.ui.language();
     let binding = app.ui.draft.bindings.for_mode(app.ui.binding_mode);
@@ -123,8 +129,6 @@ fn background(app: &GearVRReactorApp, context: &ViewContext<GearVRReactorApp>) -
                 Bool::AntiSleep,
                 draft.anti_sleep,
             ),
-            toggle(app, context, Text::Tray, Bool::Tray, draft.tray),
-            paragraph(app.text(Text::TrayHint)),
         )),
     )
 }

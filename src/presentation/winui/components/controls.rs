@@ -93,21 +93,29 @@ pub fn slider(
     ))
 }
 pub fn save_bar(app: &GearVRReactorApp, context: &ViewContext<GearVRReactorApp>) -> View {
-    StackPanel::new().spacing(8.0).children((
-        paragraph(if app.ui.dirty() {
-            app.text(Text::Unsaved)
-        } else {
-            app.text(Text::Saved)
-        }),
-        button(app, context, Text::Save, ReactorMessage::SavePreferences)
-            .style(ButtonStyle::Accent)
+    Grid::new()
+        .columns([GridLength::STAR, GridLength::Auto, GridLength::Auto])
+        .column_spacing(12.0)
+        .children((
+            Border::new()
+                .grid_column(0)
+                .vertical_alignment(VerticalAlignment::Center)
+                .content(paragraph(if app.ui.dirty() {
+                    app.text(Text::PendingChanges)
+                } else {
+                    app.text(Text::Saved)
+                })),
+            button(
+                app,
+                context,
+                Text::Discard,
+                ReactorMessage::DiscardPreferences,
+            )
+            .grid_column(1)
             .is_enabled(app.ui.dirty()),
-        button(
-            app,
-            context,
-            Text::Discard,
-            ReactorMessage::DiscardPreferences,
-        )
-        .is_enabled(app.ui.dirty()),
-    ))
+            button(app, context, Text::Save, ReactorMessage::SavePreferences)
+                .grid_column(2)
+                .style(ButtonStyle::Accent)
+                .is_enabled(app.ui.dirty()),
+        ))
 }

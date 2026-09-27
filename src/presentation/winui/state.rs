@@ -38,6 +38,33 @@ impl Page {
             .and_then(|index| Self::ALL.get(index).copied())
     }
 }
+/// A subpage is a view choice, not a controller command or a settings snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Subpage {
+    Input,
+    Calibration,
+    Test,
+    General,
+    Bindings,
+    Background,
+    Troubleshooting,
+    Details,
+}
+impl Subpage {
+    pub fn title(self) -> Text {
+        match self {
+            Self::Input => Text::InputTuning,
+            Self::Calibration => Text::Calibration,
+            Self::Test => Text::TestNav,
+            Self::General => Text::General,
+            Self::Bindings => Text::Bindings,
+            Self::Background => Text::Background,
+            Self::Troubleshooting => Text::Troubleshooting,
+            Self::Details => Text::Details,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum NumericPreference {
     AirSpeed,
@@ -68,6 +95,9 @@ pub enum BindingSlot {
 
 pub struct UiState {
     pub page: Page,
+    pub tuning_page: Subpage,
+    pub settings_page: Subpage,
+    pub help_page: Subpage,
     pub draft: UserPreferences,
     pub saved: UserPreferences,
     pub connection: ConnectionStatus,
@@ -98,6 +128,9 @@ impl UiState {
         let draft = UserPreferences::from(settings);
         Self {
             page: Page::Control,
+            tuning_page: Subpage::Input,
+            settings_page: Subpage::General,
+            help_page: Subpage::Troubleshooting,
             saved: draft.clone(),
             draft,
             connection: ConnectionStatus::Disconnected,
@@ -125,6 +158,38 @@ impl UiState {
             recovery_confirm: false,
             worker_ready: false,
             binding_mode: ControlMode::Mouse,
+        }
+    }
+    pub fn subpages(&self) -> &'static [Subpage] {
+        match self.page {
+            Page::Control => &[],
+            Page::Tuning => &[Subpage::Input, Subpage::Calibration, Subpage::Test],
+            Page::Settings => &[Subpage::General, Subpage::Bindings, Subpage::Background],
+            Page::Help => &[Subpage::Troubleshooting, Subpage::Details],
+        }
+    }
+    pub fn active_subpage(&self) -> Option<Subpage> {
+        match self.page {
+            Page::Control => None,
+            Page::Tuning => Some(self.tuning_page),
+            Page::Settings => Some(self.settings_page),
+            Page::Help => Some(self.help_page),
+        }
+    }
+    /// Reactor reports selected text. Resolve it only within the current page and locale.
+    pub fn select_subpage(&mut self, label: &str) {
+        let selected = self
+            .subpages()
+            .iter()
+            .copied()
+            .find(|page| page.title().get(self.language()) == label);
+        if let Some(selected) = selected {
+            match self.page {
+                Page::Control => {}
+                Page::Tuning => self.tuning_page = selected,
+                Page::Settings => self.settings_page = selected,
+                Page::Help => self.help_page = selected,
+            }
         }
     }
     pub fn language(&self) -> Language {
@@ -284,6 +349,34 @@ pub fn parse_address(text: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn subpage_navigation_preserves_drafts_and_device_operation() {
+        let mut state = UiState::new(&Settings::default());
+        state.page = Page::Tuning;
+        state.draft.input.air_sensitivity = 4.0;
+        state.connection = ConnectionStatus::Connected;
+        state.output = OutputTarget::Preview;
+        state.calibration = CalibrationStatus::Collecting {
+            kind: crate::domain::calibration::CalibrationKind::Touchpad,
+            progress: 0.5,
+            ready: false,
+        };
+        state.select_subpage(Subpage::Test.title().get(state.language()));
+        state.page = Page::Settings;
+        state.select_subpage(Subpage::Bindings.title().get(state.language()));
+        // A stale event from a different parent must not change this parent's route.
+        state.select_subpage(Subpage::Calibration.title().get(state.language()));
+        assert_eq!(state.active_subpage(), Some(Subpage::Bindings));
+        state.draft.language = Language::Japanese;
+        state.page = Page::Tuning;
+        assert_eq!(state.active_subpage(), Some(Subpage::Test));
+        assert_eq!(state.draft.input.air_sensitivity, 4.0);
+        assert!(state.dirty());
+        assert!(state.connected());
+        assert_eq!(state.output, OutputTarget::Preview);
+        assert!(state.calibration.is_collecting());
+    }
+
     #[test]
     fn address_requires_a_complete_nonzero_address() {
         assert_eq!(parse_address(" 2C:41:A1:00:12:34 "), Some(0x2C41A1001234));
