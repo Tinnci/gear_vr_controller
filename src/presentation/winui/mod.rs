@@ -8,7 +8,4 @@ pub mod components;
 pub mod tokens;
 pub mod views;
 
-#[allow(unused_imports)]
-pub use app::{GearVRReactorApp, ReactorMessage, run_reactor_app};
-#[allow(unused_imports)]
-pub use tokens::FluentTokens;
+pub use app::run_reactor_app;
