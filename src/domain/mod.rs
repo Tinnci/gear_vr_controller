@@ -1,6 +1,7 @@
 pub mod bindings;
 pub mod calibration;
 pub mod controller;
+pub mod discovery;
 pub mod gestures;
 pub mod i18n;
 pub mod imu;

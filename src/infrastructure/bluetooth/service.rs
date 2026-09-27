@@ -45,21 +45,30 @@ impl BluetoothService {
 
     /// Start scanning for devices
     pub fn start_scan(&mut self) -> Result<()> {
-        let (service_uuid, show_all) = {
+        let (service_uuid, show_all, known, last_used) = {
             let settings = self
                 .settings
                 .lock()
                 .map_err(|_| anyhow::anyhow!("Lock error"))?;
             let s = settings.get();
-            (s.ble_service_uuid.clone(), s.debug_show_all_devices)
+            (
+                s.ble_service_uuid.clone(),
+                s.debug_show_all_devices,
+                s.known_bluetooth_addresses.clone(),
+                s.last_connected_address,
+            )
         };
 
-        self.scanner.start(Some(&service_uuid), show_all)
+        self.scanner
+            .start(Some(&service_uuid), show_all, known, last_used)
     }
 
     /// Stop scanning
     pub fn stop_scan(&mut self) -> Result<()> {
         self.scanner.stop()
+    }
+    pub fn poll_scan(&self) {
+        self.scanner.poll();
     }
 
     /// Connect to a device by address

@@ -82,40 +82,34 @@ fn connection(app: &GearVRReactorApp, context: &ViewContext<GearVRReactorApp>) -
     )
 }
 fn discovery(app: &GearVRReactorApp, context: &ViewContext<GearVRReactorApp>) -> View {
-    let found = StackPanel::new()
-        .spacing(12.0)
-        .keyed_children(app.ui.devices.iter().map(|device| {
-            let name = if device.name.is_empty() {
-                app.text(Text::UnnamedDevice).to_string()
-            } else {
-                device.name.clone()
-            };
-            KeyedView::new(
-                format!("{:X}", device.address),
-                Grid::new()
-                    .columns([GridLength::STAR, GridLength::Auto])
-                    .column_spacing(12.0)
-                    .children((
-                        Border::new().grid_column(0).content(paragraph(&name)),
-                        button(
-                            app,
-                            context,
-                            Text::Connect,
-                            ReactorMessage::ConnectDevice(device.address),
-                        )
-                        .grid_column(1)
-                        .automation_name(format!(
-                            "{} {}",
-                            app.text(Text::Connect),
-                            name
-                        )),
-                    )),
-            )
-        }));
-    let found: View = if app.ui.devices.is_empty() {
+    let candidates = app
+        .ui
+        .devices
+        .iter()
+        .filter(|device| device.known || device.matches_service)
+        .count();
+    let others = app.ui.devices.len() - candidates;
+    let found: View = ScrollViewer::new()
+        .max_height(260.0)
+        .content(device_rows(app, context, true));
+    let other_devices: View = if others == 0 {
         StackPanel::new().into()
     } else {
-        ScrollViewer::new().max_height(260.0).content(found)
+        Expander::new()
+            .is_expanded(app.ui.other_devices_open)
+            .on_is_expanded_changed(context.callback(ReactorMessage::OtherDevices))
+            .slots([
+                SlotView::new(
+                    ExpanderSlot::Header,
+                    paragraph(format!("{} ({others})", app.text(Text::OtherDevices))),
+                ),
+                SlotView::new(
+                    ExpanderSlot::Content,
+                    ScrollViewer::new()
+                        .max_height(220.0)
+                        .content(device_rows(app, context, false)),
+                ),
+            ])
     };
     let recent: View = app
         .ui
@@ -153,12 +147,14 @@ fn discovery(app: &GearVRReactorApp, context: &ViewContext<GearVRReactorApp>) ->
         .is_enabled(!app.ui.scan_pending),
         paragraph(if app.ui.scanning {
             app.text(Text::Searching)
-        } else if app.ui.scan_attempted && app.ui.devices.is_empty() {
+        } else if app.ui.scan_attempted && candidates == 0 {
             app.text(Text::NoResults)
         } else {
             ""
         }),
+        paragraph(app.text(Text::DiscoveryOrder)),
         found,
+        other_devices,
         button(
             app,
             context,
@@ -167,6 +163,88 @@ fn discovery(app: &GearVRReactorApp, context: &ViewContext<GearVRReactorApp>) ->
         ),
     ))
 }
+fn device_rows(
+    app: &GearVRReactorApp,
+    context: &ViewContext<GearVRReactorApp>,
+    candidates: bool,
+) -> View {
+    use crate::domain::models::BluetoothAddressKind;
+    StackPanel::new().spacing(12.0).keyed_children(
+        app.ui
+            .devices
+            .iter()
+            .filter(|device| (device.known || device.matches_service) == candidates)
+            .map(|device| {
+                let name = if device.name.is_empty() {
+                    format!(
+                        "{} · {:06X}",
+                        app.text(if candidates {
+                            Text::AppName
+                        } else {
+                            Text::UnnamedDevice
+                        }),
+                        device.address & 0xFF_FFFF
+                    )
+                } else {
+                    device.name.clone()
+                };
+                let kind = match device.address_kind {
+                    BluetoothAddressKind::Public => Text::PublicAddress,
+                    BluetoothAddressKind::Random => Text::RandomAddress,
+                    BluetoothAddressKind::Unknown => Text::UnknownAddress,
+                };
+                let identity = format!("{:012X} · {}", device.address, app.text(kind));
+                let classification = app.text(if device.matches_service {
+                    Text::ServiceMatch
+                } else if device.known {
+                    Text::SeenBefore
+                } else {
+                    Text::OtherDevices
+                });
+                let signal = if device.available {
+                    format!("{} dBm", device.signal_strength)
+                } else {
+                    app.text(Text::NotSeen).to_owned()
+                };
+                KeyedView::new(
+                    format!("{:X}-{:?}", device.address, device.address_kind),
+                    Grid::new()
+                        .columns([GridLength::STAR, GridLength::Auto])
+                        .column_spacing(12.0)
+                        .children((
+                            StackPanel::new().grid_column(0).spacing(4.0).children((
+                                paragraph(&name),
+                                TextBlock::new()
+                                    .text(identity.clone())
+                                    .font_size(12.0)
+                                    .foreground(ThemeBrush::PrimaryText),
+                                TextBlock::new()
+                                    .text(format!("{classification} · {signal}"))
+                                    .font_size(12.0)
+                                    .foreground(ThemeBrush::PrimaryText),
+                            )),
+                            button(
+                                app,
+                                context,
+                                Text::Connect,
+                                ReactorMessage::ConnectDevice(device.address),
+                            )
+                            .grid_column(1)
+                            .is_enabled(
+                                candidates
+                                    && (device.available || device.known)
+                                    && app.ui.connection != ConnectionStatus::Connecting,
+                            )
+                            .automation_name(format!(
+                                "{} {name} {identity}",
+                                app.text(Text::Connect)
+                            )),
+                        )),
+                )
+            }),
+    )
+}
+
 fn mode(app: &GearVRReactorApp, context: &ViewContext<GearVRReactorApp>) -> View {
     let language = app.ui.language();
     let controls = RadioButtons::new()

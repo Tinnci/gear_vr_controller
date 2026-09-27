@@ -25,8 +25,9 @@ impl EventSender {
     }
 
     pub fn send(&self, event: AppEvent) -> Result<(), mpsc::error::TrySendError<AppEvent>> {
+        let discovery = matches!(&event, AppEvent::DevicesUpdated(_));
         self.sender.try_send(event).inspect_err(|error| {
-            if matches!(error, mpsc::error::TrySendError::Full(_)) {
+            if !discovery && matches!(error, mpsc::error::TrySendError::Full(_)) {
                 self.overflow.store(true, Ordering::Release);
             }
         })
@@ -52,5 +53,16 @@ mod tests {
             .is_err());
         assert!(sender.take_overflow());
         assert!(!sender.take_overflow());
+    }
+    #[test]
+    fn dropped_discovery_snapshot_does_not_trip_input_safety() {
+        let (sender, _receiver) = EventSender::channel(1);
+        assert!(sender.send(AppEvent::DevicesUpdated(vec![])).is_ok());
+        assert!(sender.send(AppEvent::DevicesUpdated(vec![])).is_err());
+        assert!(!sender.take_overflow());
+        assert!(sender
+            .send(AppEvent::ConnectionStatus(ConnectionStatus::Disconnected))
+            .is_err());
+        assert!(sender.take_overflow());
     }
 }

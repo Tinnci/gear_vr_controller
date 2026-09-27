@@ -84,6 +84,26 @@ The helper does not accept arbitrary device-removal commands.
 
 ## Settings and logs
 
+Discovery keeps existing rows in place during a search and publishes merged
+updates at most every 750 ms. RSSI uses an exponential moving average; results
+sort once after the search by availability, last-used device, history, service
+match and signal. During a search, devices missing for eight seconds are marked
+unavailable without removing their row. The next search removes cache entries
+last seen more than 60 seconds ago. Address type is part of the discovery key; changing random
+addresses are not merged by name or RSSI.
+
+Matching controllers and previously connected devices appear first. With
+`debug_show_all_devices=true`, other devices are grouped in a collapsed section
+and cannot be connected through that list. An unnamed service match uses the
+controller label plus an address suffix; full address and address type remain
+visible. A service UUID is compatibility evidence, not authentication.
+Scan summaries record advertisement count, results, unnamed matches, read
+errors and dropped updates, without logging device names or addresses.
+For a read-only 15-second hardware probe, run
+`cargo run --example scan_diagnostics --locked`. It prints aggregate counts and
+does not connect devices or inject input. Set `RUST_LOG=info` to include scan
+summaries when the environment otherwise filters INFO out.
+
 Settings are stored at `%APPDATA%\GearVRController\settings.json` (falling back
 to `%LOCALAPPDATA%`). Saves use an atomic replacement and preserve the previous
 file as `settings.json.bak`. Missing fields in older files receive defaults.
@@ -101,6 +121,9 @@ for example `info,gear_vr_controller_rust::infrastructure::bluetooth=debug`.
 Invalid environment filters fall back to the configured level with a warning.
 See [logging policy and diagnosis](docs/LOGGING.md) for limits, event conventions,
 cost analysis and failure behavior. Diagnostic summaries include logger health.
+Relative logging folders such as legacy `logs` resolve below
+`%LOCALAPPDATA%\GearVRController`, independent of the launch directory. Existing
+logs at an old relative location are left in place.
 Detailed raw-packet trace logging is available in Debug builds.
 Set `debug_raw_data_logging` to `true` as well as the `trace` level to enable it.
 

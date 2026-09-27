@@ -37,6 +37,7 @@ pub enum ReactorMessage {
     Subpage(Option<String>),
     AdvancedInput(bool),
     AdvancedConnection(bool),
+    OtherDevices(bool),
     NavChanged(Option<String>),
     PaneChanged(bool),
     TogglePane,
@@ -310,6 +311,7 @@ impl GearVRReactorApp {
             ReactorMessage::Subpage(Some(label)) => self.ui.select_subpage(&label),
             ReactorMessage::AdvancedInput(open) => self.ui.advanced_input_open = open,
             ReactorMessage::AdvancedConnection(open) => self.ui.advanced_connection_open = open,
+            ReactorMessage::OtherDevices(open) => self.ui.other_devices_open = open,
             ReactorMessage::NavChanged(Some(tag)) => {
                 if let Some(page) = Page::from_tag(&tag) {
                     self.ui.page = page;
@@ -403,11 +405,11 @@ impl GearVRReactorApp {
             ReactorMessage::RecoveryFinished(result) => self.recovery_finished(result),
             ReactorMessage::OpenBluetooth => self.open_path("ms-settings:bluetooth"),
             ReactorMessage::OpenLogs => {
-                let path = self
-                    .settings
-                    .lock()
-                    .ok()
-                    .map(|service| service.get().log_settings.log_dir.clone());
+                let path = self.settings.lock().ok().map(|service| {
+                    crate::infrastructure::logging::log_directory(&service.get().log_settings)
+                        .to_string_lossy()
+                        .into_owned()
+                });
                 if let Some(path) = path {
                     self.open_path(&path);
                 }

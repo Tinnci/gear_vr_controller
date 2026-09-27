@@ -100,6 +100,7 @@ pub struct UiState {
     pub help_page: Subpage,
     pub advanced_input_open: bool,
     pub advanced_connection_open: bool,
+    pub other_devices_open: bool,
     pub draft: UserPreferences,
     pub saved: UserPreferences,
     pub connection: ConnectionStatus,
@@ -135,6 +136,7 @@ impl UiState {
             help_page: Subpage::Troubleshooting,
             advanced_input_open: false,
             advanced_connection_open: false,
+            other_devices_open: false,
             saved: draft.clone(),
             draft,
             connection: ConnectionStatus::Disconnected,
@@ -323,22 +325,7 @@ impl UiState {
                     self.output_pending = false;
                 }
             }
-            AppEvent::DeviceFound(device) => {
-                if let Some(found) = self
-                    .devices
-                    .iter_mut()
-                    .find(|d| d.address == device.address)
-                {
-                    found.signal_strength = device.signal_strength;
-                    if !device.name.is_empty() {
-                        found.name = device.name;
-                    }
-                } else if self.devices.len() < 100 {
-                    self.devices.push(device);
-                    self.devices
-                        .sort_by(|a, b| a.name.cmp(&b.name).then(a.address.cmp(&b.address)));
-                }
-            }
+            AppEvent::DevicesUpdated(devices) => self.devices = devices,
         }
     }
 }

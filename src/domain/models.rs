@@ -45,11 +45,22 @@ pub struct ControllerData {
     pub raw_bytes: Option<Vec<u8>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScannedDevice {
     pub name: String,
     pub address: u64,
     pub signal_strength: i16,
+    pub address_kind: BluetoothAddressKind,
+    pub matches_service: bool,
+    pub known: bool,
+    pub available: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BluetoothAddressKind {
+    Public,
+    Random,
+    Unknown,
 }
 
 #[derive(Debug, Clone)]
@@ -57,7 +68,7 @@ pub enum AppEvent {
     ControllerData(ControllerData),
     ConnectionStatus(ConnectionStatus),
     LogMessage(StatusMessage),
-    DeviceFound(ScannedDevice),
+    DevicesUpdated(Vec<ScannedDevice>),
     ModeChanged(ControlMode),
     CalibrationStatus(super::calibration::CalibrationStatus),
     OutputChanged(OutputTarget),

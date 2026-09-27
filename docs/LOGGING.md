@@ -69,6 +69,8 @@ Default `log_settings` values (existing files inherit missing fields):
 Settings validate segment size from 64 KiB to 100 MiB and file count from 2 to
 100. Restart the app after editing logging settings. The default folder is
 `%LOCALAPPDATA%\GearVRController\logs`.
+Relative configured folders resolve under `%LOCALAPPDATA%\GearVRController`;
+opening the log folder uses the same resolution. Absolute folders are preserved.
 
 Time policies are `minutely`, `hourly`, `daily` and `never`, using UTC epoch
 buckets. Size rotation remains active with every time policy. Open a new segment
@@ -148,6 +150,11 @@ configuration and current counters: queue drops, oversized records, disk I/O
 errors and retention errors. It does not attach logs, export raw sensor/input
 values, expose device IDs or force a synchronous file flush. Counts are a
 point-in-time snapshot; a queued write can fail after the export.
+Discovery records `ble.scan.started` and `ble.scan.finished`, correlated by
+`scan_id`. Completion includes duration, advertisement count, rendered device
+count, service matches, unnamed devices, read errors and dropped snapshot updates.
+Read failures warn once per scan and are then counted. Per-device identifiers
+and names are intentionally absent from these events.
 
 ## Prior implementation assessment
 

@@ -172,6 +172,9 @@ impl WorkerState {
         self.latest = None;
     }
     fn tick(&mut self, transport: &EventSender) -> Option<BluetoothCommand> {
+        if self.scan_deadline.is_some() {
+            self.service.poll_scan();
+        }
         let now = Instant::now();
         let settings = self.snapshot();
         let transport_overflow = transport.take_overflow();

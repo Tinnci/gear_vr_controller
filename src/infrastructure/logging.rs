@@ -7,6 +7,7 @@ mod writer;
 use crate::domain::settings::LogSettings;
 use serde::Serialize;
 use std::io::{self, Write};
+use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc, OnceLock,
@@ -81,6 +82,9 @@ impl Drop for LoggingGuard {
 }
 
 pub fn init_logger(settings: &LogSettings) -> anyhow::Result<LoggingGuard> {
+    let mut resolved = settings.clone();
+    resolved.log_dir = log_directory(settings).to_string_lossy().into_owned();
+    let settings = &resolved;
     // Disable regex interpretation of field filters; module/level directives remain available.
     let directive = std::env::var("RUST_LOG").unwrap_or_else(|_| settings.level.clone());
     let (filter, filter_warning) = match EnvFilter::builder().with_regex(false).parse(directive) {
@@ -168,6 +172,20 @@ pub fn init_logger(settings: &LogSettings) -> anyhow::Result<LoggingGuard> {
     Ok(LoggingGuard {
         _worker: worker_guard,
     })
+}
+
+/// Legacy relative folders resolve under app data, independent of the launch directory.
+pub fn log_directory(settings: &LogSettings) -> PathBuf {
+    let configured = PathBuf::from(&settings.log_dir);
+    if configured.is_absolute() {
+        configured
+    } else {
+        std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(std::env::temp_dir)
+            .join("GearVRController")
+            .join(configured)
+    }
 }
 
 #[derive(Clone)]

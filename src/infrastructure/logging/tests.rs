@@ -215,3 +215,16 @@ fn disk_writer_counts_failed_writes() -> anyhow::Result<()> {
     assert_eq!(errors.load(Ordering::Relaxed), 1);
     Ok(())
 }
+
+#[test]
+fn relative_log_folders_are_stable_and_absolute_folders_are_preserved() -> anyhow::Result<()> {
+    let dir = TestDirectory::new()?;
+    let mut settings = dir.settings();
+    assert_eq!(log_directory(&settings), dir.0);
+    settings.log_dir = "logs".into();
+    let resolved = log_directory(&settings);
+    assert!(resolved.is_absolute());
+    assert!(resolved.ends_with("GearVRController/logs"));
+    assert_eq!(settings.log_dir, "logs");
+    Ok(())
+}
