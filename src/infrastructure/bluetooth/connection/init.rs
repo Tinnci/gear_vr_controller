@@ -9,7 +9,10 @@ use windows::Storage::Streams::DataWriter;
 impl BleConnection {
     /// Send initialization commands to the controller.
     pub(super) async fn send_init_commands(&self, cmd_char: &GattCharacteristic) -> Result<()> {
-        info!("Sending initialization commands...");
+        info!(
+            event = "ble.init.started",
+            "Controller initialization started"
+        );
         self.send_log("Initializing controller...", MessageSeverity::Info);
 
         for (command, repeat) in INIT_SEQUENCE {
@@ -23,7 +26,10 @@ impl BleConnection {
             }
         }
 
-        info!("Initialization commands sent");
+        info!(
+            event = "ble.init.finished",
+            "Controller initialization finished"
+        );
         Ok(())
     }
 }

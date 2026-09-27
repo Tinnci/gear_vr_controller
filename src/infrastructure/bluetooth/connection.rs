@@ -32,12 +32,12 @@ impl BleConnection {
 
     /// Connect to a device by Bluetooth address
     pub async fn connect(&self, address: u64) -> Result<ConnectionResult> {
-        info!("Connecting to Bluetooth device: {:#X}", address);
+        info!(event = "ble.connect", "Connecting to controller");
         self.send_log("Connecting to device...", MessageSeverity::Info);
 
         let device = self.connect_device(address).await?;
         let mut device_guard = DeviceGuard(Some(device.clone()));
-        info!("Device connected: {:?}", device.Name()?);
+        info!(event = "ble.connected", "Bluetooth device connected");
 
         let mut session_guard = SessionGuard(self.create_gatt_session(&device).await.ok());
 
@@ -81,8 +81,8 @@ impl BleConnection {
             Ok(()) => true,
             Err(e) => {
                 warn!(
-                    "Could not enable notifications: {}. Will try after init commands.",
-                    e
+                    event = "ble.notifications.deferred", error = %e,
+                    "Retry notifications after controller initialization"
                 );
                 false
             }
@@ -95,7 +95,11 @@ impl BleConnection {
         was_paired: bool,
         device: &windows::Devices::Bluetooth::BluetoothLEDevice,
     ) -> Result<()> {
-        info!("Retrying notification subscription after init commands...");
+        info!(
+            event = "ble.notifications.retry",
+            stage = "after_init",
+            "Retrying notification subscription"
+        );
         self.enable_notifications(data_char, was_paired, device)
             .await
     }

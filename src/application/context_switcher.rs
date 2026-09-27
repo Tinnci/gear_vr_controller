@@ -78,8 +78,8 @@ impl<W: ForegroundWatcher> ContextProfileService<W> {
         for rule in &self.rules {
             if current_process == rule.process_match {
                 info!(
-                    "Context switch triggered by '{}' -> Mode: {:?}",
-                    current_process, rule.target_mode
+                    event = "mode.changed", mode = ?rule.target_mode, source = "profile",
+                    "Control mode changed"
                 );
                 return Some(rule.target_mode);
             }

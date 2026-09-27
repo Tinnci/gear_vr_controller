@@ -1,4 +1,4 @@
-use tracing::{debug, trace};
+use tracing::trace;
 use windows::Win32::Foundation::POINT;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYBD_EVENT_FLAGS,
@@ -37,7 +37,7 @@ impl InputSimulator {
 
     /// Move mouse by relative offset
     pub fn move_mouse(&self, dx: i32, dy: i32) -> anyhow::Result<()> {
-        trace!("Moving mouse by ({}, {})", dx, dy);
+        trace!(event = "input.move", dx, dy, "Relative pointer movement");
         self.send_mouse_input(dx, dy, 0, MOUSEEVENTF_MOVE)
     }
 
@@ -46,20 +46,35 @@ impl InputSimulator {
         unsafe {
             let mut point = POINT::default();
             GetCursorPos(&mut point)?;
-            trace!("Got cursor pos: ({}, {})", point.x, point.y);
+            trace!(
+                event = "input.cursor",
+                x = point.x,
+                y = point.y,
+                "Pointer position read"
+            );
             Ok((point.x, point.y))
         }
     }
 
     /// Simulate left mouse button down
     pub fn mouse_left_down(&self) -> anyhow::Result<()> {
-        debug!("Mouse Left Down");
+        trace!(
+            event = "input.button",
+            button = "left",
+            pressed = true,
+            "Pointer button changed"
+        );
         self.send_mouse_input(0, 0, 0, MOUSEEVENTF_LEFTDOWN)
     }
 
     /// Simulate left mouse button up
     pub fn mouse_left_up(&self) -> anyhow::Result<()> {
-        debug!("Mouse Left Up");
+        trace!(
+            event = "input.button",
+            button = "left",
+            pressed = false,
+            "Pointer button changed"
+        );
         self.send_mouse_input(0, 0, 0, MOUSEEVENTF_LEFTUP)
     }
 
@@ -72,13 +87,23 @@ impl InputSimulator {
 
     /// Simulate right mouse button down
     pub fn mouse_right_down(&self) -> anyhow::Result<()> {
-        debug!("Mouse Right Down");
+        trace!(
+            event = "input.button",
+            button = "right",
+            pressed = true,
+            "Pointer button changed"
+        );
         self.send_mouse_input(0, 0, 0, MOUSEEVENTF_RIGHTDOWN)
     }
 
     /// Simulate right mouse button up
     pub fn mouse_right_up(&self) -> anyhow::Result<()> {
-        debug!("Mouse Right Up");
+        trace!(
+            event = "input.button",
+            button = "right",
+            pressed = false,
+            "Pointer button changed"
+        );
         self.send_mouse_input(0, 0, 0, MOUSEEVENTF_RIGHTUP)
     }
 
@@ -91,25 +116,35 @@ impl InputSimulator {
 
     /// Simulate mouse wheel scroll
     pub fn mouse_wheel(&self, delta: i32) -> anyhow::Result<()> {
-        debug!("Mouse Wheel Scroll: {}", delta);
+        trace!(
+            event = "input.scroll",
+            axis = "vertical",
+            delta,
+            "Pointer scroll"
+        );
         self.send_mouse_input(0, 0, (delta * WHEEL_DELTA) as u32, MOUSEEVENTF_WHEEL)
     }
 
     /// Simulate horizontal mouse wheel scroll
     pub fn mouse_h_wheel(&self, delta: i32) -> anyhow::Result<()> {
-        debug!("Mouse Horizontal Wheel Scroll: {}", delta);
+        trace!(
+            event = "input.scroll",
+            axis = "horizontal",
+            delta,
+            "Pointer scroll"
+        );
         self.send_mouse_input(0, 0, (delta * WHEEL_DELTA) as u32, MOUSEEVENTF_HWHEEL)
     }
 
     /// Simulate key press
     pub fn key_down(&self, key: VIRTUAL_KEY) -> anyhow::Result<()> {
-        debug!("Key Down: {:?}", key);
+        trace!(event = "input.key", key = ?key, pressed = true, "Key state changed");
         self.send_key_input(key, KEYBD_EVENT_FLAGS::default())
     }
 
     /// Simulate key release
     pub fn key_up(&self, key: VIRTUAL_KEY) -> anyhow::Result<()> {
-        debug!("Key Up: {:?}", key);
+        trace!(event = "input.key", key = ?key, pressed = false, "Key state changed");
         self.send_key_input(key, KEYEVENTF_KEYUP)
     }
 

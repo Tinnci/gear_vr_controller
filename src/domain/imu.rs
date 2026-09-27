@@ -57,7 +57,10 @@ impl ImuProcessor {
         self.calibration_samples.clear();
         self.is_calibrating = true;
         self.calibration_failure = None;
-        tracing::info!("IMU Calibration started - keep controller still");
+        tracing::info!(
+            event = "imu.calibration.started",
+            "Gyroscope calibration started"
+        );
     }
 
     /// Check if calibration is complete
@@ -190,7 +193,7 @@ impl ImuProcessor {
         self.gyro_sum_x = 0.0;
         self.gyro_sum_y = 0.0;
         self.pixels.reset();
-        tracing::info!("IMU filter state reset");
+        tracing::debug!(event = "imu.filter.reset", "Gyroscope filter reset");
     }
 
     fn finish_calibration(&mut self) {
@@ -224,9 +227,16 @@ impl ImuProcessor {
         self.calibration_samples.clear();
 
         if moving {
-            tracing::warn!("Gyroscope calibration rejected: controller moved");
+            tracing::warn!(
+                event = "imu.calibration.rejected",
+                reason = "movement",
+                "Gyroscope calibration rejected"
+            );
         } else {
-            tracing::info!("Gyroscope calibration complete");
+            tracing::info!(
+                event = "imu.calibration.finished",
+                "Gyroscope calibration finished"
+            );
         }
     }
 }

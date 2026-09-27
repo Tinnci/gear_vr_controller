@@ -74,7 +74,12 @@ impl GestureRecognizer {
     }
 
     fn start_gesture(&mut self, point: TouchpadPoint) {
-        trace!("Gesture started at ({:.2}, {:.2})", point.x, point.y);
+        trace!(
+            event = "gesture.started",
+            x = point.x,
+            y = point.y,
+            "Gesture started"
+        );
         self.start_point = Some(point);
         self.points.clear();
         self.points.push_back(point);
@@ -101,9 +106,13 @@ impl GestureRecognizer {
         }
 
         if result != GestureDirection::None {
-            debug!("Gesture recognized: {:?}", result);
+            debug!(event = "gesture.recognized", ?result, "Gesture recognized");
         } else {
-            trace!("Gesture ended without recognition (too short or unclear)");
+            trace!(
+                event = "gesture.rejected",
+                reason = "short_or_unclear",
+                "Gesture rejected"
+            );
         }
 
         self.is_gesture_in_progress = false;
@@ -131,9 +140,11 @@ impl GestureRecognizer {
 
         if dist_sq < threshold_sq {
             trace!(
-                "Gesture rejected: dist_sq {:.4} < threshold_sq {:.4}",
+                event = "gesture.rejected",
                 dist_sq,
-                threshold_sq
+                threshold_sq,
+                reason = "distance",
+                "Gesture rejected"
             );
             return GestureDirection::None;
         }
@@ -160,10 +171,8 @@ impl GestureRecognizer {
         };
 
         debug!(
-            "Gesture check: Dist={:.2}, Angle={:.1}°, Result={:?}",
-            dist_sq.sqrt(),
-            degrees,
-            direction
+            event = "gesture.evaluated", distance = dist_sq.sqrt(), angle_deg = degrees, result = ?direction,
+            "Gesture evaluated"
         );
         direction
     }

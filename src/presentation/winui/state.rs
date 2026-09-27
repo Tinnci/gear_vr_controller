@@ -214,6 +214,8 @@ impl UiState {
     }
     pub fn error(&mut self, detail: impl Into<String>) {
         self.diagnostic_details = detail.into();
+        tracing::error!(event = "ui.operation.failed", page = ?self.page,
+            error = %self.diagnostic_details, "Interface operation failed");
         self.set_notice(Text::OperationFailed, MessageSeverity::Error);
         self.scan_pending = false;
         self.output_pending = false;

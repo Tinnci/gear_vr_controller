@@ -1,40 +1,142 @@
-use crate::domain::settings::LogSettings;
-use std::fs::{self, File, OpenOptions};
-use std::io::{self, Write};
-use std::path::PathBuf;
-use std::str::FromStr;
-use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
-use tracing_subscriber::{filter::LevelFilter, fmt, prelude::*};
+//! Structured events on the caller; bounded disk work on one background thread.
+mod retention;
+#[cfg(test)]
+mod tests;
+mod writer;
 
-pub struct LoggingGuard;
+use crate::domain::settings::LogSettings;
+use serde::Serialize;
+use std::io::{self, Write};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc, OnceLock,
+};
+use tracing_appender::non_blocking::{ErrorCounter, NonBlocking, NonBlockingBuilder, WorkerGuard};
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+
+const QUEUE_CAPACITY: usize = 4096;
+const MAX_EVENT_BYTES: usize = 16 * 1024;
+static HEALTH: OnceLock<LogHealth> = OnceLock::new();
+
+#[derive(Clone)]
+struct LogHealth {
+    configuration: LoggingConfiguration,
+    dropped: Option<ErrorCounter>,
+    oversized: Arc<AtomicU64>,
+    io_errors: Arc<AtomicU64>,
+    cleanup_errors: Arc<AtomicU64>,
+}
+
+#[derive(Clone, Serialize)]
+pub struct LoggingConfiguration {
+    pub file_logging_enabled: bool,
+    pub filter: String,
+    pub rotation: String,
+    pub retention_days: u32,
+    pub max_files: usize,
+    pub max_file_size_bytes: u64,
+}
+
+#[derive(Default, Serialize)]
+pub struct LoggingDiagnostics {
+    pub configuration: Option<LoggingConfiguration>,
+    pub dropped_events: usize,
+    pub oversized_events: u64,
+    pub io_errors: u64,
+    pub cleanup_errors: u64,
+}
+
+pub fn diagnostics() -> LoggingDiagnostics {
+    HEALTH
+        .get()
+        .map_or_else(LoggingDiagnostics::default, |health| LoggingDiagnostics {
+            configuration: Some(health.configuration.clone()),
+            dropped_events: health
+                .dropped
+                .as_ref()
+                .map_or(0, ErrorCounter::dropped_lines),
+            oversized_events: health.oversized.load(Ordering::Relaxed),
+            io_errors: health.io_errors.load(Ordering::Relaxed),
+            cleanup_errors: health.cleanup_errors.load(Ordering::Relaxed),
+        })
+}
+
+/// Keep this alive until producers stop. Normal drop drains the file queue.
+pub struct LoggingGuard {
+    _worker: Option<WorkerGuard>,
+}
+
+impl Drop for LoggingGuard {
+    fn drop(&mut self) {
+        let health = diagnostics();
+        tracing::info!(
+            event = "app.stopped",
+            dropped_events = health.dropped_events,
+            oversized_events = health.oversized_events,
+            io_errors = health.io_errors,
+            cleanup_errors = health.cleanup_errors,
+            "Application stopped"
+        );
+    }
+}
 
 pub fn init_logger(settings: &LogSettings) -> anyhow::Result<LoggingGuard> {
-    let level_filter = std::env::var("RUST_LOG")
-        .ok()
-        .and_then(|level| LevelFilter::from_str(level.trim()).ok())
-        .or_else(|| LevelFilter::from_str(&settings.level).ok())
-        .unwrap_or(LevelFilter::INFO);
-
-    let console_layer = if settings.console_logging_enabled {
-        Some(
-            fmt::layer()
-                .with_writer(std::io::stdout)
-                .with_file(settings.show_file_line)
-                .with_line_number(settings.show_file_line)
-                .with_thread_ids(settings.show_thread_ids)
-                .with_target(settings.show_target)
-                .with_ansi(settings.ansi_colors),
-        )
-    } else {
-        None
+    // Disable regex interpretation of field filters; module/level directives remain available.
+    let directive = std::env::var("RUST_LOG").unwrap_or_else(|_| settings.level.clone());
+    let (filter, filter_warning) = match EnvFilter::builder().with_regex(false).parse(directive) {
+        Ok(filter) => (filter, None),
+        Err(error) => (
+            EnvFilter::builder()
+                .with_regex(false)
+                .parse(&settings.level)?,
+            Some(error.to_string()),
+        ),
     };
-
+    let console_layer = settings.console_logging_enabled.then(|| {
+        fmt::layer()
+            .with_writer(std::io::stdout)
+            .with_file(settings.show_file_line)
+            .with_line_number(settings.show_file_line)
+            .with_thread_ids(settings.show_thread_ids)
+            .with_target(settings.show_target)
+            .with_ansi(settings.ansi_colors)
+    });
+    let mut health = LogHealth {
+        configuration: LoggingConfiguration {
+            file_logging_enabled: settings.file_logging_enabled,
+            filter: filter.to_string(),
+            rotation: settings.rotation.clone(),
+            retention_days: settings.retention_days,
+            max_files: settings.max_files,
+            max_file_size_bytes: settings.max_file_size_bytes,
+        },
+        dropped: None,
+        oversized: Arc::default(),
+        io_errors: Arc::default(),
+        cleanup_errors: Arc::default(),
+    };
+    let mut worker_guard = None;
     let file_layer = if settings.file_logging_enabled {
-        let file_writer = RotatingFileWriter::new(settings)?;
+        let writer = writer::RotatingWriter::new(
+            settings,
+            health.io_errors.clone(),
+            health.cleanup_errors.clone(),
+        )?;
+        let (writer, guard) = NonBlockingBuilder::default()
+            .buffered_lines_limit(QUEUE_CAPACITY)
+            .lossy(true)
+            .thread_name("log-writer")
+            .finish(writer);
+        health.dropped = Some(writer.error_counter());
+        worker_guard = Some(guard);
+        let bounded = BoundedWriter {
+            writer,
+            oversized: health.oversized.clone(),
+        };
         Some(
             fmt::layer()
-                .with_writer(move || file_writer.clone())
+                .json()
+                .with_writer(move || bounded.clone())
                 .with_ansi(false)
                 .with_file(settings.show_file_line)
                 .with_line_number(settings.show_file_line)
@@ -44,151 +146,45 @@ pub fn init_logger(settings: &LogSettings) -> anyhow::Result<LoggingGuard> {
     } else {
         None
     };
-
     tracing_subscriber::registry()
-        .with(level_filter)
+        .with(filter)
         .with(console_layer)
         .with(file_layer)
         .try_init()?;
-
-    tracing::info!("Logging initialized successfully");
-
-    Ok(LoggingGuard)
+    let _ = HEALTH.set(health);
+    if let Some(error) = filter_warning {
+        tracing::warn!(event = "logging.filter.invalid", %error, "Using configured log level after invalid RUST_LOG");
+    }
+    let previous_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        tracing::error!(event = "app.panic", error = %info, "Application panicked");
+        previous_hook(info);
+    }));
+    tracing::info!(event = "app.started", version = env!("CARGO_PKG_VERSION"),
+        pid = std::process::id(), file_logging = settings.file_logging_enabled,
+        rotation = %settings.rotation, retention_days = settings.retention_days,
+        max_file_size_bytes = settings.max_file_size_bytes, max_files = settings.max_files,
+        "Application started");
+    Ok(LoggingGuard {
+        _worker: worker_guard,
+    })
 }
 
 #[derive(Clone)]
-struct RotatingFileWriter {
-    state: Arc<Mutex<RotatingFileState>>,
+struct BoundedWriter {
+    writer: NonBlocking,
+    oversized: Arc<AtomicU64>,
 }
-
-impl RotatingFileWriter {
-    fn new(settings: &LogSettings) -> anyhow::Result<Self> {
-        let dir = PathBuf::from(&settings.log_dir);
-        fs::create_dir_all(&dir)?;
-        let cutoff = SystemTime::now().checked_sub(std::time::Duration::from_secs(
-            u64::from(settings.retention_days) * 86_400,
-        ));
-        for entry in fs::read_dir(&dir)?.flatten() {
-            if entry
-                .file_name()
-                .to_string_lossy()
-                .starts_with(&format!("{}-", settings.file_name_prefix))
-                && entry.path().extension().is_some_and(|e| e == "log")
-            {
-                if let (Some(cutoff), Ok(metadata)) = (cutoff, entry.metadata()) {
-                    if metadata.modified().is_ok_and(|modified| modified < cutoff) {
-                        let _ = fs::remove_file(entry.path());
-                    }
-                }
-            }
-        }
-        let state = RotatingFileState {
-            dir: PathBuf::from(&settings.log_dir),
-            prefix: settings.file_name_prefix.clone(),
-            rotation: LogRotation::from_setting(&settings.rotation),
-            current_bucket: None,
-            file: None,
-        };
-
-        Ok(Self {
-            state: Arc::new(Mutex::new(state)),
-        })
-    }
-}
-
-impl Write for RotatingFileWriter {
+impl Write for BoundedWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let mut state = self
-            .state
-            .lock()
-            .map_err(|_| io::Error::other("Log writer lock poisoned"))?;
-        state.write(buf)
+        // Drop the whole record rather than producing truncated, invalid JSON.
+        if buf.len() > MAX_EVENT_BYTES {
+            self.oversized.fetch_add(1, Ordering::Relaxed);
+            return Ok(buf.len());
+        }
+        self.writer.write(buf)
     }
-
     fn flush(&mut self) -> io::Result<()> {
-        let mut state = self
-            .state
-            .lock()
-            .map_err(|_| io::Error::other("Log writer lock poisoned"))?;
-        state.flush()
-    }
-}
-
-struct RotatingFileState {
-    dir: PathBuf,
-    prefix: String,
-    rotation: LogRotation,
-    current_bucket: Option<u64>,
-    file: Option<File>,
-}
-
-impl RotatingFileState {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.ensure_file()?.write(buf)
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        if let Some(file) = &mut self.file {
-            file.flush()
-        } else {
-            Ok(())
-        }
-    }
-
-    fn ensure_file(&mut self) -> io::Result<&mut File> {
-        let bucket = self.rotation.current_bucket();
-        if self.current_bucket != Some(bucket) || self.file.is_none() {
-            fs::create_dir_all(&self.dir)?;
-            let path = self.log_path(bucket);
-            self.file = Some(OpenOptions::new().create(true).append(true).open(path)?);
-            self.current_bucket = Some(bucket);
-        }
-
-        self.file
-            .as_mut()
-            .ok_or_else(|| io::Error::other("log file was not initialized"))
-    }
-
-    fn log_path(&self, bucket: u64) -> PathBuf {
-        let file_name = match self.rotation {
-            LogRotation::Never => format!("{}.log", self.prefix),
-            LogRotation::Minutely => format!("{}-minute-{}.log", self.prefix, bucket),
-            LogRotation::Hourly => format!("{}-hour-{}.log", self.prefix, bucket),
-            LogRotation::Daily => format!("{}-day-{}.log", self.prefix, bucket),
-        };
-        self.dir.join(file_name)
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum LogRotation {
-    Never,
-    Minutely,
-    Hourly,
-    Daily,
-}
-
-impl LogRotation {
-    fn from_setting(value: &str) -> Self {
-        match value.to_lowercase().as_str() {
-            "never" => Self::Never,
-            "minutely" => Self::Minutely,
-            "hourly" => Self::Hourly,
-            _ => Self::Daily,
-        }
-    }
-
-    fn current_bucket(self) -> u64 {
-        let seconds = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-
-        match self {
-            Self::Never => 0,
-            Self::Minutely => seconds / 60,
-            Self::Hourly => seconds / 3_600,
-            Self::Daily => seconds / 86_400,
-        }
+        self.writer.flush()
     }
 }

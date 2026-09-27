@@ -4,7 +4,7 @@
 //! or the machine from entering standby during presentations or active controller usage.
 
 use anyhow::Result;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 use windows::Win32::System::Power::{
     SetThreadExecutionState, ES_CONTINUOUS, ES_DISPLAY_REQUIRED, ES_SYSTEM_REQUIRED,
     EXECUTION_STATE,
@@ -52,13 +52,15 @@ impl PowerInhibitor for WindowsPowerManager {
             let flags = ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED;
             let prev = SetThreadExecutionState(flags);
             if prev == EXECUTION_STATE(0) {
-                warn!("SetThreadExecutionState failed to prevent sleep");
                 anyhow::bail!("Failed to set thread execution state to prevent sleep");
             }
         }
 
         self.is_preventing = true;
-        info!("System power state locked: sleep and display turn-off prevented");
+        info!(
+            event = "power.inhibited",
+            "Display and system sleep prevented"
+        );
         Ok(())
     }
 
@@ -70,13 +72,12 @@ impl PowerInhibitor for WindowsPowerManager {
         unsafe {
             let prev = SetThreadExecutionState(ES_CONTINUOUS);
             if prev == EXECUTION_STATE(0) {
-                warn!("SetThreadExecutionState failed to restore sleep");
                 anyhow::bail!("Failed to reset thread execution state to continuous");
             }
         }
 
         self.is_preventing = false;
-        debug!("System power state unlocked: normal sleep behavior restored");
+        debug!(event = "power.restored", "Normal sleep behavior restored");
         Ok(())
     }
 

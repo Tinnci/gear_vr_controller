@@ -97,7 +97,7 @@ impl BluetoothService {
         {
             if let Ok(mut settings) = self.settings.lock() {
                 if let Err(error) = settings.record_connection(address) {
-                    tracing::warn!(%error, "Cannot save connection history");
+                    tracing::warn!(event = "settings.history.failed", error = %format!("{error:#}"), "Cannot save connection history");
                     let _ = self.event_sender.send(AppEvent::LogMessage(StatusMessage {
                         message: format!("Connected, but cannot save history: {error}"),
                         severity: MessageSeverity::Warning,
@@ -131,7 +131,7 @@ impl BluetoothService {
                                 .lock()
                                 .is_ok_and(|svc| svc.get().debug_raw_data_logging)
                             {
-                                tracing::trace!(raw = ?data.raw_bytes, "Controller packet");
+                                tracing::trace!(event = "ble.packet", raw = ?data.raw_bytes, "Controller packet received");
                             }
                             let _ = sender.send(AppEvent::ControllerData(data));
                         }
@@ -186,7 +186,7 @@ impl BluetoothService {
             drop(connection);
         }
 
-        info!("Disconnected from device");
+        info!(event = "ble.disconnected", "Controller disconnected");
         let _ = self.event_sender.send(AppEvent::LogMessage(StatusMessage {
             message: "Disconnected from device".to_string(),
             severity: MessageSeverity::Info,

@@ -91,10 +91,16 @@ Invalid, unreadable or future-version files remain untouched; the app displays
 an error and uses temporary in-memory defaults until the file is repaired or
 restored from its backup.
 
-Logs default to `%LOCALAPPDATA%\GearVRController\logs`, with daily rotation and
-14-day retention. Level, location and retention can be configured in JSON;
-logging changes take effect after restart. `RUST_LOG` accepts a single level
-(`trace`, `debug`, `info`, `warn`, `error`), not module filter expressions.
+Logs default to `%LOCALAPPDATA%\GearVRController\logs`. Files contain JSON lines;
+console output remains readable text and is disabled by default. A background
+writer rotates at UTC day boundaries or 10 MiB, keeping at most 20 files and
+removing files older than 14 days. Capacity can shorten the retained history.
+`never` disables time rotation only; size and retention limits still apply.
+Logging changes take effect after restart. `RUST_LOG` supports module filters,
+for example `info,gear_vr_controller_rust::infrastructure::bluetooth=debug`.
+Invalid environment filters fall back to the configured level with a warning.
+See [logging policy and diagnosis](docs/LOGGING.md) for limits, event conventions,
+cost analysis and failure behavior. Diagnostic summaries include logger health.
 Detailed raw-packet trace logging is available in Debug builds.
 Set `debug_raw_data_logging` to `true` as well as the `trace` level to enable it.
 

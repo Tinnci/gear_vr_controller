@@ -23,8 +23,8 @@ impl BleConnection {
 
         if services_result.Status()? != GattCommunicationStatus::Success {
             error!(
-                "Failed to get GATT services: {:?}",
-                services_result.Status()?
+                event = "ble.service.failed", status = ?services_result.Status()?,
+                "Cannot read GATT services"
             );
             anyhow::bail!("Failed to get GATT services");
         }
@@ -35,11 +35,15 @@ impl BleConnection {
         }
 
         let service = services.GetAt(0)?;
-        info!("Found controller service (cache refreshed)");
+        info!(
+            event = "ble.service.found",
+            cache = "uncached",
+            "Controller service found"
+        );
 
-        info!("Requesting service access...");
+        info!(event = "ble.access.started", "Requesting service access");
         let access_status = service.RequestAccessAsync()?.await?;
-        info!("Service access status: {:?}", access_status);
+        info!(event = "ble.access.finished", status = ?access_status, "Service access request finished");
 
         let chars_result = service
             .GetCharacteristicsWithCacheModeAsync(BluetoothCacheMode::Uncached)?
@@ -49,7 +53,11 @@ impl BleConnection {
         }
 
         let characteristics = chars_result.Characteristics()?;
-        info!("Found {} characteristics", characteristics.Size()?);
+        info!(
+            event = "ble.characteristics.found",
+            count = characteristics.Size()?,
+            "Service characteristics found"
+        );
 
         let mut data_char = None;
         let mut cmd_char = None;
@@ -60,10 +68,18 @@ impl BleConnection {
 
             if uuid == data_uuid {
                 data_char = Some(characteristic);
-                info!("Found data characteristic");
+                info!(
+                    event = "ble.characteristic.found",
+                    kind = "data",
+                    "Controller characteristic found"
+                );
             } else if uuid == cmd_uuid {
                 cmd_char = Some(characteristic.clone());
-                info!("Found command characteristic");
+                info!(
+                    event = "ble.characteristic.found",
+                    kind = "command",
+                    "Controller characteristic found"
+                );
             }
         }
 

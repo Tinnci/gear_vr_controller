@@ -7,13 +7,17 @@ use std::{
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogSettings {
+    #[serde(default = "default_max_file_size")]
+    pub max_file_size_bytes: u64,
+    #[serde(default = "default_max_files")]
+    pub max_files: usize,
     #[serde(default = "default_retention")]
     pub retention_days: u32,
     #[serde(default = "default_level")]
     pub level: String, // "trace", "debug", "info", "warn", "error"
     #[serde(default = "default_true")]
     pub file_logging_enabled: bool,
-    #[serde(default = "default_true")]
+    #[serde(default = "default_false")]
     pub console_logging_enabled: bool,
     #[serde(default = "default_log_dir")]
     pub log_dir: String,
@@ -34,10 +38,12 @@ pub struct LogSettings {
 impl Default for LogSettings {
     fn default() -> Self {
         Self {
+            max_file_size_bytes: default_max_file_size(),
+            max_files: default_max_files(),
             retention_days: default_retention(),
             level: default_level(),
             file_logging_enabled: default_true(),
-            console_logging_enabled: default_true(),
+            console_logging_enabled: default_false(),
             log_dir: default_log_dir(),
             file_name_prefix: default_prefix(),
             show_file_line: default_true(),
@@ -51,6 +57,12 @@ impl Default for LogSettings {
 
 fn default_level() -> String {
     "info".to_string()
+}
+fn default_max_file_size() -> u64 {
+    10 * 1024 * 1024
+}
+fn default_max_files() -> usize {
+    20
 }
 fn default_true() -> bool {
     true
@@ -452,6 +464,11 @@ impl Settings {
             "Invalid Bluetooth history"
         );
         let logs = &self.log_settings;
+        anyhow::ensure!(
+            (64 * 1024..=100 * 1024 * 1024).contains(&logs.max_file_size_bytes)
+                && (2..=100).contains(&logs.max_files),
+            "Log limits must be 64 KiB to 100 MiB per file and 2 to 100 files"
+        );
         anyhow::ensure!(
             (1..=90).contains(&logs.retention_days),
             "Log retention must be between 1 and 90 days"

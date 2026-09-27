@@ -290,6 +290,11 @@ impl GearVRReactorApp {
             });
         match result {
             Ok(()) => {
+                tracing::info!(
+                    event = "settings.saved",
+                    bindings_changed,
+                    "User preferences saved"
+                );
                 self.ui.saved = self.ui.draft.clone();
                 if bindings_changed {
                     self.output(OutputTarget::Paused);
@@ -395,15 +400,7 @@ impl GearVRReactorApp {
             ReactorMessage::ConfirmRecovery => self.ui.recovery_confirm = true,
             ReactorMessage::CancelRecovery => self.ui.recovery_confirm = false,
             ReactorMessage::RecoverBluetooth => self.recover(context),
-            ReactorMessage::RecoveryFinished(result) => {
-                self.ui.recovery_running = false;
-                match result {
-                    Ok(_) => self
-                        .ui
-                        .set_notice(Text::RecoveryDone, MessageSeverity::Success),
-                    Err(error) => self.ui.error(error),
-                }
-            }
+            ReactorMessage::RecoveryFinished(result) => self.recovery_finished(result),
             ReactorMessage::OpenBluetooth => self.open_path("ms-settings:bluetooth"),
             ReactorMessage::OpenLogs => {
                 let path = self
@@ -436,13 +433,26 @@ impl GearVRReactorApp {
             return;
         }
         self.ui.recovery_running = true;
+        tracing::info!(event = "recovery.started", "Bluetooth recovery started");
         self.ui.recovery_confirm = false;
         self.send(BluetoothCommand::Disconnect);
         context.spawn_background(|cancel| {
             ReactorMessage::RecoveryFinished(
-                crate::admin_client::recover_bluetooth(&cancel).map_err(|error| error.to_string()),
+                crate::admin_client::recover_bluetooth(&cancel)
+                    .map_err(|error| format!("{error:#}")),
             )
         });
+    }
+    fn recovery_finished(&mut self, result: Result<String, String>) {
+        self.ui.recovery_running = false;
+        match result {
+            Ok(_) => {
+                tracing::info!(event = "recovery.finished", "Bluetooth recovery finished");
+                self.ui
+                    .set_notice(Text::RecoveryDone, MessageSeverity::Success);
+            }
+            Err(error) => self.ui.error(error),
+        }
     }
     fn open_path(&mut self, path: &str) {
         if let Err(error) = std::process::Command::new("explorer.exe").arg(path).spawn() {
@@ -540,7 +550,9 @@ pub fn run_reactor_app() -> anyhow::Result<()> {
             .unwrap_or_default()
     };
     let _logging = crate::infrastructure::logging::init_logger(&logs)?;
-    App::run_component::<GearVRReactorApp>(())?;
+    App::run_component::<GearVRReactorApp>(()).inspect_err(|error| {
+        tracing::error!(event = "ui.run.failed", error = %format!("{error:#}"), "Native interface failed");
+    })?;
     if smoke {
         anyhow::ensure!(
             SMOKE_PASSED.load(std::sync::atomic::Ordering::Acquire),

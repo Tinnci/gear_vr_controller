@@ -16,7 +16,10 @@ impl BleConnection {
         was_paired: bool,
         _device: &BluetoothLEDevice,
     ) -> Result<()> {
-        info!("Enabling notifications...");
+        info!(
+            event = "ble.notifications.started",
+            "Notification subscription started"
+        );
 
         let max_attempts = self.config.max_pairing_retries.max(1);
 
@@ -35,7 +38,11 @@ impl BleConnection {
             }
         }
 
-        error!("Failed to enable notifications after all attempts");
+        error!(
+            event = "ble.notifications.exhausted",
+            attempts = max_attempts,
+            "Notification retries exhausted"
+        );
         anyhow::bail!("Failed to enable notifications")
     }
 
@@ -56,17 +63,23 @@ impl BleConnection {
         was_paired: bool,
     ) -> Result<bool> {
         if status == GattCommunicationStatus::Success {
-            info!("Notifications enabled successfully");
+            info!(
+                event = "ble.notifications.enabled",
+                "Controller notifications enabled"
+            );
             self.send_log("Connection established!", MessageSeverity::Success);
             return Ok(true);
         }
 
-        warn!("Notification subscription returned status: {:?}", status);
+        warn!(event = "ble.notifications.rejected", status = ?status, "Notification subscription rejected");
 
         if status == GattCommunicationStatus::Unreachable && was_paired {
             let warn_msg = "检测到设备已在系统中配对，请尝试在 Windows 设置中‘删除设备’后重试。";
             self.send_log(warn_msg, MessageSeverity::Error);
-            warn!("{}", warn_msg);
+            warn!(
+                event = "ble.pairing.stale",
+                "Remove the existing Windows pairing before retrying"
+            );
         }
 
         Ok(false)
@@ -80,8 +93,8 @@ impl BleConnection {
     ) -> Result<()> {
         let error_str = format!("{:?}", error);
         warn!(
-            "Notification subscription attempt {} failed: {}",
-            attempt, error_str
+            event = "ble.notifications.failed", attempt, max_attempts, error = %error_str,
+            "Notification subscription attempt failed"
         );
 
         if error_str.contains("800704C7") {
@@ -92,18 +105,25 @@ impl BleConnection {
         }
 
         if attempt < max_attempts {
-            info!("Retrying in {} ms...", self.config.pairing_retry_delay_ms);
+            info!(
+                event = "ble.notifications.retry",
+                delay_ms = self.config.pairing_retry_delay_ms,
+                "Notification retry scheduled"
+            );
             self.sleep_for_retry_delay().await;
             return Ok(());
         }
 
-        error!("Failed to enable notifications after {} attempts", attempt);
+        error!(event = "ble.notifications.exhausted", attempts = attempt, error = %error, "Notification retries exhausted");
         anyhow::bail!("Failed to enable notifications: {}", error)
     }
 
     async fn sleep_before_retry(&self, attempt: u32, max_attempts: u32) {
         if attempt < max_attempts {
-            info!("Retrying notification subscription...");
+            info!(
+                event = "ble.notifications.retry",
+                attempt, max_attempts, "Retrying notification subscription"
+            );
             self.sleep_for_retry_delay().await;
         }
     }

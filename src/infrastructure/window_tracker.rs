@@ -77,7 +77,11 @@ impl WindowsForegroundWatcher {
                 .and_then(|f| f.to_str())
                 .map(|s| s.to_ascii_lowercase());
 
-            trace!("Foreground process detected: {:?}", exe_name);
+            trace!(
+                event = "context.foreground",
+                available = exe_name.is_some(),
+                "Foreground process checked"
+            );
             exe_name
         }
     }

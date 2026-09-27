@@ -32,13 +32,20 @@ impl BleConnection {
         let pairing = device_info.Pairing()?;
         let is_paired = pairing.IsPaired()?;
 
-        info!("Device reports pairing status - IsPaired: {}", is_paired);
+        info!(
+            event = "ble.pairing.status",
+            paired = is_paired,
+            "Pairing status read"
+        );
 
         if is_paired {
-            info!("Device already paired according to handle");
+            info!(event = "ble.pairing.reused", "Existing pairing used");
             self.send_log("Device reports as paired", MessageSeverity::Info);
         } else {
-            info!("BLE device not paired - will attempt direct GATT access");
+            info!(
+                event = "ble.pairing.direct",
+                "Attempting direct GATT access"
+            );
             self.send_log(
                 "Connecting without traditional pairing...",
                 MessageSeverity::Info,

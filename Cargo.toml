@@ -30,12 +30,8 @@ serde_json = "1.0"
 
 # Logging
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", default-features = false, features = [
-    "ansi",
-    "fmt",
-    "registry",
-    "std",
-] }
+tracing-appender = "0.2.5"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["ansi", "env-filter", "fmt", "json", "registry", "std"] }
 
 # Error handling
 anyhow = "1.0.103"
@@ -66,7 +62,6 @@ windows = { version = "0.62.2", features = [
     "Foundation",
     "Foundation_Collections",
 ] }
-
 [build-dependencies]
 windows-reactor-setup = "0.100.0"
 winresource = "0.1.30"

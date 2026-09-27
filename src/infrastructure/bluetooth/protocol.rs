@@ -127,7 +127,12 @@ pub fn parse_data_packet(buffer: &IBuffer) -> Result<ControllerData> {
     }
 
     if length != 60 {
-        debug!("Unexpected data length: {} (expected 60)", length);
+        debug!(
+            event = "ble.packet.invalid",
+            actual_bytes = length,
+            expected_bytes = 60,
+            "Controller packet rejected"
+        );
         return Err(anyhow::anyhow!("Invalid packet size: {}", length));
     }
 

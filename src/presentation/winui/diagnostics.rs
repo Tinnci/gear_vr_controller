@@ -19,6 +19,7 @@ pub fn export_summary(state: &UiState) -> anyhow::Result<PathBuf> {
         "output": format!("{:?}", state.output), "worker_ready": state.worker_ready,
         "calibration": format!("{:?}", state.calibration),
         "scanning": state.scanning, "has_sensor_data": state.latest.is_some(),
+        "logging": crate::infrastructure::logging::diagnostics(),
     });
     std::fs::write(&path, serde_json::to_vec_pretty(&summary)?)?;
     Ok(path)

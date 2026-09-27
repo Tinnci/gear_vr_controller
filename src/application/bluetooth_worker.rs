@@ -21,12 +21,15 @@ use crate::{
 };
 use std::{
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
     },
     time::{Duration, Instant},
 };
 use tokio::sync::mpsc;
+use tracing::Instrument;
+
+static CONNECTION_ATTEMPT: AtomicU64 = AtomicU64::new(1);
 
 pub struct BluetoothWorker {
     shutdown: Arc<AtomicBool>,
@@ -81,7 +84,17 @@ async fn cancelled(shutdown: &AtomicBool) {
 }
 fn report(ui: &EventSender, message: impl Into<String>, severity: MessageSeverity) {
     let message = message.into();
-    tracing::info!(%message, ?severity);
+    match severity {
+        MessageSeverity::Error => {
+            tracing::error!(event = "worker.status", error = %message, "Worker operation failed")
+        }
+        MessageSeverity::Warning => {
+            tracing::warn!(event = "worker.status", detail = %message, "Worker warning")
+        }
+        MessageSeverity::Info | MessageSeverity::Success => {
+            tracing::info!(event = "worker.status", detail = %message, ?severity, "Worker status updated")
+        }
+    }
     let _ = ui.send(AppEvent::LogMessage(StatusMessage { message, severity }));
 }
 
@@ -99,6 +112,7 @@ struct WorkerState {
     last_packet: Instant,
     scan_deadline: Option<Instant>,
     calibration_deadline: Option<Instant>,
+    last_power_error: Option<Instant>,
     published_calibration: CalibrationStatus,
     latest: Option<crate::domain::models::ControllerData>,
     manual_mode: bool,
@@ -113,14 +127,34 @@ impl WorkerState {
             .unwrap_or_default()
     }
     fn pause(&mut self, target: OutputTarget) {
+        let previous = self.output.target;
         if let Err(error) = self.output.set_target(target, &mut self.mapper) {
             report(&self.ui, error.to_string(), MessageSeverity::Error);
         }
         let _ = self.ui.send(AppEvent::OutputChanged(self.output.target));
+        if previous != self.output.target {
+            tracing::info!(event = "output.changed", ?previous, target = ?self.output.target,
+                "Input output changed");
+        }
     }
     fn publish_calibration(&mut self) {
         let status = self.mapper.calibration_status();
         if status != &self.published_calibration {
+            match status {
+                CalibrationStatus::Failed { .. } => {
+                    tracing::warn!(event = "calibration.changed", ?status, "Calibration failed")
+                }
+                CalibrationStatus::Collecting { .. } => tracing::trace!(
+                    event = "calibration.progress",
+                    ?status,
+                    "Calibration progress updated"
+                ),
+                _ => tracing::info!(
+                    event = "calibration.changed",
+                    ?status,
+                    "Calibration state changed"
+                ),
+            }
             self.published_calibration = status.clone();
             let _ = self.ui.send(AppEvent::CalibrationStatus(status.clone()));
         }
@@ -140,17 +174,25 @@ impl WorkerState {
     fn tick(&mut self, transport: &EventSender) -> Option<BluetoothCommand> {
         let now = Instant::now();
         let settings = self.snapshot();
-        if transport.take_overflow()
-            || self.ui.take_overflow()
-            || (self.connected && self.last_packet.elapsed() > Duration::from_secs(2))
-        {
+        let transport_overflow = transport.take_overflow();
+        let ui_overflow = self.ui.take_overflow();
+        let stream_timeout = self.connected && self.last_packet.elapsed() > Duration::from_secs(2);
+        if transport_overflow || ui_overflow || stream_timeout {
+            tracing::error!(
+                event = "input.stream.failed",
+                transport_overflow,
+                ui_overflow,
+                stream_timeout,
+                silence_ms = self.last_packet.elapsed().as_millis() as u64,
+                "Input stream stopped; output paused"
+            );
             self.disconnected();
             self.reconnect.lost(settings.auto_reconnect, now);
-            report(
-                &self.ui,
-                "The input stream stopped. Input is paused. Connect the controller again.",
-                MessageSeverity::Error,
-            );
+            let _ = self.ui.send(AppEvent::LogMessage(StatusMessage {
+                message: "The input stream stopped. Input is paused. Connect the controller again."
+                    .into(),
+                severity: MessageSeverity::Error,
+            }));
         }
         if self.scan_deadline.is_some_and(|deadline| now >= deadline) {
             let _ = self.service.stop_scan();
@@ -186,8 +228,17 @@ impl WorkerState {
         } else {
             self.power.allow_sleep()
         };
-        if let Err(error) = result {
-            report(&self.ui, error.to_string(), MessageSeverity::Error);
+        match result {
+            Err(error)
+                if self
+                    .last_power_error
+                    .is_none_or(|last| now.duration_since(last) >= Duration::from_secs(30)) =>
+            {
+                self.last_power_error = Some(now);
+                report(&self.ui, format!("{error:#}"), MessageSeverity::Error);
+            }
+            Ok(()) => self.last_power_error = None,
+            Err(_) => {}
         }
         if let Some(data) = self.latest.take() {
             let _ = self.ui.send(AppEvent::ControllerData(data));
@@ -201,6 +252,11 @@ impl WorkerState {
             self.reconnect.disable();
         }
         self.reconnect.take_due(now).map(|(address, attempt)| {
+            tracing::info!(
+                event = "connection.retry",
+                attempt,
+                "Connection retry scheduled"
+            );
             let _ = self.ui.send(AppEvent::ReconnectAttempt(attempt));
             BluetoothCommand::Connect(address)
         })
@@ -233,6 +289,11 @@ impl WorkerState {
             }
             AppEvent::ControllerData(_) => {}
             AppEvent::ConnectionStatus(status) => {
+                tracing::info!(
+                    event = "connection.changed",
+                    ?status,
+                    "Connection state changed"
+                );
                 let lost = self.connected && status != ConnectionStatus::Connected;
                 self.connected = status == ConnectionStatus::Connected;
                 self.last_packet = Instant::now();
@@ -294,6 +355,8 @@ impl WorkerState {
                 let _ = self.ui.send(AppEvent::ScanState(false));
             }
             BluetoothCommand::ChangeMode(mode) => {
+                tracing::info!(event = "mode.changed", previous = ?self.mapper.mode, ?mode,
+                    source = "user", "Control mode changed");
                 self.manual_mode = true;
                 self.pause(self.output.target);
                 self.mapper.set_mode(mode);
@@ -340,24 +403,52 @@ impl WorkerState {
         let _ = self
             .ui
             .send(AppEvent::ConnectionStatus(ConnectionStatus::Connecting));
+        let attempt_id = CONNECTION_ATTEMPT.fetch_add(1, Ordering::Relaxed);
+        let started = Instant::now();
+        tracing::info!(
+            event = "connection.started",
+            attempt_id,
+            timeout_ms = 30_000,
+            "Connection attempt started"
+        );
         let result = tokio::select! {
-            _ = cancelled(shutdown) => return None,
+            _ = cancelled(shutdown) => {
+                tracing::info!(event = "connection.cancelled", attempt_id, reason = "shutdown",
+                    "Connection attempt cancelled");
+                return None;
+            },
             next = commands.recv() => {
+                tracing::info!(event = "connection.cancelled", attempt_id, reason = "command",
+                    "Connection attempt cancelled");
                 self.reconnect.disconnect();
                 let _ = self.ui.send(AppEvent::ConnectionStatus(ConnectionStatus::Disconnected));
                 return next;
             }
-            result = tokio::time::timeout(Duration::from_secs(30), self.service.connect(address)) => {
+            result = tokio::time::timeout(Duration::from_secs(30), self.service.connect(address)
+                .instrument(tracing::info_span!("connection", attempt_id))) => {
                 result.unwrap_or_else(|_| Err(anyhow::anyhow!("Connection timed out. Check Windows Bluetooth pairing.")))
             }
         };
+        tracing::info!(
+            event = "connection.finished",
+            attempt_id,
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            success = result.is_ok(),
+            "Connection attempt finished"
+        );
         if let Err(error) = result {
             self.reconnect
                 .lost(self.snapshot().auto_reconnect, Instant::now());
             let _ = self
                 .ui
                 .send(AppEvent::ConnectionStatus(ConnectionStatus::Disconnected));
-            report(&self.ui, error.to_string(), MessageSeverity::Error);
+            let message = format!("{error:#}");
+            tracing::error!(event = "connection.failed", attempt_id, error = %message,
+                "Connection attempt failed");
+            let _ = self.ui.send(AppEvent::LogMessage(StatusMessage {
+                message,
+                severity: MessageSeverity::Error,
+            }));
         }
         None
     }
@@ -384,6 +475,7 @@ async fn run(
         last_packet: Instant::now(),
         scan_deadline: None,
         calibration_deadline: None,
+        last_power_error: None,
         published_calibration: CalibrationStatus::Idle,
         latest: None,
         manual_mode: false,

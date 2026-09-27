@@ -40,7 +40,11 @@ impl BleScanner {
         self.stop()?;
 
         let uuid_str = service_uuid.unwrap_or(protocol::SERVICE_UUID);
-        info!("Starting BLE scan for service UUID: {}", uuid_str);
+        info!(
+            event = "ble.scan.started",
+            service_uuid = uuid_str,
+            "Controller scan started"
+        );
 
         let _ = self.event_sender.send(AppEvent::LogMessage(StatusMessage {
             message: "Scanning for Gear VR Controller...".to_string(),
@@ -106,7 +110,7 @@ impl BleScanner {
             if let Some(token) = self.token.take() {
                 let _ = watcher.RemoveReceived(token);
             }
-            info!("Stopping BLE scan...");
+            info!(event = "ble.scan.stopped", "Controller scan stopped");
             let _ = self.event_sender.send(AppEvent::LogMessage(StatusMessage {
                 message: "Scan stopped.".to_string(),
                 severity: MessageSeverity::Info,
