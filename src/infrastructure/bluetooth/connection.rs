@@ -32,6 +32,15 @@ impl BleConnection {
 
     /// Connect to a device by Bluetooth address
     pub async fn connect(&self, address: u64) -> Result<ConnectionResult> {
+        self.connect_with_address_type(address, None).await
+    }
+
+    /// Preserve the advertised address type when the caller knows it.
+    pub async fn connect_with_address_type(
+        &self,
+        address: u64,
+        address_type: Option<windows::Devices::Bluetooth::BluetoothAddressType>,
+    ) -> Result<ConnectionResult> {
         info!(event = "ble.connect", "Connecting to controller");
         self.send_log("Connecting to device...", MessageSeverity::Info);
         super::diagnostics::adapter_snapshot("before_connect").await;
@@ -41,7 +50,7 @@ impl BleConnection {
             max_retries = self.config.max_pairing_retries, retry_delay_ms = self.config.pairing_retry_delay_ms,
             "Controller protocol configuration");
 
-        let device = self.connect_device(address).await?;
+        let device = self.connect_device(address, address_type).await?;
         let mut device_guard = DeviceGuard(Some(device.clone()));
         info!(
             event = "ble.device.opened",

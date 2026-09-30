@@ -2,6 +2,7 @@
 name = "gear_vr_controller_rust"
 version = "0.1.0"
 edition = "2021"
+default-run = "gear_vr_controller_rust"
 rust-version = "1.95"
 description = "Native Windows Bluetooth LE input bridge for Samsung Gear VR controllers"
 repository = "https://github.com/Tinnci/gear_vr_controller"

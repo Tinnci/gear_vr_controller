@@ -110,3 +110,6 @@ Desktop.ini
 /target
 logs/
 /dist/
+
+# Rust console entry points are source, not Visual Studio build output.
+!/src/bin/

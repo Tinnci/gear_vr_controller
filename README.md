@@ -173,6 +173,12 @@ are retained as a separate CI artifact for diagnosis.
 
 ## Connection diagnostics
 
+The package includes `gearvr-debug.exe` for finite hardware probes without the
+GUI. It supports adapter/device status, scanning, Windows pairing and protocol
+connection with packet counts. Its JSON-line output can be consumed by a shell
+or another debugging tool. See [DEBUG_CLI.md](docs/DEBUG_CLI.md) for commands,
+output fields and diagnosis limits.
+
 For connection diagnosis, close the app and run `./scripts/start-diagnostics.ps1`.
 It enables Bluetooth DEBUG logs for that process without changing saved settings.
 Inside an extracted release package, run the bundled `./start-diagnostics.ps1`.

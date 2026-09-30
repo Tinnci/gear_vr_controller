@@ -7,9 +7,21 @@ use windows::Devices::Bluetooth::GenericAttributeProfile::GattSession;
 
 impl BleConnection {
     /// Connect to BLE device.
-    pub(super) async fn connect_device(&self, address: u64) -> Result<BluetoothLEDevice> {
+    pub(super) async fn connect_device(
+        &self,
+        address: u64,
+        address_type: Option<windows::Devices::Bluetooth::BluetoothAddressType>,
+    ) -> Result<BluetoothLEDevice> {
         let device = super::super::diagnostics::operation("open_device", async {
-            BluetoothLEDevice::FromBluetoothAddressAsync(address)?.await
+            match address_type {
+                Some(kind) => {
+                    BluetoothLEDevice::FromBluetoothAddressWithBluetoothAddressTypeAsync(
+                        address, kind,
+                    )?
+                    .await
+                }
+                None => BluetoothLEDevice::FromBluetoothAddressAsync(address)?.await,
+            }
         })
         .await?;
         Ok(device)

@@ -17,6 +17,8 @@ try {
     if (Test-Path -LiteralPath $packageDir) { Remove-Item -LiteralPath $packageDir -Recurse -Force }
     $null = New-Item -ItemType Directory -Path $packageDir -Force
     Copy-Item -LiteralPath (Join-Path $release 'gear_vr_controller_rust.exe') -Destination $packageDir
+    Copy-Item -LiteralPath (Join-Path $release 'gearvr-debug.exe') -Destination $packageDir
+    Copy-Item -LiteralPath (Join-Path $repo 'docs/DEBUG_CLI.md') -Destination $packageDir
     Copy-Item -LiteralPath (Join-Path $repo 'assets/app-icon.ico') -Destination $packageDir
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'start-diagnostics.ps1') -Destination $packageDir
     $runtimeRoot = Join-Path $env:LOCALAPPDATA 'windows-reactor-setup/temp/Microsoft.WindowsAppSDK.Runtime-2.4.0/.msix_extract'
@@ -46,11 +48,13 @@ try {
     }
     $manifest | Set-Content -LiteralPath (Join-Path $packageDir 'SHA256SUMS') -Encoding utf8
     & (Join-Path $PSScriptRoot 'smoke.ps1') -Executable (Join-Path $packageDir 'gear_vr_controller_rust.exe')
+    & (Join-Path $PSScriptRoot 'smoke-cli.ps1') -Executable (Join-Path $packageDir 'gearvr-debug.exe')
     $zip = "$packageDir.zip"
     if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip }
     Compress-Archive -LiteralPath $packageDir -DestinationPath $zip
     "$((Get-FileHash -LiteralPath $zip).Hash.ToLowerInvariant())  $([IO.Path]::GetFileName($zip))" | Set-Content -LiteralPath "$zip.sha256" -Encoding utf8
     # Symbols are a separate maintainer artifact, not part of the user package.
     Copy-Item -LiteralPath (Join-Path $release 'gear_vr_controller_rust.pdb') -Destination $dist -Force
+    Copy-Item -LiteralPath (Join-Path $release 'gearvr_debug.pdb') -Destination $dist -Force
     Write-Host "Package: $zip"
 } finally { Pop-Location }
