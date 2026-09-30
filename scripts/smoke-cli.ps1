@@ -22,3 +22,5 @@ if ($LASTEXITCODE -eq 0) { throw 'CLI accepted a connection without an explicit 
 $records = Assert-Records $failureLines 'failed'
 if ($records[-1].data.success) { throw 'CLI failure contract failed' }
 Write-Host 'CLI smoke passed: JSON envelope, help and target validation'
+# The deliberately rejected command is not the script's exit status.
+$global:LASTEXITCODE = 0
