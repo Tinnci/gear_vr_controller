@@ -18,7 +18,7 @@ try {
     $null = New-Item -ItemType Directory -Path $packageDir -Force
     Copy-Item -LiteralPath (Join-Path $release 'gear_vr_controller_rust.exe') -Destination $packageDir
     Copy-Item -LiteralPath (Join-Path $release 'gearvr-debug.exe') -Destination $packageDir
-    Copy-Item -LiteralPath (Join-Path $repo 'docs/DEBUG_CLI.md') -Destination $packageDir
+    Copy-Item -LiteralPath (Join-Path $repo 'docs') -Destination $packageDir -Recurse
     Copy-Item -LiteralPath (Join-Path $repo 'assets/app-icon.ico') -Destination $packageDir
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'start-diagnostics.ps1') -Destination $packageDir
     $runtimeRoot = Join-Path $env:LOCALAPPDATA 'windows-reactor-setup/temp/Microsoft.WindowsAppSDK.Runtime-2.4.0/.msix_extract'
@@ -34,7 +34,7 @@ try {
     foreach ($required in @('Microsoft.UI.Xaml.dll', 'Microsoft.WindowsAppRuntime.dll', 'resources.pri', 'Microsoft.UI.Xaml', 'en-us', 'Microsoft.Web.WebView2.Core.dll')) {
         if (!(Test-Path -LiteralPath (Join-Path $packageDir $required))) { throw "Missing runtime payload: $required" }
     }
-    Copy-Item -LiteralPath (Join-Path $repo 'LICENSE'), (Join-Path $repo 'README.md'), (Join-Path $repo 'THIRD_PARTY_NOTICES.md'), (Join-Path $PSScriptRoot 'runtime-lock.json') -Destination $packageDir
+    Copy-Item -LiteralPath (Join-Path $repo 'LICENSE'), (Join-Path $repo 'README.md'), (Join-Path $repo 'ROADMAP.md'), (Join-Path $repo 'THIRD_PARTY_NOTICES.md'), (Join-Path $PSScriptRoot 'runtime-lock.json') -Destination $packageDir
     $noticeDir = Join-Path $packageDir 'licenses'
     $null = New-Item -ItemType Directory -Path $noticeDir -Force
     foreach ($name in @('Microsoft.WindowsAppSDK.Runtime-2.4.0', 'Microsoft.Web.WebView2-1.0.4078.44')) {

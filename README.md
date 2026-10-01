@@ -178,6 +178,9 @@ GUI. It supports adapter/device status, scanning, Windows pairing and protocol
 connection with packet counts. Its JSON-line output can be consumed by a shell
 or another debugging tool. See [DEBUG_CLI.md](docs/DEBUG_CLI.md) for commands,
 output fields and diagnosis limits.
+For a captured example of a paired controller failing during link encryption,
+see [the recovery analysis](docs/BLUETOOTH_RECOVERY.md). It separates native
+evidence from recovery steps that still require hardware verification.
 
 For connection diagnosis, close the app and run `./scripts/start-diagnostics.ps1`.
 It enables Bluetooth DEBUG logs for that process without changing saved settings.
