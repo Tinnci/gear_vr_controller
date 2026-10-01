@@ -32,6 +32,35 @@
 尝试重新启用适配器。其原生类型还原函数也已通过上述七种合成类型测试。
 它没有实现重配对后人工回滚或受保护 HKLM 叶子被系统删除后的重建，不能视为完整生产恢复工具。
 
+### 获得授权后的执行结果：驱动停用被阻止
+
+15:42–15:50（UTC+08:00）已启动用户授权的实验，但没有进入安全值删除阶段：
+
+- 首次 PnPUtil 停用请求在 25 秒超时。System 的 Kernel-PnP 225 事件（15:43:13）
+  明确记录目标 USB 适配器被 PID 2416 的 `svchost.exe -k LocalService -p -s bthserv` 阻止移除。
+- 随后的 PnPUtil 启用以及另一次停用均报告设备正在等待系统重启以完成先前操作。
+  本轮没有请求整机重启，也没有使用强制停用标志。
+- 服务控制原型第一次未加载 ServiceController 类型，调用在修改服务前失败；
+  改为通过 `Get-Service` 获取控制器，并用只读等待验证后重新执行。
+- 后一轮已正常停止当时运行的 `BluetoothUserService_aace4` 和 `bthserv`，
+  PnPUtil 仍立即拒绝停用；退出路径已恢复这两个服务，原本停止的服务模板未启动。
+- 直接 `CM_Get_DevNode_Status` 查询为 `0x0180610A`：`DN_STARTED=true`、
+  `DN_DISABLEABLE=true`、`DN_NEED_RESTART=true`、`DN_WILL_BE_REMOVED=false`。
+  这时高层仍显示 `Status=OK`、问题码 0。SDK 的 `DN_NEED_RESTART` 与 `DN_LIAR` 是同一标志 0x100。
+- 最后复核确认目标全部 13 个值、owner/group/DACL 和最后写入时间仍与加密备份一致。
+  当前驱动仍启动，两个原运行服务均已恢复；没有真实安全值清理、首次配对或恢复后重连结果。
+
+因此，“问题码为 0”不足以认定设备可以重载。原型已增加读取底层设备节点标志，
+发现 `DN_NEED_RESTART` 就在清理前终止，并要求停用后的驱动确实不再启动。
+状态读取依据 [CM_Get_DevNode_Status](https://learn.microsoft.com/en-us/windows/win32/api/cfgmgr32/nf-cfgmgr32-cm_get_devnode_status)，
+停止服务及依赖关系处理依据 [Stop-Service](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.management/stop-service?view=powershell-7.5)。
+事件证明本轮适配器移除遇到了服务阻止，不证明它就是先前 LTK 失效的根因。
+首次停用前没有保存原生节点标志，不能断言重启标志是这次操作首次产生的。
+
+后续需要用户保存工作并重启 Windows，先复核重启标志已清除及备份是否仍匹配，
+再从暂停目标连接、正常停止蓝牙服务开始。只有停用状态通过验证，才删除目标值。
+用户对定点实验的授权保留；整机重启没有自动执行。
+
 ## 有没有通用的强制清理 API
 
 在已检查的公开 Windows SDK 和 Microsoft 文档中，没有找到这样的受支持契约：
