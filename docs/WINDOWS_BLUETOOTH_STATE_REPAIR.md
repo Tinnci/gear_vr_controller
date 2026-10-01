@@ -57,6 +57,11 @@
 [取消配对通知](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/bthddi/ns-bthddi-_brb_l2ca_register_server)。
 内部导入／导出结论来自本机 PE 表检查，不是根据函数名推断调用参数或完整调用链。
 
+底层 HCI 的 `Delete Stored Link Key` 也不能当作这个 BLE 问题的通用修复：
+[Bluetooth SIG 的 HCI 规范，第 7.3.10 节](https://www.bluetooth.com/wp-content/uploads/Files/Specification/HTML/Core-54/out/en/host-controller-interface/host-controller-interface-functional-specification.html)
+将其限定为删除 BR/EDR Controller 保存的 Link Key。它没有提供清空 Windows 主机 BLE LTK
+持久存储的契约。不能因为命令名称包含“删除密钥”就通过供应商入口发送它来解决本机问题。
+
 ## 权限路径：不必先接管权限或建立 SYSTEM 服务
 
 Microsoft 的 [RegCreateKeyExW 文档](https://learn.microsoft.com/en-us/windows/win32/api/winreg/nf-winreg-regcreatekeyexw)
