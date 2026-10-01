@@ -1,4 +1,4 @@
-# Gear VR 连接失败：2026-09-30 现场分析与恢复方案
+# Gear VR 连接失败：现场分析与恢复实验（2026-10-01 更新）
 
 本次失败已定位到链路加密阶段：Windows 与控制器成功建立 BLE 链路，
 随后加密返回 `0x06 / PIN or Key Missing`，本机再发起断开。
@@ -6,8 +6,32 @@
 
 这次现场最可能是 Windows 保留了旧配对记录，而控制器没有提供该记录对应的
 长期密钥（LTK）。目前不能确定密钥何时、为何丢失，也不能据此解释所有历史故障。
-优先验证删除这一台设备的旧配对记录并重新建立连接，暂不把重启作为首要步骤。
-下面的恢复方案尚未在本次现场执行，不能宣称已经修复。
+2026-10-01 已移除这一台设备的旧配对记录，首次直接连接收到有效数据，
+但正常断开后的重连再次出现同一加密错误。单次连接成功不能视为稳定修复。
+本次没有重启电脑、重置适配器或重启蓝牙服务。
+
+## 2026-10-01 恢复实验
+
+用户确认控制器已唤醒后，重新扫描验证了同一 Public 地址和设备身份。
+只对这台控制器调用取消配对 API；没有删除其他设备或修改密钥注册表。
+
+| 操作 | 实际结果 | 能说明什么 |
+| --- | --- | --- |
+| 移除旧设备关系 | `UnpairAsync` 返回 `Unpaired (0)` | Windows 已完成本次取消配对 |
+| 新进程直接连接，采集 10 秒 | 服务读取、通知订阅、初始化写入成功；收到 645 个有效数据包，约 63.9 包/秒 | 当前协议和 GATT 路径能够工作，首次恢复不需要重启 |
+| 正常退出后，新进程再次连接 | 服务读取返回 `Unreachable` | 首次成功不足以证明可重复连接 |
+| 再次采集目标 HCI | 建链成功，句柄 `0x000E`；Encryption Change 原始数据 `08 04 06 0E 00 00` | 重连仍在加密阶段因 `0x06` 失败 |
+| 重新创建 AssociationEndpoint 设备信息 | `IsPaired=false`、`CanPair=false`、`ProtectionLevel=Encryption`，与 BluetoothLEDevice 查询一致 | “未配对”也不能证明 Windows 没有相关安全状态；不是旧对象独有的读数 |
+| 再次取消配对 | `AlreadyUnpaired (1)` | 这次没有证明失效密钥已被清除 |
+| 自定义 `ConfirmOnly + None` 配对实验 | `Failed (19)`，没有触发 PairingRequested 回调 | 没有建立新设备关系，也没有验证实际保护级别已改变 |
+
+首次数据采集还记录了一个不能解析为传感器数据的通知。协议允许两字节命令响应，
+当前 CLI 将这种响应也计入 `invalid_packets`；不能据此认定传感器数据损坏。
+
+下一步先确认控制器进入配对模式，再进行新配对和连续重连实验。
+[三星的配对说明](https://www.samsung.com/hk_en/support/mobile-devices/connect-samsung-gear-vr-controller-via-bluetooth/)
+要求长按主页键，直到指示灯红、绿、蓝闪烁。普通唤醒不能代替这个状态。
+关闭可能连接控制器的其他主机蓝牙，有助于控制实验条件。
 
 ## 已验证的证据
 
@@ -72,8 +96,9 @@ Windows 的 [`AlreadyPaired`](https://learn.microsoft.com/en-us/uwp/api/windows.
 3. 唤醒控制器并保持其可发现、可连接。重新扫描，确认 Public 地址和设备身份。
 4. 先通过应用现有的直接 GATT 路径连接；如果 Windows 请求配对，完成正常确认。
    若明确需要先配对，再建立一次新配对后连接。
-5. 连续观察至少 10 秒：`valid_packets` 持续增长，最近数据包年龄保持较小，
-   没有再次出现同一连接句柄的加密失败。保存恢复后的输出并与旧现场比较。
+5. 连续观察至少 10 秒：`valid_packets` 持续增长，最近数据包年龄保持较小。
+   正常断开后，使用新进程重复连接至少两次；必要时再比较休眠或断电后的行为。
+   保存每次输出。只有首次成功不能通过恢复验证。
 
 [Microsoft 配对说明](https://learn.microsoft.com/en-us/windows/uwp/devices-sensors/pair-devices)
 支持由设备 API 处理必要的配对，也提供明确的取消配对 API。
@@ -105,11 +130,18 @@ $env:RUST_LOG = 'info,gear_vr_controller_rust::infrastructure::bluetooth=debug'
 
 | 结果 | 下一步 |
 | --- | --- |
-| 移除旧配对后直接 GATT 持续收到数据 | 维持正常设备 API 路径，不增加预先强制配对 |
+| 移除旧配对后直接 GATT 持续收到数据，并且断开后连续重连成功 | 维持正常设备 API 路径，不增加预先强制配对 |
+| 首次连接成功，但 `IsPaired=false` 的重连仍出现 `0x06` | 比较新建 AssociationEndpoint 读数、实际加密事件和配对模式；`AlreadyUnpaired` 不能作为密钥已清除的证据 |
 | 新配对后恢复，控制器休眠或断电后再次出现 `0x06` | 比较控制器是否保留绑定、是否与其他主机重新配对，以及 Windows 使用的保护级别；再采集同一故障的 HCI 序列 |
 | 确认已移除并新建配对，但仍出现 `0x06` | 核对实际目标地址、取消配对结果和新配对是否真的执行成功，再调查密钥保存或固件/驱动行为 |
 | 取消配对后失败原因变为链路超时、建链失败等 | 根据新的 HCI 原因分析射频、连接队列或驱动，不能沿用旧结论 |
 | 设备关系无法清除或平台状态无法恢复 | 在保存现场后，分别比较服务恢复、适配器恢复、重启的效果，避免一次改变全部条件 |
+
+Microsoft 的
+[Bluetooth Developer FAQ](https://learn.microsoft.com/en-us/windows/apps/develop/devices-sensors/bluetooth-dev-faq)
+专门讨论断开后无法重连的旧设备，指出部分设备会丢失配对信息，
+并给出自定义 `ConfirmOnly + None` 的兼容配对示例。
+它为当前测试提供了依据，但不保证适用于每个设备和驱动组合。
 
 供兼容性实验参考：原始
 [Gear VR Windows 实现](https://github.com/rdady/gear-vr-controller-windows/blob/5f4172971107244c526b4780665627690b5fcd90/gear-vr-controller.linq)
@@ -135,6 +167,7 @@ $env:RUST_LOG = 'info,gear_vr_controller_rust::infrastructure::bluetooth=debug'
 ## 验证边界
 
 以上关于当前失败阶段的结论来自实际广播、最小 GATT 查询和目标 HCI 事件。
-恢复方案来自这份证据与官方行为说明，但恢复成功、无需重启、睡眠/断电后不复发，
-都还需要控制器可操作时逐项验证。2026-09-27 的历史日志只有高层不可达结果，
+恢复实验已经证明首次数据通信不需要重启，但稳定重连和睡眠/断电后不复发，
+仍没有通过验证。自定义配对测试失败，不能宣称它已解决问题。
+2026-09-27 的历史日志只有高层不可达结果，
 不能证明那些失败也具有同一个 `0x06` 原因。
