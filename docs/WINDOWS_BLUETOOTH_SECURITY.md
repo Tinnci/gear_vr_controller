@@ -1,7 +1,63 @@
 # Windows 安全状态复用与配对时序调查
 
 调查日期：2026-10-01。当前确认的是加密阶段失败；尚未确认产生失配的根因，
-也没有通过连续重连验证的持久修复。本次调查没有取消配对、重置适配器或刷写固件。
+也没有通过连续重连验证的持久修复。13:44 的目标取消配对请求返回 `AlreadyUnpaired`，
+没有报告新删除了一条关联；本轮没有重置适配器或刷写固件。
+
+## Full Packet Logging：确认重复使用同一组安全输入
+
+13:41 开始的 BTVS/Wireshark 采集已经补全 HCI 加密命令参数和 Windows 发出的
+SMP Pairing Request。已复核停止并保存后的完整文件，覆盖 13:42:05.931 至 13:51:29.249，
+包含四次目标建链及其失败断开，解析器完整读取文件，没有报告文件截断。
+
+| 阶段（UTC+08:00） | 应用或关联结果 | 已捕获的目标 HCI 结果 |
+| --- | --- | --- |
+| 13:43:38，复现当前失败 | 读取服务返回 `Unreachable` | 句柄 `0x000a` 建链成功，加密状态 `0x06`，随后本机断开 |
+| 13:44:18，取消配对 | API 返回 `AlreadyUnpaired (1)` | 不能据此宣布底层安全信息已清除 |
+| 13:44:36，用户确认 RGB 配对模式后，独立 PairTool 配对 | 工具退出码 0，但没有可验证的新持久关联；新建终结点仍为 `IsPaired=false`、`CanPair=false`、`Encryption` | 句柄 `0x000b` 建链成功，发出 Pairing Request，加密状态 `0x06` |
+| 13:45:13，配对尝试后的首次数据连接 | 读取服务返回 `Unreachable`，未收到有效输入数据 | 句柄 `0x000c` 建链成功，加密状态 `0x06` |
+| 13:45:51，新进程再次连接 | 同样返回 `Unreachable` | 句柄 `0x000d` 建链成功，加密状态 `0x06`；这是失败后的再次尝试，不能称为成功重连 |
+
+四条目标链路的 LE Enable Encryption 命令均保留完整的 28 字节参数。
+每条命令有明确的目标连接句柄，不再依赖相邻事件推测归属。本地内存比较确认：
+
+- 四次提交的 16 字节密钥相同，Rand 相同，EDIV 相同。
+- 四次的 Rand 和 EDIV 均非零。
+- HCI Command Status 均为成功受理，后续 Encryption Change 均返回 `0x06`。
+
+[Security Manager 规范 2.4.4.1、2.4.4.2](https://www.bluetooth.com/wp-content/uploads/Files/Specification/HTML/Core_v6.3/out/en/host/security-manager-specification.html)
+规定 Legacy 首次配对的 STK 加密使用零 Rand、零 EDIV；恢复 Legacy LTK 加密使用先前
+分发的安全信息，Secure Connections 的 Rand、EDIV 也为零。因此本轮非零输入支持
+**既有 Legacy LTK 安全信息被重复提交**，不能解释为当前配对新生成的 STK。
+这是协议字段支持的推断；尚未证明密钥来自磁盘还是运行时状态，也不知道它是否来自
+10:52 的首次成功通信。没有控制器侧记录，不能断言固件从未保存 LTK。
+
+独立 PairTool 链路的完整时序为：
+
+| 相对建链时间 | 事件 |
+| --- | --- |
+| 0 ms | LE Connection Complete 成功，目标句柄 `0x000b` |
+| 11 ms | LE Enable Encryption，提交与基线相同的密钥、Rand、EDIV |
+| 14 ms | Command Status：成功受理加密命令 |
+| 65 ms | Windows 发出完整 SMP Pairing Request |
+| 127 ms | Encryption Change：`0x06`，随后本机请求断开 |
+| 141 ms | Disconnect Complete：本机断开完成 |
+
+Pairing Request 的 IO Capability 为 `KeyboardDisplay (0x04)`，OOB 标志为零，AuthReq 为 `0x2d`：
+Bonding、MITM、SC、CT2 置位；最大密钥长度 16，发起方分发掩码 `0x0e`，响应方 `0x0f`。
+这些字段描述 Windows 的请求，不等于控制器已经接受对应能力或完成绑定。
+完整捕获没有 Pairing Response、Confirm/Random、密钥分发或 SMP Pairing Failed。
+加密请求先于新配对请求，两条过程在断开前均未完成；尚不能单凭这个顺序宣布
+具体的 Windows 并发缺陷，或认定控制器因 SC/MITM 标志拒绝配对。
+
+当前已能把恢复问题收窄到：**应用关联显示未配对、取消配对报告已经未配对，
+Windows 却仍提交同一组失败的 Legacy 安全信息，独立配对也未摆脱这个状态。**
+因此不能把 `IsPaired=false` 或 `AlreadyUnpaired` 当作安全状态已经清空的证据。
+下一项有效对照是在完整保存本轮现场后，单独比较适配器重启前后的首次加密输入和完整 SMP。
+需要捕获一次真正成功的新配对及后续重连，才能区分状态清理失效和双方密钥保存/查找失配。
+
+原始包和密钥比较脚本只保存在本地忽略目录；报告仅保存相同与否、零值与否及状态码，
+不导出密钥原文或密钥哈希。
 
 ## 新发现：删除记录后又发生了配对
 
@@ -22,7 +78,8 @@ PnP 中的服务节点仍存在；节点 `Status=OK` 只说明设备节点状态
 这些事件没有目标地址，也不与本次重连失败时间对应，不能用它们证明目标 LTK 在 Windows 存储失败。
 
 “配对事件”“应用关联”“链路加密”“跨连接保存绑定”是不同证据。
-当前应把“Windows 使用原有旧 LTK”降为候选解释，重点检查首次恢复后新产生的安全状态。
+在完整包尚未取得时，“Windows 使用原有旧 LTK”只能作为候选解释。
+上述 Full Packet Logging 现在确认本轮重复使用同一组安全输入；其最初来源仍需捕获成功配对核对。
 
 ## 配对时序：哪些是事实，哪些仍是假设
 
@@ -133,7 +190,8 @@ Bluetooth-Policy/Operational 在本机未启用，也没有历史事件。
    适配器重启也会清除其他运行状态，不能单独证明某个密钥缓存缺陷。
 5. 第一次成功的完整 SMP 应记录双方 bonding 标志、密钥分发掩码、Legacy/SC 路径及配对完成状态。
    用本地比较结果判断是否跨连接复用了同一密钥，不导出密钥原文。
-   已测试的注册表日志开关没有补全字段；需要验证 BTVS Full Packet Logging，必要时采用外部抓包。
+   已测试的注册表日志开关没有补全字段；BTVS Full Packet Logging 已补全本轮失败字段，
+   尚需捕获首次成功过程，必要时采用外部抓包。
 
 | 下一轮观察 | 对原因的影响 | 可能的处理方向 |
 | --- | --- | --- |
@@ -204,8 +262,9 @@ wpr.exe -stop (Join-Path $traceRoot 'BthTracing.etl')
 否则会丢失要调查的安全状态。File 模式没有这里原先 64 MB 环形文件的同等上限，
 应限制为完成一轮实验所需的短时间，并在异常路径也停止本次记录。
 
-协议字段仍需 [BTVS Full Packet Logging](https://learn.microsoft.com/en-us/windows-hardware/drivers/bluetooth/testing-btp-tools-btvs)
-来尝试补全；本机目前未找到 BTVS。文档将该功能列为图形窗口按钮，没有公开对应命令行开关。
+早期调查需要 [BTVS Full Packet Logging](https://learn.microsoft.com/en-us/windows-hardware/drivers/bluetooth/testing-btp-tools-btvs)
+补全协议字段；本机 13:41 开始的该工具采集已经补全本轮失败的加密参数和 Pairing Request。
+文档将该功能列为图形窗口按钮，没有公开对应命令行开关。
 不能虚构一个 CLI 参数，也不能把它与发送/接受调试密钥的 Debug Mode 混用。
 完整日志留在本地，分析输出只包含标志、阶段、状态码和密钥是否相同等结果。
 
