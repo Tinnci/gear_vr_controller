@@ -145,3 +145,79 @@ Bluetooth-Policy/Operational 在本机未启用，也没有历史事件。
 
 目前不应把持续自动取消配对、盲目增加重试、降低系统安全策略或刷固件作为默认修复。
 持久修复的验收条件是新进程连续重连成功，再通过控制器睡眠和断电后的重连测试。
+
+## Windows 当前是否已修复：2026-10-01 核对
+
+本机实际构建为 **26220.9568、25H2**，对应 Windows 11 Beta；注册表 ProductName 的
+旧名称不能作为 Windows 10 的判断依据。[该版本官方发布说明](https://learn.microsoft.com/en-us/windows-insider/release-notes/beta/preview-build-26220-9568)
+没有列出本次密钥复用/配对时序问题的修复。这只说明没有找到明确的公开修复说明，
+不意味着 Microsoft 从未修改相关实现。故障在这个版本上已复现，不能说当前环境已经解决。
+
+[2026 年 6 月 KB5095093](https://support.microsoft.com/en-us/servicing/os/windows-11/2026/06/june-23-2026-kb5095093-os-builds-26200-8737-and-26100-8737-preview)
+确实修复了射频不可用或适配器变化后删除设备出现 Remove failed 的问题。
+其触发条件与本机删除成功、首次通信成功、再次加密失败不同，不能把它作为本次根因已修复的证据。
+
+当前公开的 [GattCommunicationStatus](https://learn.microsoft.com/en-us/uwp/api/windows.devices.bluetooth.genericattributeprofile.gattcommunicationstatus)
+仍只有 Success、Unreachable、ProtocolError、AccessDenied，没有专门的 Key Missing 状态。
+结合前述 2024 年 Q&A，目前没有找到公开的新接口解决该错误细节传递问题。
+API 是否能呈现错误与 Windows 是否能恢复连接，是两个不同问题。
+
+## 官方解析器复核现有 ETL
+
+本机 Windows SDK 10.0.26100.0 已带 x64 BTETLParse，Wireshark 已安装。
+使用 [Microsoft BTETLParse](https://learn.microsoft.com/en-us/windows-hardware/drivers/bluetooth/testing-btp-tools-btetlparse)
+将 12:39 和 12:47 的原始 port.etl 转换为 PCAPNG，再仅导出安全元数据。
+
+- 12:39 的加密命令、Pairing Request 和 `0x06` 顺序与原 XML 分析一致。
+- Pairing Request 在官方解析结果中标为 **Sent**，句柄分别为 `0x0013`、`0x0016`。
+- 请求帧含 H4 头部共 10 字节，但 L2CAP 声明 SMP 长度 7，实际仍只有 1 字节 opcode。
+  AuthReq、bonding 标志、密钥长度和分发掩码在 Wireshark 中同样没有值。
+- 三轮 ETW 文件头的 EventsLost、BuffersLost 都为零，不能用采集队列溢出来解释这些缺失字段。
+- Wireshark 的 Malformed 标记来自本地记录短于声明长度；不能据此认定空中报文或固件生成了坏包。
+
+转换工具不能恢复采集时已省略的数据。原始 PCAPNG 和只含元数据的 CSV 均留在忽略目录。
+
+## 补齐 Windows 内部决策日志
+
+已下载 [Microsoft BluetoothStack WPR 配置及说明](https://github.com/microsoft/busiotools/blob/master/bluetooth/tracing/readme.md)，
+并用本机 `wpr -profiles` 验证配置可识别；尚未启动记录。
+本地配置 SHA-256 为 `D69C983384B970E8C0380C48EBEBBA547F94C4A84C9F4912A10798B6B08CF704`。
+
+此前三轮 BTHPORT 记录只有事件 402（包数据）和 403（WDFFILEOBJECT），
+并没有其他已解码的安全状态机事件。官方配置额外包含 BthWinRT、设备枚举、BTHSERV、
+BthLeEnum、BthPort WPP 和遥测 provider，因此它与“再抓一次相同 HCI provider”不同。
+WPP 的可解码程度取决于匹配的格式信息；内部原因可能需要 Microsoft 分析，不能承诺全部公开可读。
+
+下一轮在管理员 PowerShell 中采用普通短时模式：
+
+```powershell
+$traceRoot = 'C:\Users\shiso\Downloads\gear_vr_controller\dist\diagnostics\2026-10-01-recovery'
+$traceProfile = Join-Path $traceRoot 'BluetoothStack.wprp'
+wpr.exe -status
+# 确认没有其他 WPR 记录后启动；本次未执行这条命令。
+wpr.exe -start ($traceProfile + '!BluetoothStack') -filemode
+# 在此完成单轮独立配对、首次连接和新进程重连，记录每阶段的 UTC 时间。
+wpr.exe -stop (Join-Path $traceRoot 'BthTracing.etl')
+```
+
+先捕获未重置时的故障，再单独比较适配器重启。不能在保存现场前按通用说明先切换射频，
+否则会丢失要调查的安全状态。File 模式没有这里原先 64 MB 环形文件的同等上限，
+应限制为完成一轮实验所需的短时间，并在异常路径也停止本次记录。
+
+协议字段仍需 [BTVS Full Packet Logging](https://learn.microsoft.com/en-us/windows-hardware/drivers/bluetooth/testing-btp-tools-btvs)
+来尝试补全；本机目前未找到 BTVS。文档将该功能列为图形窗口按钮，没有公开对应命令行开关。
+不能虚构一个 CLI 参数，也不能把它与发送/接受调试密钥的 Debug Mode 混用。
+完整日志留在本地，分析输出只包含标志、阶段、状态码和密钥是否相同等结果。
+
+| 层次 | 需要对齐的证据 | 要回答的问题 |
+| --- | --- | --- |
+| 应用与 PairTool | 进程、阶段、UTC 时间、终结点 ID、API 完成结果 | 是哪个请求发起安全过程，是否有另一个连接请求重叠？ |
+| Windows WPR | WinRT、关联、驱动 WPP、策略和遥测事件 | 系统为何认为已有可用安全信息；哪一步失败后触发断开？ |
+| HCI/SMP | 地址到句柄映射、方向、完整 Pairing Request/Response、分发、Encryption Change | 实际协商绑定还是临时配对；重连是否复用先前安全信息？ |
+| System/PnP | BTHUSB 8、10、35，目标节点与适配器版本 | 新关系何时生成、删除，是否发生身份冲突或适配器变化？ |
+
+每条记录应先按目标地址和句柄归属，再按 UTC 时间、ActivityID（若有效）和进程/请求关联。
+句柄可能在断开后复用，不能跨整个文件只按相同句柄拼接；加密命令参数缺失时必须标明时间关联。
+对照至少包含失败状态、独立 PairTool 路径、适配器重启后的状态。若仍无法区分主机和外设，
+用另一稳定版 Windows 主机或另一适配器控制变量复测，而不是同时更新系统、驱动和固件。
+只有看到过程改变及多次重连成功，才能把具体恢复操作升级为应用方案。
